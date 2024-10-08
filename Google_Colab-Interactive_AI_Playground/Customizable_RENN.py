@@ -3,6 +3,7 @@ from torch import nn
 import numpy as np
 from collections import Counter
 import LLM_Small1x1 as Small1x1
+import LLM_Verdict as Verdict
 
 layer, source, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, activationsBySources, activationsByLayers, totalLayers = "", "", "", "", "", "", ""
 llm, layerSizes, device, hidden_sizes, layers, layers, currentLayer, relevantLayerIndices = "", "", "", "", "", [], 0, []
@@ -85,7 +86,7 @@ def forward_hook(module, input, output):
     global hidden_sizes
     global llm
 
-    if not (isinstance(module, nn.Sequential) or isinstance(module, Small1x1.FeedForward) or isinstance(module, Small1x1.TransformerBlock) or isinstance(module, nn.Dropout)):
+    if not (isinstance(module, nn.Sequential) or isinstance(module, Small1x1.FeedForward) or isinstance(module, Small1x1.TransformerBlock) or isinstance(module, nn.Dropout) or isinstance(module, Verdict.FeedForward) or isinstance(module, Verdict.TransformerBlock)):
         if (llm == True):
             actualLayer = layer
             layerNeurons = layers[actualLayer][1]

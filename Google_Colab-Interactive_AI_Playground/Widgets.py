@@ -75,9 +75,9 @@ def createBoolButtonChoice(description, tooltip, value = False, disabled=False, 
     )
     return boolButton
 
-datasetChoice = createLayerChoice(options=['MNIST', 'HSV-RGB', 'Small 1x1'], # 'Cifar10', 
+datasetChoice = createLayerChoice(options=['MNIST', 'HSV-RGB', 'Small 1x1', 'The Verdict'], # 'Cifar10', 
                                   tooltips=['60000 Written numbers from 0 to 9 (Classification)', '50000 HSV-values (Conversion to RGB)',
-                                            '90 random values of the small 1x1 (Calculation)'], description='Dataset') #'50000 images from 10 classes (Classification)'
+                                            '90 random values of the small 1x1 (Calculation)', '1982 American legal drama film directed by Sidney Lumet'], description='Dataset') #'50000 images from 10 classes (Classification)'
 
 def updateDatasetTab():
     global datasetChoice
@@ -108,7 +108,7 @@ def updateNetworkTab():
 
     num_layers = layerAmountChoice.value
 
-    if(datasetChoice.value == "Small 1x1"):
+    if(datasetChoice.value == "Small 1x1" or datasetChoice.value == "The Verdict"):
         num_layers = 12
 
     # Create list of ToggleButtons for normal and activation choices for each layer
@@ -156,7 +156,7 @@ def updateNetworkTab():
             #chosenLayers.append((accordionNormalLayer[i].children[0].children[1].value, accordionActivationLayer[i].children[0].children[0].value))
             tab_nest.set_title(i, f"Layer {i}")
 
-    if(datasetChoice.value == "Small 1x1"):
+    if(datasetChoice.value == "Small 1x1" or datasetChoice.value == "The Verdict"):
         return widgets.VBox([seedChoice, layerAmountChoice])
     else:
         return widgets.VBox([seedChoice, layerAmountChoice, tab_nest])
@@ -187,7 +187,7 @@ def updateTrainingTab():
 
     maxTrain = len(trainDataSet)
     maxTest = len(testDataSet)
-    if(datasetChoice.value == "Small 1x1"):
+    if(datasetChoice.value == "Small 1x1" or datasetChoice.value == "The Verdict"):
         maxTrain = 80
         maxTest = 10
 
@@ -198,7 +198,7 @@ def updateTrainingTab():
     trainingsLink = widgets.jslink((trainSamplesChoice, 'value'), (batchSizeTraining, 'max'))
     testLink = widgets.jslink((testSamplesChoice, 'value'), (batchSizeTest, 'max'))
 
-    if(datasetChoice.value == "Small 1x1"):
+    if(datasetChoice.value == "Small 1x1" or datasetChoice.value == "The Verdict"):
         #trainTestLink = widgets.jslink((trainSamplesChoice, 'value'), (testSamplesChoice, 'max'))
         return widgets.VBox([epochsChoice, learningRateChoice, trainSamplesChoice, testSamplesChoice])
     else:
@@ -224,7 +224,7 @@ def updateVisualizationTab():
 
     outputLayerSizeChoice = createRangeSliderChoice(max=10, description=f"Output Layer")
     outputLayerActivationChoiceType = createBoolButtonChoice(description=f"Activation layer ({outputActivationLayerChoice.value})", tooltip="Include activation layer", disabled = True if outputActivationLayerChoice.value == "None" else False)
-    if(datasetChoice.value == "Small 1x1"):
+    if(datasetChoice.value == "Small 1x1" or datasetChoice.value == "The Verdict"):
         evalSamplesChoice = createIntSlider(1, min=1, max=100 - trainSamplesChoice.value - testSamplesChoice.value, description="Evaluations")
         closestSourceTrainingLink = widgets.jslink((trainSamplesChoice, 'value'), (closestSourcesChoice, 'max'))
         return widgets.VBox([evalSamplesChoice, closestSourcesChoice, showClosestMostUsedSourcesChoice])
