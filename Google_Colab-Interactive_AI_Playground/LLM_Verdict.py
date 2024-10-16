@@ -2,6 +2,8 @@ import torch
 from torch import nn
 import torch.optim as optim
 from torch.utils.data import Dataset
+import os
+import urllib.request
 import Customizable_RENN as RENN
 
 random, lorem, device, tiktoken, DataLoader, spacy = "", "", "", "", "", ""
@@ -19,15 +21,22 @@ def createTrainSet():
 
     # Check if GPU is available and prefer it
     spacy.prefer_gpu()
-    
+
     # Load the spaCy language model
     nlp = spacy.load("en_core_web_sm")
 
     # Sample text (replace this with your text file loading logic)
-    text_data = '''
-    I HAD always thought Jack Gisburn rather a cheap genius--though a good fellow enough--so it was no great surprise to me to hear that, in the height of his glory, he had dropped his painting, married a rich widow, and established himself in a villa on the Riviera.
-    "The height of his glory"--that was what the women called it. I can hear Mrs. Gideon Thwing deploring his abdication.
-    '''
+    file_path = "the-verdict.txt"
+    url = "https://raw.githubusercontent.com/rasbt/LLMs-from-scratch/main/ch02/01_main-chapter-code/the-verdict.txt"
+
+    if not os.path.exists(file_path):
+        with urllib.request.urlopen(url) as response:
+            text_data = response.read().decode('utf-8')
+        with open(file_path, "w", encoding="utf-8") as file:
+            file.write(text_data)
+    else:
+        with open(file_path, "r", encoding="utf-8") as file:
+            text_data = file.read()
 
     # Process the text with spaCy to extract sentences
     doc = nlp(text_data)
