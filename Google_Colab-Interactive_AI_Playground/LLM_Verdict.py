@@ -493,12 +493,19 @@ def getLLMPrediction(sample):
     token_ids = generate(
     model=model,
     idx=text_to_token_ids(sample, tokenizer),
-    max_new_tokens=15,
+    max_new_tokens=100,
     context_size=GPT_CONFIG_124M["context_length"],
-    top_k=25,
+    top_k=1,
     temperature=1.4
     )
     prediction = token_ids_to_text(token_ids, tokenizer)
+    
+    # Remove the sample from the prediction if it's a prefix
+    if prediction.startswith(sample):
+        prediction = prediction[len(sample):].strip()
+        # Remove newlines by replacing them with a space
+        prediction = prediction.replace("\n", "\\n")  # or .replace("\n", "")
+        
     return sample, prediction
 
 def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom):
