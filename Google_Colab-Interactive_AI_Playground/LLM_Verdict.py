@@ -502,10 +502,11 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
         #print(activationsByLayers, dictionaryForSourceLayerNeuron[sampleNumber])
         mostUsedSources = RENN.getMostUsedSources(sources, closestSources, "")
         sample, prediction = getLLMPrediction(sentences[train_samples+test_samples+sampleNumber])
-        print("Sample: ", sample, "Prediction: ", prediction)
+        print("Evaluation Sample ", sampleNumber, ": ", sample)
+        print("Follow up: ", prediction)
         print("Closest Sources in format [SourceNumber, Occurances, Source]:")
         for sourceNumber, count in mostUsedSources[:closestSources]:
             print(f"Source: {sourceNumber}, Count: {count}, Sentence: {sentences[sourceNumber]}")
-        print("Whole List: ", [(sourceNumber, count, sentences[sourceNumber]) for sourceNumber, count in mostUsedSources])
+        print("Whole List: ", [(sourceNumber, count, sentences[sourceNumber]) for sourceNumber, count in mostUsedSources], "\n")
     
     #print(f"Time passed since start: {time_since_start(startTime)}")
