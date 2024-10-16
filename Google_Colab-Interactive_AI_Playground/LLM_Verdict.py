@@ -25,7 +25,6 @@ def createTrainSet():
     # Load the spaCy language model
     nlp = spacy.load("en_core_web_sm")
 
-    # Sample text (replace this with your text file loading logic)
     file_path = "the-verdict.txt"
     url = "https://raw.githubusercontent.com/rasbt/LLMs-from-scratch/main/ch02/01_main-chapter-code/the-verdict.txt"
 
@@ -37,6 +36,9 @@ def createTrainSet():
     else:
         with open(file_path, "r", encoding="utf-8") as file:
             text_data = file.read()
+
+    # Remove any newline characters and extra spaces
+    text_data = text_data.replace("\n", " ").strip()
 
     # Process the text with spaCy to extract sentences
     doc = nlp(text_data)
