@@ -17,6 +17,9 @@ def initializePackages(randomPackage, loremPackage, devicePackage, tiktokenPacka
 def createTrainSet():
     global sentences
 
+    # Check if GPU is available and prefer it
+    spacy.prefer_gpu()
+    
     # Load the spaCy language model
     nlp = spacy.load("en_core_web_sm")
 
