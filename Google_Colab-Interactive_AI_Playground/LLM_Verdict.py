@@ -43,6 +43,7 @@ def createTrainSet():
     # Process the text with spaCy to extract sentences
     doc = nlp(text_data)
     sentences = [sent.text for sent in doc.sents]
+    print("Created a train set with " + str(len(sentences)) + " sentences")
     return sentences
 
 def setGPTSettings(layerAmount, learningRate, epochs):
@@ -101,7 +102,7 @@ class GPTDatasetV1(Dataset):
         return self.input_ids[idx], self.target_ids[idx]
 
 def create_dataloader_v1(txt, batch_size=4, max_length=256,
-                         stride=128, shuffle=True, drop_last=True, num_workers=0):
+                         stride=128, shuffle=True, drop_last=True):
     # Initialize the tokenizer
     tokenizer = tiktoken.get_encoding("gpt2")
 
@@ -110,37 +111,40 @@ def create_dataloader_v1(txt, batch_size=4, max_length=256,
 
     # Create dataloader
     dataloader = DataLoader(
-        dataset, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last, num_workers=0)
+        dataset, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last)
 
     return dataloader
 
-def createLLMLoaders(train_samplesParameter, test_samplesParameter, eval_samplesParameter):
-    global train_loader, val_loader, eval_loader, train_samples, test_samples, eval_samples
-    train_samples, test_samples, eval_samples = train_samplesParameter, test_samplesParameter, eval_samplesParameter
-
+def createTrainLoader(context_length, shuffle = False, drop_last = True):
     train_samples_length = int(len(sentences)*(train_samples/100))
     samples = "\n".join(sentences[:train_samples_length])
 
     train_loader = create_dataloader_v1(
         samples,
         batch_size=settings["batch_size"],
-        max_length=1,
-        stride=1,
-        drop_last=False,
-        shuffle=False,
-        num_workers=0
+        max_length=context_length,
+        stride=context_length,
+        drop_last=drop_last,
+        shuffle=shuffle
     )
+    
+    return train_loader, train_samples_length
 
+def createLLMLoaders(train_samplesParameter, test_samplesParameter, eval_samplesParameter):
+    global train_loader, val_loader, eval_loader, train_samples, test_samples, eval_samples
+    train_samples, test_samples, eval_samples = train_samplesParameter, test_samplesParameter, eval_samplesParameter
+
+    train_loader, train_samples_length = createTrainLoader(GPT_CONFIG_124M["context_length"])
+    
     test_samples_length = int(train_samples_length+len(sentences)*(test_samples/100))
     samples = "\n".join(sentences[train_samples_length:test_samples_length])
     val_loader = create_dataloader_v1(
         samples,
         batch_size=settings["batch_size"],
-        max_length=1,
-        stride=1,
+        max_length=GPT_CONFIG_124M["context_length"],
+        stride=GPT_CONFIG_124M["context_length"],
         drop_last=False,
-        shuffle=False,
-        num_workers=0
+        shuffle=False
     )
 
     eval_samples_length = int(train_samples_length+test_samples_length+len(sentences)*(eval_samples/100))
@@ -148,11 +152,10 @@ def createLLMLoaders(train_samplesParameter, test_samplesParameter, eval_samples
     eval_loader = create_dataloader_v1(
         samples,
         batch_size=settings["batch_size"],
-        max_length=1,
-        stride=1,
+        max_length=GPT_CONFIG_124M["context_length"],
+        stride=GPT_CONFIG_124M["context_length"],
         drop_last=False,
-        shuffle=False,
-        num_workers=0
+        shuffle=False
     )
 
 """# Setup Customizable Network"""
@@ -357,7 +360,7 @@ def calc_loss_loader(data_loader, num_batches=None):
         num_batches = len(data_loader)
     else:
         num_batches = min(num_batches, len(data_loader))
-        print("Dataloader: ", num_batches, ", ", len(data_loader))
+        #print("Dataloader: ", num_batches, ", ", len(data_loader))
     for i, (input_batch, target_batch) in enumerate(data_loader):
         if i < num_batches:
             loss = calc_loss_batch(input_batch, target_batch)
@@ -450,8 +453,9 @@ def trainModel(hidden_sizes, loss_function, optimizer, learning_rate, epochs):
     tokenizer = tiktoken.get_encoding("gpt2")
     print("Training finished")
 
-def initializeHook(hidden_sizes, train_samples):
+def initializeHook(hidden_sizes, train_samples):  
     RENN.createDictionaries(hidden_sizes, len(hidden_sizes), train_samples)
+    train_loader, _ = createTrainLoader(1, False, False)
     RENN.runHooks(train_loader, model, hidden_sizes, True)
 
 def generate(model, idx, max_new_tokens, context_size, temperature, top_k=None):
