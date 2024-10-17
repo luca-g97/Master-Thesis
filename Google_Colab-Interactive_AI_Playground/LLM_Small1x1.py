@@ -124,7 +124,7 @@ def createLLMLoaders(train_samplesParameter, test_samplesParameter, eval_samples
     train_samples, test_samples, eval_samples = train_samplesParameter, test_samplesParameter, eval_samplesParameter
 
     actualSamples = [sample[-1] for sample in small1x1]
-    train_loader = create_dataloader_v1(GPT_CONFIG_124M["context_length"])
+    train_loader = createTrainLoader(GPT_CONFIG_124M["context_length"])
 
     samples = "\n".join(actualSamples[train_samples:train_samples+test_samples])
     val_loader = create_dataloader_v1(
