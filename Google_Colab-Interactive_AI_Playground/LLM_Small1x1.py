@@ -91,7 +91,7 @@ class GPTDatasetV1(Dataset):
         return self.input_ids[idx], self.target_ids[idx]
 
 def create_dataloader_v1(txt, batch_size=4, max_length=256,
-                         stride=128, shuffle=True, drop_last=True, num_workers=0):
+                         stride=128, shuffle=True, drop_last=True):
     # Initialize the tokenizer
     tokenizer = tiktoken.get_encoding("gpt2")
 
@@ -100,47 +100,50 @@ def create_dataloader_v1(txt, batch_size=4, max_length=256,
 
     # Create dataloader
     dataloader = DataLoader(
-        dataset, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last, num_workers=0)
+        dataset, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last)
 
     return dataloader
 
-def createLLMLoaders(train_samplesParameter, test_samplesParameter, eval_samplesParameter):
-    global train_loader, val_loader, eval_loader, train_samples, test_samples, eval_samples
-    train_samples, test_samples, eval_samples = train_samplesParameter, test_samplesParameter, eval_samplesParameter
-
+def createTrainLoader(context_length, shuffle = False, drop_last = True):
     actualSamples = [sample[-1] for sample in small1x1]
     samples = "\n".join(actualSamples[:train_samples])
 
     train_loader = create_dataloader_v1(
         samples,
         batch_size=settings["batch_size"],
-        max_length=1,
-        stride=1,
-        drop_last=False,
-        shuffle=False,
-        num_workers=0
+        max_length=context_length,
+        stride=context_length,
+        drop_last=drop_last,
+        shuffle=shuffle
     )
+
+    return train_loader
+
+def createLLMLoaders(train_samplesParameter, test_samplesParameter, eval_samplesParameter):
+    global train_loader, val_loader, eval_loader, train_samples, test_samples, eval_samples
+    train_samples, test_samples, eval_samples = train_samplesParameter, test_samplesParameter, eval_samplesParameter
+
+    actualSamples = [sample[-1] for sample in small1x1]
+    train_loader = create_dataloader_v1(GPT_CONFIG_124M["context_length"])
 
     samples = "\n".join(actualSamples[train_samples:train_samples+test_samples])
     val_loader = create_dataloader_v1(
         samples,
         batch_size=settings["batch_size"],
-        max_length=1,
-        stride=1,
+        max_length=GPT_CONFIG_124M["context_length"],
+        stride=GPT_CONFIG_124M["context_length"],
         drop_last=False,
-        shuffle=False,
-        num_workers=0
+        shuffle=False
     )
 
     samples = "\n".join(actualSamples[train_samples+test_samples:train_samples+test_samples+eval_samples])
     eval_loader = create_dataloader_v1(
         samples,
         batch_size=settings["batch_size"],
-        max_length=1,
-        stride=1,
+        max_length=GPT_CONFIG_124M["context_length"],
+        stride=GPT_CONFIG_124M["context_length"],
         drop_last=False,
-        shuffle=False,
-        num_workers=0
+        shuffle=False
     )
 
 """# Setup Customizable Network"""
@@ -440,6 +443,7 @@ def trainModel(hidden_sizes, loss_function, optimizer, learning_rate, epochs):
 
 def initializeHook(hidden_sizes, train_samples):
     RENN.createDictionaries(hidden_sizes, len(hidden_sizes), train_samples)
+    train_loader, _ = createTrainLoader(1, False, False)
     RENN.runHooks(train_loader, model, hidden_sizes, True)
 
 def generate(model, idx, max_new_tokens, context_size, temperature, top_k=None):
@@ -497,8 +501,13 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
         sources, outputs, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[sampleNumber])
         #print(activationsByLayers, dictionaryForSourceLayerNeuron[sampleNumber])
         mostUsedSources = RENN.getMostUsedSources(sources, closestSources, "")
-        x, y, solution, prediction = getLLMPrediction(small1x1[train_samples+test_samples+sampleNumber])
+        sample = small1x1[train_samples+test_samples+sampleNumber]
+        print("Evaluation Sample ", sampleNumber, ": ", sample)
+        x, y, solution, prediction = getLLMPrediction(sample)
         print(prediction, f" -> Difference = {(solution) - (int(prediction) if prediction.isdigit() else 0)}")
-        print("Closest Sources in format: [SourceNumber, Occurances, Source] | ", [(sourceNumber, count, small1x1[sourceNumber][3]) for sourceNumber, count in mostUsedSources])
+        print("Closest Sources in format [SourceNumber, Occurances, Source]:")
+        for sourceNumber, count in mostUsedSources[:closestSources]:
+            print(f"Source: {sourceNumber}, Count: {count}, Sentence: {small1x1[sourceNumber]}")
+        print("Whole List: ", [(sourceNumber, count, small1x1[sourceNumber]) for sourceNumber, count in mostUsedSources], "\n")
     
     #print(f"Time passed since start: {time_since_start(startTime)}")

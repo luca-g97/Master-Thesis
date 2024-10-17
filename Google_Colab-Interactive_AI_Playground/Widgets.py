@@ -190,7 +190,12 @@ def updateTrainingTab():
     if(datasetChoice.value == "Small 1x1" or datasetChoice.value == "The Verdict"):
         maxTrain = 80
         maxTest = 10
+    
+    learningRate = 0.001  
+    if(datasetChoice.value == "The Verdict"):
+        learningRate = 0.0004
 
+    learningRateChoice = widgets.BoundedFloatText(value=learningRate, min=0.0000001, max=10.0, step=0.0000001, description='Learning Rate', style = {'description_width': 'initial'}, disabled=False)
     trainSamplesChoice = createIntSlider(10000, min=1, max=maxTrain, description="Train Samples")
     testSamplesChoice = createIntSlider(2000, min=1, max=maxTest, description="Test Samples")
     batchSizeTraining = createIntSlider(64, min=1, max=maxTrain, description="Batchsize Training")
