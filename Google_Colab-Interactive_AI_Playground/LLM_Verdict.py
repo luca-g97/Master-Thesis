@@ -152,8 +152,8 @@ def createLLMLoaders(train_samplesParameter, test_samplesParameter, eval_samples
     eval_loader = create_dataloader_v1(
         samples,
         batch_size=settings["batch_size"],
-        max_length=GPT_CONFIG_124M["context_length"],
-        stride=GPT_CONFIG_124M["context_length"],
+        max_length=1,
+        stride=1,
         drop_last=False,
         shuffle=False
     )
@@ -500,7 +500,7 @@ def getLLMPrediction(sample):
     max_new_tokens=100,
     context_size=GPT_CONFIG_124M["context_length"],
     top_k=1,
-    temperature=1.4
+    temperature=1.0
     )
     prediction = token_ids_to_text(token_ids, tokenizer)
     

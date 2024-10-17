@@ -40,7 +40,7 @@ def setGPTSettings(layerAmount, learningRate, epochs):
     
     GPT_CONFIG_124M = {
         "vocab_size": 50257,   # Vocabulary size
-        "context_length": 256, # Shortened context length (orig: 1024)
+        "context_length": 20, # Shortened context length (orig: 1024)
         "emb_dim": 768,        # Embedding dimension
         "n_heads": layerAmount,         # Number of attention heads
         "n_layers": layerAmount,        # Number of layers
@@ -48,7 +48,7 @@ def setGPTSettings(layerAmount, learningRate, epochs):
         "qkv_bias": False      # Query-key-value bias
     }
 
-    settings = {"learning_rate": learningRate, "weight_decay": 0.1, "batch_size": 1, "num_epochs": epochs}
+    settings = {"learning_rate": learningRate, "weight_decay": 0.1, "batch_size": 8, "num_epochs": epochs}
 
     LLM_Layers = [[('Embedding', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["vocab_size"]),
      ('Embedding', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"])],
@@ -140,8 +140,8 @@ def createLLMLoaders(train_samplesParameter, test_samplesParameter, eval_samples
     eval_loader = create_dataloader_v1(
         samples,
         batch_size=settings["batch_size"],
-        max_length=GPT_CONFIG_124M["context_length"],
-        stride=GPT_CONFIG_124M["context_length"],
+        max_length=1,
+        stride=1,
         drop_last=False,
         shuffle=False
     )
@@ -348,7 +348,7 @@ def calc_loss_loader(data_loader, num_batches=None):
         num_batches = len(data_loader)
     else:
         num_batches = min(num_batches, len(data_loader))
-        print("Dataloader: ", num_batches, ", ", len(data_loader))
+        #print("Dataloader: ", num_batches, ", ", len(data_loader))
     for i, (input_batch, target_batch) in enumerate(data_loader):
         if i < num_batches:
             loss = calc_loss_batch(input_batch, target_batch)
@@ -443,7 +443,7 @@ def trainModel(hidden_sizes, loss_function, optimizer, learning_rate, epochs):
 
 def initializeHook(hidden_sizes, train_samples):
     RENN.createDictionaries(hidden_sizes, len(hidden_sizes), train_samples)
-    train_loader, _ = createTrainLoader(1, False, False)
+    train_loader = createTrainLoader(1, False, False)
     RENN.runHooks(train_loader, model, hidden_sizes, True)
 
 def generate(model, idx, max_new_tokens, context_size, temperature, top_k=None):
