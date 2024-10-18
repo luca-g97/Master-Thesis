@@ -224,7 +224,7 @@ def identifyClosestSources(closestSources, outputs, mode = ""):
     #print(len(layersToCheck), len(outputsToCheck))
     for currentLayer, layer in enumerate(layersToCheck):
         for currentNeuron, neuron in enumerate(layer):
-            maxNeurons = layers[currentLayer][1] if mode=="" else layers[currentLayer][1].out_features
+            maxNeurons = layers[currentLayer][1] if mode == "" else layers[currentLayer][1].out_features
             if(currentNeuron < maxNeurons):
                 #print(currentLayer, currentNeuron, len(neuron), outputsToCheck[currentLayer][currentNeuron], outputsToCheck.shape)
                 differencesBetweenSources = np.abs(neuron - np.full(len(neuron), outputsToCheck[currentLayer][currentNeuron]))
@@ -239,7 +239,7 @@ def getMostUsed(sources, mode=""):
     sourceCounter = 0
     for currentLayer, layer in enumerate(sources):
         for currentNeuron, neuron in enumerate(layer):
-            maxNeurons = layers[currentLayer][1] if mode=="" else layers[currentLayer][1].out_features
+            maxNeurons = layers[currentLayer][1] if mode == "" else layers[currentLayer][1].out_features
             if(currentNeuron < maxNeurons):
                 for sourceNumber, value, difference in neuron:
                     mostUsed.append(sourceNumber)

@@ -3,6 +3,7 @@ from torch import nn
 import torch.optim as optim
 from torch.utils.data import Dataset
 import os
+import requests
 import urllib.request
 import Customizable_RENN as RENN
 
@@ -46,8 +47,74 @@ def createTrainSet():
     print("Created a train set with " + str(len(sentences)) + " sentences")
     return sentences
 
+# Wikipedia API endpoint for querying
+WIKIPEDIA_API_URL = "https://en.wikipedia.org/w/api.php"
+
+def fetch_article_titles(category):
+    """Fetch a list of article titles from a Wikipedia category."""
+    titles = []
+    params = {
+        'action': 'query',
+        'format': 'json',
+        'list': 'categorymembers',
+        'cmtitle': f'Category:{category}',
+        'cmlimit': 'max'  # Get the maximum number of articles
+    }
+    response = requests.get(WIKIPEDIA_API_URL, params=params).json()
+    for page in response.get('query', {}).get('categorymembers', []):
+        titles.append(page['title'])
+    return titles
+
+def fetch_and_parse_content(title):
+    """Fetch the content of a Wikipedia article and parse it."""
+    params = {
+        'action': 'query',
+        'format': 'json',
+        'titles': title,
+        'prop': 'extracts',
+        'explaintext': True
+    }
+    response = requests.get(WIKIPEDIA_API_URL, params=params).json()
+    pages = response.get('query', {}).get('pages', {})
+    page = next(iter(pages.values()))
+    content = page.get('extract', '')
+
+    return content
+
+def split_sentences(content, nlp):
+    """Split the content into sentences using spaCy."""
+    doc = nlp(content)
+    return [sent.text for sent in doc.sents]
+
+def createWikiTrainSet(category):
+    """Create a training set by fetching articles from a specified Wikipedia category."""
+    global sentences
+
+    # Check if GPU is available and prefer it
+    spacy.prefer_gpu()
+
+    # Load the spaCy language model
+    nlp = spacy.load("en_core_web_sm")
+
+    # Fetch a list of article titles from the specified category
+    titles = fetch_article_titles(category)
+    print(f"Number of titles fetched from category '{category}': {len(titles)}")
+
+    all_sentences = []  # Store all sentences from fetched articles
+
+    # Fetch content from each title and split into sentences
+    for title in titles:
+        content = fetch_and_parse_content(title)
+        all_sentences.extend(split_sentences(content, nlp))  # Add sentences to the global list
+
+    all_sentences = [sentence for sentence in all_sentences if "===" not in sentence]
+    print("Created a training set with " + str(len(all_sentences)) + " sentences")
+    sentences = all_sentences
+    return all_sentences
+
+
 def setGPTSettings(layerAmount, learningRate, epochs):
-    global GPT_CONFIG_124M, settings
+    global GPT_CONFIG_124M, settings, tokenizer
     
     GPT_CONFIG_124M = {
         "vocab_size": 50257,   # Vocabulary size
@@ -58,6 +125,9 @@ def setGPTSettings(layerAmount, learningRate, epochs):
         "drop_rate": 0.1,      # Dropout rate
         "qkv_bias": False      # Query-key-value bias
     }
+
+    # Initialize the tokenizer
+    tokenizer = tiktoken.get_encoding("gpt2")
 
     settings = {"learning_rate": learningRate, "weight_decay": 0.1, "batch_size": 8, "num_epochs": epochs}
 
@@ -103,8 +173,7 @@ class GPTDatasetV1(Dataset):
 
 def create_dataloader_v1(txt, batch_size=4, max_length=256,
                          stride=128, shuffle=True, drop_last=True):
-    # Initialize the tokenizer
-    tokenizer = tiktoken.get_encoding("gpt2")
+    global tokenizer
 
     # Create dataset
     dataset = GPTDatasetV1(txt, tokenizer, max_length, stride)
@@ -115,11 +184,21 @@ def create_dataloader_v1(txt, batch_size=4, max_length=256,
 
     return dataloader
 
-def createTrainLoader(context_length, shuffle = False, drop_last = True):
-    train_samples_length = int(len(sentences)*(train_samples/100))
-    samples = "\n".join(sentences[:train_samples_length])
+def createLLMLoader(samples, context_length, shuffle=False, drop_last=True):
+    global tokenizer
+    
+    tokenized_samples = tokenizer.encode(samples)
 
-    train_loader = create_dataloader_v1(
+    # Get the total number of tokens available
+    total_tokens = len(tokenized_samples)
+
+    # Ensure context_length does not exceed total tokens
+    if context_length > total_tokens:
+        print(f"Context length ({context_length}) exceeds available tokens ({total_tokens}). Adjusting context length.")
+        context_length = total_tokens
+    
+    # Create the data loader with the adjusted context length
+    loader = create_dataloader_v1(
         samples,
         batch_size=settings["batch_size"],
         max_length=context_length,
@@ -127,36 +206,21 @@ def createTrainLoader(context_length, shuffle = False, drop_last = True):
         drop_last=drop_last,
         shuffle=shuffle
     )
-    
-    return train_loader, train_samples_length
+
+    return loader
 
 def createLLMLoaders(train_samplesParameter, test_samplesParameter, eval_samplesParameter):
     global train_loader, val_loader, eval_loader, train_samples, test_samples, eval_samples
     train_samples, test_samples, eval_samples = train_samplesParameter, test_samplesParameter, eval_samplesParameter
 
-    train_loader, train_samples_length = createTrainLoader(GPT_CONFIG_124M["context_length"])
+    samples = "\n".join(sentences[:train_samples])
+    train_loader = createLLMLoader(samples, 32, True)
     
-    test_samples_length = int(train_samples_length+len(sentences)*(test_samples/100))
-    samples = "\n".join(sentences[train_samples_length:test_samples_length])
-    val_loader = create_dataloader_v1(
-        samples,
-        batch_size=settings["batch_size"],
-        max_length=GPT_CONFIG_124M["context_length"],
-        stride=GPT_CONFIG_124M["context_length"],
-        drop_last=False,
-        shuffle=False
-    )
+    samples = "\n".join(sentences[train_samples:train_samples+test_samples])
+    val_loader = createLLMLoader(samples, 32, True)
 
-    eval_samples_length = int(train_samples_length+test_samples_length+len(sentences)*(eval_samples/100))
-    samples = "\n".join(sentences[train_samples_length+test_samples_length:eval_samples_length])
-    eval_loader = create_dataloader_v1(
-        samples,
-        batch_size=settings["batch_size"],
-        max_length=1,
-        stride=1,
-        drop_last=False,
-        shuffle=False
-    )
+    samples = "\n".join(sentences[train_samples+test_samples:train_samples+test_samples+eval_samples])
+    eval_loader = createLLMLoader(samples, 1)
 
 """# Setup Customizable Network"""
 
@@ -314,7 +378,7 @@ def initializeDatasets(train_samples, test_samples, eval_samples, batch_size_tra
         print("Setting seed number to ", seed)
         torch.manual_seed(seed)
     else: print("Setting random seed")
-
+    
     createLLMLoaders(train_samples, test_samples, eval_samples)
     print("Created all dataloaders")
 
@@ -431,31 +495,34 @@ def plot_losses(epochs_seen, tokens_seen, train_losses, val_losses):
     # plt.show()
 
 def main():
+    global tokenizer
+    
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=settings["learning_rate"], weight_decay=settings["weight_decay"]
     )
 
-    tokenizer = tiktoken.get_encoding("gpt2")
-
     train_losses, val_losses, tokens_seen = train_model_simple(
         train_loader, val_loader, optimizer,
         num_epochs=settings["num_epochs"], eval_freq=5, eval_iter=5,
-        start_context="Every effort moves you", tokenizer=tokenizer
+        start_context="", tokenizer=tokenizer
     )
 
     return train_losses, val_losses, tokens_seen, train_loader, eval_loader
 
 def trainModel(hidden_sizes, loss_function, optimizer, learning_rate, epochs):
     global train_loader, eval_loader, tokenizer
+    
     initializeTraining(hidden_sizes, loss_function, optimizer, learning_rate)
     print("Model initialized, Starting training")
     _, _, _, train_dataloader, eval_dataloader = main()
-    tokenizer = tiktoken.get_encoding("gpt2")
     print("Training finished")
 
 def initializeHook(hidden_sizes, train_samples):  
     RENN.createDictionaries(hidden_sizes, len(hidden_sizes), train_samples)
-    train_loader, _ = createTrainLoader(1, False, False)
+    
+    samples = "\n".join(sentences[:train_samples])
+    train_loader = createLLMLoader(samples, 1)
+    
     RENN.runHooks(train_loader, model, hidden_sizes, True)
 
 def generate(model, idx, max_new_tokens, context_size, temperature, top_k=None):
@@ -494,13 +561,15 @@ def generate(model, idx, max_new_tokens, context_size, temperature, top_k=None):
     return idx
 
 def getLLMPrediction(sample):
+    global tokenizer
+    
     token_ids = generate(
     model=model,
     idx=text_to_token_ids(sample, tokenizer),
     max_new_tokens=100,
     context_size=GPT_CONFIG_124M["context_length"],
-    top_k=1,
-    temperature=1.0
+    top_k=25,
+    temperature=1.4
     )
     prediction = token_ids_to_text(token_ids, tokenizer)
     
@@ -515,7 +584,7 @@ def getLLMPrediction(sample):
 def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom):
     global train_samples, test_samples, eval_samples, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
 
-    dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource = RENN.initializeEvaluationHook(hidden_sizes, eval_loader, eval_samples, model)
+    dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource = RENN.initializeEvaluationHook(hidden_sizes, eval_loader, train_samples, model)
     
     for sampleNumber in range(eval_samples):
         #TODO: Save calculations to file and hook in evaluation mode onto the model!
@@ -525,7 +594,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
         sample, prediction = getLLMPrediction(sentences[train_samples+test_samples+sampleNumber])
         print("Evaluation Sample ", sampleNumber, ": ", sample)
         print("Follow up: ", prediction)
-        print("Closest Sources in format [SourceNumber, Occurances, Source]:")
+        print("Closest Sources in format [SourceNumber, Occurrences, Source]:")
         for sourceNumber, count in mostUsedSources[:closestSources]:
             print(f"Source: {sourceNumber}, Count: {count}, Sentence: {sentences[sourceNumber]}")
         print("Whole List: ", [(sourceNumber, count, sentences[sourceNumber]) for sourceNumber, count in mostUsedSources], "\n")

@@ -36,7 +36,7 @@ def createTrainAndTestSet(samples):
     return small1x1
 
 def setGPTSettings(layerAmount, learningRate, epochs):
-    global GPT_CONFIG_124M, settings
+    global GPT_CONFIG_124M, settings, tokenizer
     
     GPT_CONFIG_124M = {
         "vocab_size": 50257,   # Vocabulary size
@@ -47,6 +47,9 @@ def setGPTSettings(layerAmount, learningRate, epochs):
         "drop_rate": 0.1,      # Dropout rate
         "qkv_bias": False      # Query-key-value bias
     }
+
+    # Initialize the tokenizer
+    tokenizer = tiktoken.get_encoding("gpt2")
 
     settings = {"learning_rate": learningRate, "weight_decay": 0.1, "batch_size": 8, "num_epochs": epochs}
 
@@ -92,9 +95,6 @@ class GPTDatasetV1(Dataset):
 
 def create_dataloader_v1(txt, batch_size=4, max_length=256,
                          stride=128, shuffle=True, drop_last=True):
-    # Initialize the tokenizer
-    tokenizer = tiktoken.get_encoding("gpt2")
-
     # Create dataset
     dataset = GPTDatasetV1(txt, tokenizer, max_length, stride)
 
@@ -104,11 +104,21 @@ def create_dataloader_v1(txt, batch_size=4, max_length=256,
 
     return dataloader
 
-def createTrainLoader(context_length, shuffle = False, drop_last = True):
-    actualSamples = [sample[-1] for sample in small1x1]
-    samples = "\n".join(actualSamples[:train_samples])
+def createLLMLoader(samples, context_length, shuffle=False, drop_last=True):
+    global tokenizer
+    
+    tokenized_samples = tokenizer.encode(samples)
 
-    train_loader = create_dataloader_v1(
+    # Get the total number of tokens available
+    total_tokens = len(tokenized_samples)
+
+    # Ensure context_length does not exceed total tokens
+    if context_length > total_tokens:
+        #print(f"Context length ({context_length}) exceeds available tokens ({total_tokens}). Adjusting context length.")
+        context_length = int(total_tokens) if int(total_tokens) > 0 else 1
+
+    # Create the data loader with the adjusted context length
+    loader = create_dataloader_v1(
         samples,
         batch_size=settings["batch_size"],
         max_length=context_length,
@@ -117,34 +127,21 @@ def createTrainLoader(context_length, shuffle = False, drop_last = True):
         shuffle=shuffle
     )
 
-    return train_loader
+    return loader
 
 def createLLMLoaders(train_samplesParameter, test_samplesParameter, eval_samplesParameter):
     global train_loader, val_loader, eval_loader, train_samples, test_samples, eval_samples
     train_samples, test_samples, eval_samples = train_samplesParameter, test_samplesParameter, eval_samplesParameter
 
     actualSamples = [sample[-1] for sample in small1x1]
-    train_loader = createTrainLoader(GPT_CONFIG_124M["context_length"])
+    samples = "\n".join(actualSamples[:train_samples])
+    train_loader = createLLMLoader(samples, GPT_CONFIG_124M["context_length"])
 
     samples = "\n".join(actualSamples[train_samples:train_samples+test_samples])
-    val_loader = create_dataloader_v1(
-        samples,
-        batch_size=settings["batch_size"],
-        max_length=GPT_CONFIG_124M["context_length"],
-        stride=GPT_CONFIG_124M["context_length"],
-        drop_last=False,
-        shuffle=False
-    )
+    val_loader = createLLMLoader(samples, GPT_CONFIG_124M["context_length"])
 
     samples = "\n".join(actualSamples[train_samples+test_samples:train_samples+test_samples+eval_samples])
-    eval_loader = create_dataloader_v1(
-        samples,
-        batch_size=settings["batch_size"],
-        max_length=1,
-        stride=1,
-        drop_last=False,
-        shuffle=False
-    )
+    eval_loader = createLLMLoader(samples, GPT_CONFIG_124M["context_length"])
 
 """# Setup Customizable Network"""
 
@@ -419,31 +416,35 @@ def plot_losses(epochs_seen, tokens_seen, train_losses, val_losses):
     # plt.show()
 
 def main():
+    global tokenizer
+    
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=settings["learning_rate"], weight_decay=settings["weight_decay"]
     )
 
-    tokenizer = tiktoken.get_encoding("gpt2")
-
     train_losses, val_losses, tokens_seen = train_model_simple(
         train_loader, val_loader, optimizer,
         num_epochs=settings["num_epochs"], eval_freq=5, eval_iter=1,
-        start_context="=", tokenizer=tokenizer
+        start_context="", tokenizer=tokenizer
     )
 
     return train_losses, val_losses, tokens_seen, train_loader, eval_loader
 
 def trainModel(hidden_sizes, loss_function, optimizer, learning_rate, epochs):
     global train_loader, eval_loader, tokenizer
+    
     initializeTraining(hidden_sizes, loss_function, optimizer, learning_rate)
     print("Model initialized, Starting training")
     _, _, _, train_dataloader, eval_dataloader = main()
-    tokenizer = tiktoken.get_encoding("gpt2")
     print("Training finished")
 
 def initializeHook(hidden_sizes, train_samples):
     RENN.createDictionaries(hidden_sizes, len(hidden_sizes), train_samples)
-    train_loader = createTrainLoader(1, False, False)
+
+    actualSamples = [sample[-1] for sample in small1x1]
+    samples = "\n".join(actualSamples[:train_samples])
+    train_loader = createLLMLoader(samples, 1)
+    
     RENN.runHooks(train_loader, model, hidden_sizes, True)
 
 def generate(model, idx, max_new_tokens, context_size, temperature, top_k=None):
@@ -482,6 +483,8 @@ def generate(model, idx, max_new_tokens, context_size, temperature, top_k=None):
     return idx
 
 def getLLMPrediction(sample):
+    global tokenizer
+    
     x, y, solution, _ = sample
     index = text_to_token_ids(f"{x}*{y}=", tokenizer)
     maxNewTokens = len(str(x*y))
@@ -505,7 +508,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
         print("Evaluation Sample ", sampleNumber, ": ", sample)
         x, y, solution, prediction = getLLMPrediction(sample)
         print(prediction, f" -> Difference = {(solution) - (int(prediction) if prediction.isdigit() else 0)}")
-        print("Closest Sources in format [SourceNumber, Occurances, Source]:")
+        print("Closest Sources in format [SourceNumber, Occurrences, Source]:")
         for sourceNumber, count in mostUsedSources[:closestSources]:
             print(f"Source: {sourceNumber}, Count: {count}, Sentence: {small1x1[sourceNumber]}")
         print("Whole List: ", [(sourceNumber, count, small1x1[sourceNumber]) for sourceNumber, count in mostUsedSources], "\n")
