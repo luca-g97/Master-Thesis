@@ -494,9 +494,12 @@ def getLLMPrediction(sample):
     prediction = token_ids_to_text(token_ids, tokenizer)
     return x, y, solution, prediction
 
-def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom):
+def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
     global train_samples, test_samples, eval_samples, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
 
+    if(analyze):
+        RENN.analyzeData()
+    
     dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource = RENN.initializeEvaluationHook(hidden_sizes, eval_loader, eval_samples, model)
     
     for sampleNumber in range(eval_samples):

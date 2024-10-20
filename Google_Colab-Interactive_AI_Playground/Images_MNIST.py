@@ -332,8 +332,12 @@ def normalizePredictions(array):
 
 """# Evaluation: Code"""
 
-def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom):
+def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
     global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
+    
+    if(analyze):
+        RENN.analyzeData()
+    
     #Make sure to set new dictionarys for the hooks to fill - they are global!
     dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource = RENN.initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model)
     

@@ -539,9 +539,12 @@ def normalizePredictions(array):
     max = np.max(array)
     return (array - min) / (max - min)
 
-def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom):
+def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
     global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
 
+    if(analyze):
+        RENN.analyzeData()
+        
     dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource = RENN.initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model)
     
     for pos, (sample, true) in enumerate(eval_dataloader):

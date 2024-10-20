@@ -167,8 +167,8 @@ def createDictionaries(hidden_sizes, totalLayersParameter, train_samples):
     global activationsBySources, activationsByLayers, totalLayers, layerSizes
     totalLayers = totalLayersParameter
     layerSizes = [size[1] for size in hidden_sizes[:]]
-    activationsBySources = np.zeros((train_samples, totalLayers, np.max(layerSizes)))
-    activationsByLayers = np.zeros((totalLayers, np.max(layerSizes), train_samples))
+    activationsBySources = np.zeros((train_samples, totalLayers, np.max(layerSizes)), dtype=np.float128)
+    activationsByLayers = np.zeros((totalLayers, np.max(layerSizes), train_samples), dtype=np.float128)
     print("Hook-Dictionaries created")# - ", "Activations by Sources (Shape): ", activationsBySources.shape, " | ", "Activations by Layers (Shape): ", activationsByLayers.shape)
 
 def runHooks(train_dataloader, model, layersParameter=layers, llmType = False):
@@ -254,3 +254,122 @@ def getMostUsedSources(sources, closestSources, weightedMode=""):
 
     print("Total closest Sources :" , sourceCounter, " | ", closestSources, " closest Sources (",weightedMode,") in format: [SourceNumber, Occurances]: ", counter.most_common()[:closestSources])
     return counter.most_common()[:closestSources]
+
+def getValuesCount(dictionary):
+    # Get unique values and their counts
+    unique_values, counts = np.unique(dictionary, return_counts=True)
+
+    # Calculate the total number of elements in the dictionary
+    total_elements = np.prod(dictionary.shape)  # Total elements in the 3D array
+
+    # Flatten the dictionary to work with all values easily
+    flat_values = dictionary.flatten()
+
+    # Use Counter to count occurrences of each value
+    counts = Counter(flat_values)
+
+    # Calculate the percentage of unique values
+    unique_count = len(unique_values)
+    unique_percentage = (unique_count / total_elements) * 100
+
+    # Print unique counts and percentage
+    print("Unique counts: ", unique_count, ", Total elements: ", total_elements, ", Unique Percentage: ", unique_percentage)
+
+    # Collect non-unique values
+    non_unique_list = [value for value, count in counts.items() if count > 1 for _ in range(count)]
+
+    # Use Counter on the non-unique list to get counts
+    non_unique_counts = Counter(non_unique_list)
+
+    print(non_unique_counts.most_common()[:100])
+    
+    return unique_values
+
+def getValueClusters(dictionary):
+    # Create a dictionary to hold lists of neurons by their values
+    value_clusters = {}
+
+    # Define cluster ranges (you can customize these based on your needs)
+    clusters = {
+        "(-1000, -1)": (-1000, -1),
+        "(-1, 0)": (-1, 0),
+        "(0, 1)": (0, 1),
+        "(1, 1000)": (1, 1000)
+    }
+
+    # Populate the dictionary
+    for source in range(dictionary.shape[0]):
+        for layer in range(dictionary.shape[1]):
+            for neuron in range(dictionary.shape[2]):
+                current = dictionary[source][layer][neuron]
+
+                # Identify which cluster the current value falls into
+                for cluster_name, (lower, upper) in clusters.items():
+                    if lower <= current < upper:
+                        if cluster_name not in value_clusters:
+                            value_clusters[cluster_name] = []
+                        value_clusters[cluster_name].append((source, layer, neuron, current))
+                        break  # Stop checking once the value is added to a cluste
+
+    # Display the results
+    for cluster_name, neurons in value_clusters.items():
+        print(f"{cluster_name}: {len(neurons)} activations, Min: {min(neuron[-1] for neuron in neurons)}, Max: {max(neuron[-1] for neuron in neurons)}")
+        #for source, layer, neuron, value in neurons:
+            #print(f"  Source: {source}, Layer: {layer}, Neuron: {neuron}, Value: {value}")
+
+        # Function to find the first differing position of two float values
+def find_differing_position(val1, val2):
+    str_val1 = f"{val1:.10f}"  # Convert to string with fixed precision
+    str_val2 = f"{val2:.10f}"  # Convert to string with fixed precision
+
+    # Compare the two strings character by character
+    for i in range(min(len(str_val1), len(str_val2))):
+        if str_val1[i] != str_val2[i]:
+            return i  # Return the position where they differ
+    return min(len(str_val1), len(str_val2))  # If they are identical up to the length of the shorter one
+
+def getMinimumPrecision(unique_values):
+    # Define the valid float precisions and their approximate decimal places
+    float_precisions = {
+        np.float128: 33,  # 33 to 34 decimal places (reference for float128 comparison)
+        np.float64: 15,   # Reference precision (original)
+        np.float32: 7,    # 7 to 8 decimal places
+        np.float16: 3     # 3 to 4 decimal places
+    }
+
+    def calculate_mse(original_values, target_type, precision):
+        # Convert original values to the target float type and round to the specified precision
+        rounded_values = np.round(original_values.astype(target_type), precision)
+        # Calculate the Mean Squared Error
+        mse = np.mean((original_values - rounded_values) ** 2)
+        return mse
+
+    mse_results = {}
+    loss_results = {}
+
+    # Step 1: Compare each precision with np.float128 (highest precision reference)
+    print("Comparing float128 (highest precision) with other float types:")
+    for float_type, precision in float_precisions.items():
+        if float_type == np.float128:
+            # Skip comparing float128 with itself at this stage
+            continue
+        mse = calculate_mse(unique_values.astype(np.float128), float_type, precision)
+        mse_results[float_type] = mse
+        loss_percentage = mse / np.mean(unique_values.astype(np.float128)**2) * 100
+        loss_results[float_type] = loss_percentage
+        print(f"Float type: {float_type.__name__}, Precision: {np.dtype(float_type).itemsize * 8} bits, "
+              f"MSE: {mse}, Loss of Information: {loss_percentage}%")
+
+def analyzeData(analyzeActivationsBySources = True):
+    dictionary = activationsBySources
+    if(analyzeActivationsBySources):
+        dictionary = activationsByLayers
+
+    unique_values = getValuesCount(dictionary)
+    getValueClusters(dictionary)
+    getMinimumPrecision(unique_values)
+    print("\n")
+
+    
+                
+                

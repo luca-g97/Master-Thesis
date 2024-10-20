@@ -581,9 +581,12 @@ def getLLMPrediction(sample):
         
     return sample, prediction
 
-def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom):
+def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
     global train_samples, test_samples, eval_samples, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
 
+    if(analyze):
+        RENN.analyzeData()
+    
     dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource = RENN.initializeEvaluationHook(hidden_sizes, eval_loader, train_samples, model)
     
     for sampleNumber in range(eval_samples):
