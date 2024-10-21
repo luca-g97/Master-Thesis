@@ -366,7 +366,7 @@ def analyzeData(analyzeActivationsBySources = True):
     if(analyzeActivationsBySources):
         dictionary = activationsByLayers
     
-    dictionary = dictionary[dictionary[-1] != 0.0]
+    dictionary = dictionary[dictionary != 0.0]
     unique_values = getValuesCount(dictionary)
     getValueClusters(dictionary)
     getMinimumPrecision(unique_values)
