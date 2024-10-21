@@ -308,7 +308,8 @@ def getValueClusters(dictionary):
                     if lower <= current < upper:
                         if cluster_name not in value_clusters:
                             value_clusters[cluster_name] = []
-                        value_clusters[cluster_name].append((source, layer, neuron, current))
+                        if (current != 0.0):
+                            value_clusters[cluster_name].append((source, layer, neuron, current))
                         break  # Stop checking once the value is added to a cluste
 
     # Display the results
@@ -364,7 +365,8 @@ def analyzeData(analyzeActivationsBySources = True):
     dictionary = activationsBySources
     if(analyzeActivationsBySources):
         dictionary = activationsByLayers
-
+    
+    dictionary = dictionary[dictionary[-1] != 0.0]
     unique_values = getValuesCount(dictionary)
     getValueClusters(dictionary)
     getMinimumPrecision(unique_values)
