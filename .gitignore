@@ -17,6 +17,7 @@ __pycache__/
 venv/
 
 #Ignore launcher files
+.idea
 .cache
 .ipynb_checkpoints
 .ipython/profile_default
