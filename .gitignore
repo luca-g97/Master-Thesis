@@ -23,3 +23,7 @@ venv/
 .jupyter
 .keras
 .local
+
+#Ignore produced files
+Google_Colab-Interactive_AI_Playground/SparseArray.txt
+Google_Colab-Interactive_AI_Playground/TheVerdict.txt

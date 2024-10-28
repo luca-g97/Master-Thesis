@@ -88,6 +88,7 @@ num_layers = 2
 layerAmountChoice = createIntSlider(num_layers, min=1, max=16, description="Layer")
 seeds = ["Random"] + [i for i in range(100000)]
 seedChoice = createSelectionSlider(value="Random", options=seeds, description="Seed")
+useBitLinearChoice = createBoolButtonChoice(description="Activate BitLinear", tooltip="Use BitLinear instead of nn.Linear")
 normalLayerSizeChoice = [createIntSlider(value=128, min=1, max=1024, description="Size", step=1)
                          for _ in range(num_layers)]
 normalLayerChoice = [createLayerChoice(options=['Linear'],
@@ -157,9 +158,9 @@ def updateNetworkTab():
             tab_nest.set_title(i, f"Layer {i}")
 
     if(datasetChoice.value == "Small 1x1" or datasetChoice.value == "The Verdict"):
-        return widgets.VBox([seedChoice, layerAmountChoice])
+        return widgets.VBox([seedChoice, useBitLinearChoice, layerAmountChoice])
     else:
-        return widgets.VBox([seedChoice, layerAmountChoice, tab_nest])
+        return widgets.VBox([seedChoice, useBitLinearChoice, layerAmountChoice, tab_nest])
 
 def initializeTrainSet(trainSetMNIST, testSetMNIST):
     global datasetChoice, trainDataSet, testDataSet, maxTrain, maxTest, trainSamplesChoice, testSamplesChoice, batchSizeTraining, batchSizeTest, trainingsLink, testLink

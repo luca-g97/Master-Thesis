@@ -5,19 +5,61 @@ from collections import Counter
 import LLM_Small1x1 as Small1x1
 import LLM_Verdict as Verdict
 import scipy.sparse
+import math
 
 layer, source, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, activationsBySources, activationsByLayers, totalLayers = "", "", "", "", "", "", ""
-llm, layerSizes, device, hidden_sizes, layers, layers, currentLayer, relevantLayerIndices = "", "", "", "", "", [], 0, []
+llm, layerSizes, device, hidden_sizes, layers, layers, currentLayer, relevantLayerIndices, useBitNet = "", "", "", "", "", [], 0, [], False
 
-def initializePackages(devicePackage, seed=""):
-    global device, np, torch 
+def initializePackages(devicePackage, seed="", useBitLinear=False):
+    global device, np, torch, useBitNet 
     device = devicePackage
+    useBitNet = useBitLinear
     if(seed != ""):
         torch.manual_seed(seed)
         np.random.seed(seed)
+        
+#Bitnet-1.58b
+def weight_quant(weight, num_bits=1):
+    dtype = weight.dtype
+    weight = weight.float()
+    s =  1 / weight.abs().mean().clamp(min=1e-5)
+    result = (weight * s).round().clamp(-1, 1) / s
+    return result.type(dtype)
+
+
+def activation_quant(x, num_bits=8):
+    dtype = x.dtype
+    x = x.float()
+    Qn = -2 ** (num_bits - 1)
+    Qp = 2 ** (num_bits - 1) - 1
+    s = Qp / x.abs().max(dim=-1, keepdim=True).values.clamp(min=1e-5)
+    result = (x * s).round().clamp(Qn, Qp) / s
+    return result.type(dtype)
+
+
+class BitLinear(nn.Linear):
+    def __init__(self, in_features, out_features, weight_bits=1, input_bits=8, **kwargs):
+        super(BitLinear, self).__init__(in_features, out_features, **kwargs)
+        self.weight_bits = weight_bits
+        self.input_bits = input_bits
+
+    def forward(self, input):
+        quant_input = input + (activation_quant(input, self.input_bits) - input).detach()
+        quant_weight = self.weight + (weight_quant(self.weight, self.weight_bits) - self.weight).detach()
+        out = nn.functional.linear(quant_input, quant_weight)
+
+        if self.bias is not None:
+            if out.dim() == 2:  # Batch of outputs, 2D tensor
+                out += self.bias.view(1, -1).expand_as(out)
+            else:  # Single output, 1D tensor
+                out += self.bias
+
+        return out
 
 def getLayer(hidden_layers, layerNumber, input_size=10, output_size=10):
     if(hidden_layers[layerNumber][0] == "Linear"):
+        if useBitNet:
+            return BitLinear(input_size, output_size)
         return nn.Linear(input_size, output_size)
     elif(hidden_layers[layerNumber][0] == "Conv2d"):
         return nn.Conv2d(input_size, output_size)
@@ -69,6 +111,18 @@ class CustomizableRENN(nn.Module):
 
             if checkIfActivationLayerExists(self.hidden_layers, layer):
                 setattr(self, f'activation{layer}', getActivation(self.hidden_layers, layer))
+
+        # Initialize weights with only -1, 0, and 1 values
+        #if useBitNet:
+            #self.apply(self.custom_weight_init)
+
+    def custom_weight_init(self, module):
+        if isinstance(module, nn.Linear):
+            # Generate random values of -1, 0, or 1 for each weight element
+            with torch.no_grad():
+                module.weight.data = torch.tensor(np.random.choice([-1, 0, 1], module.weight.shape)).float()
+            if module.bias is not None:
+                module.bias.data = torch.tensor(np.random.choice([-1, 0, 1], module.bias.shape)).float()
 
     def forward(self, x):
         for layer in range(self.num_layers):
@@ -168,8 +222,12 @@ def createDictionaries(hidden_sizes, totalLayersParameter, train_samples):
     global activationsBySources, activationsByLayers, totalLayers, layerSizes
     totalLayers = totalLayersParameter
     layerSizes = [size[1] for size in hidden_sizes[:]]
-    activationsBySources = np.zeros((train_samples, totalLayers, np.max(layerSizes)), dtype=np.float128)
-    activationsByLayers = np.zeros((totalLayers, np.max(layerSizes), train_samples), dtype=np.float128)
+    if useBitNet:
+        activationsBySources = np.zeros((train_samples, totalLayers, np.max(layerSizes)), dtype=int)
+        activationsByLayers = np.zeros((totalLayers, np.max(layerSizes), train_samples), dtype=int)
+    else:
+        activationsBySources = np.zeros((train_samples, totalLayers, np.max(layerSizes)), dtype=np.float128)
+        activationsByLayers = np.zeros((totalLayers, np.max(layerSizes), train_samples), dtype=np.float128)
     print("Hook-Dictionaries created")# - ", "Activations by Sources (Shape): ", activationsBySources.shape, " | ", "Activations by Layers (Shape): ", activationsByLayers.shape)
 
 def runHooks(train_dataloader, model, layersParameter=layers, llmType = False):
@@ -344,6 +402,7 @@ def find_differing_position(val1, val2):
             return i  # Return the position where they differ
     return min(len(str_val1), len(str_val2))  # If they are identical up to the length of the shorter one
 
+
 def getMinimumPrecision(unique_values):
     # Define the valid float precisions and their approximate decimal places
     float_precisions = {
@@ -353,9 +412,11 @@ def getMinimumPrecision(unique_values):
         np.float16: 3     # 3 to 4 decimal places
     }
 
-    def calculate_mse(original_values, target_type, precision):
-        # Convert original values to the target float type and round to the specified precision
-        rounded_values = np.round(original_values.astype(target_type), precision)
+    # Add custom precisions for 1 to 8 decimal places
+    for i in range(1, 9):
+        float_precisions[f'float_{9-i}'] = 9-i
+
+    def calculate_mse(original_values, rounded_values):
         # Calculate the Mean Squared Error
         mse = np.mean((original_values - rounded_values) ** 2)
         return mse
@@ -366,15 +427,23 @@ def getMinimumPrecision(unique_values):
     # Step 1: Compare each precision with np.float128 (highest precision reference)
     print("Comparing float128 (highest precision) with other float types:")
     for float_type, precision in float_precisions.items():
-        if float_type == np.float128:
-            # Skip comparing float128 with itself at this stage
-            continue
-        mse = calculate_mse(unique_values.astype(np.float128), float_type, precision)
+        if isinstance(float_type, str):  # Custom precision (float_1 to float_8)
+            rounded_values = np.round(unique_values, decimals=precision)
+            mse = calculate_mse(unique_values.astype(np.float128), rounded_values)
+        else:  # Standard float types (float128, float64, etc.)
+            rounded_values = np.round(unique_values.astype(float_type), decimals=precision)
+            mse = calculate_mse(unique_values.astype(np.float128), rounded_values)
+
         mse_results[float_type] = mse
         loss_percentage = mse / np.mean(unique_values.astype(np.float128)**2) * 100
         loss_results[float_type] = loss_percentage
-        print(f"Float type: {float_type.__name__}, Precision: {np.dtype(float_type).itemsize * 8} bits, "
+
+        precision_name = float_type if isinstance(float_type, str) else float_type.__name__
+        precision_bits = precision if isinstance(float_type, str) else np.dtype(float_type).itemsize * 8
+        print(f"Float type: {precision_name}, Precision: {precision_bits} bits, "
               f"MSE: {mse}, Loss of Information: {loss_percentage}%")
+
+    return mse_results, loss_results
 
 def analyzeData(analyzeActivationsBySources = True):
     dictionary = activationsBySources
