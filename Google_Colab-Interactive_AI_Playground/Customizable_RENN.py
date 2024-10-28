@@ -4,6 +4,7 @@ import numpy as np
 from collections import Counter
 import LLM_Small1x1 as Small1x1
 import LLM_Verdict as Verdict
+import scipy.sparse
 
 layer, source, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, activationsBySources, activationsByLayers, totalLayers = "", "", "", "", "", "", ""
 llm, layerSizes, device, hidden_sizes, layers, layers, currentLayer, relevantLayerIndices = "", "", "", "", "", [], 0, []
@@ -254,6 +255,20 @@ def getMostUsedSources(sources, closestSources, weightedMode=""):
 
     print("Total closest Sources :" , sourceCounter, " | ", closestSources, " closest Sources (",weightedMode,") in format: [SourceNumber, Occurances]: ", counter.most_common()[:closestSources])
     return counter.most_common()[:closestSources]
+def save_sparse_3d_array(array, filename):
+    # Flatten the 3D array to a 2D array where each row represents one element
+    shape = array.shape
+    flat_array = array.reshape(-1)
+
+    # Convert flattened array to COO format (ignoring zeros)
+    sparse_array = scipy.sparse.coo_matrix(flat_array)
+
+    # Save row indices, column indices (which we interpret as flat indices), and data
+    np.savetxt(filename, np.column_stack((sparse_array.col, sparse_array.data)), fmt='%d %.6f')
+
+    # Save the shape for reconstruction
+    with open(filename, 'a') as f:
+        f.write(f"# shape: {shape}\n")
 
 def getValuesCount(dictionary):
     # Get unique values and their counts
@@ -366,6 +381,7 @@ def analyzeData(analyzeActivationsBySources = True):
     if(analyzeActivationsBySources):
         dictionary = activationsByLayers
 
+    save_sparse_3d_array(dictionary, 'SparseArray.txt')
     unique_values = getValuesCount(dictionary)
     getValueClusters(dictionary)
     getMinimumPrecision(unique_values)
