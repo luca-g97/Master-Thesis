@@ -541,9 +541,6 @@ def normalizePredictions(array):
 
 def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
     global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
-
-    if(analyze):
-        RENN.analyzeData()
         
     dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource = RENN.initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model)
     
@@ -556,6 +553,9 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
 
         sourcesActivation, outputsActivation, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], "Activation")
         getClosestSourcesPerNeuronAndLayer(sample, createImageWithPrediction(sample, true, prediction), sourcesActivation, closestSources, visualizationChoice, visualizeCustom, "Activation")
+
+        if(analyze):
+            RENN.analyzeData(closestSources, dictionaryForSourceLayerNeuron[pos])
 
 def visualize3DCube(closestSources, layerNumber, neuronNumber, neuronsInLayer):
 

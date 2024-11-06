@@ -335,15 +335,13 @@ def normalizePredictions(array):
 def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
     global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
     
-    if(analyze):
-        RENN.analyzeData()
-    
     #Make sure to set new dictionarys for the hooks to fill - they are global!
     dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource = RENN.initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model)
-    
+        
     for pos, (sample, true) in enumerate(eval_dataloader):
         sample = sample.float()
         prediction = predict(sample)
+        mostUsedSourcesWithSum = "";
     
         if(visualizationChoice == "Weighted"):
             sourcesSum, outputsSum, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], "Sum")
@@ -363,5 +361,8 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
 
             sourcesActivation, outputsActivation, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], "Activation")
             mostUsedSourcesWithActivation = getClosestSourcesPerNeuronAndLayer(sourcesActivation, layerNumbersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, "Activation")
+
+        if(analyze):
+            RENN.analyzeData(closestSources, dictionaryForSourceLayerNeuron[pos])
     
     #print(f"Time passed since start: {time_since_start(startTime)}")

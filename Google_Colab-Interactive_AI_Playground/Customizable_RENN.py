@@ -265,14 +265,17 @@ def initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model)
 
     return dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
 
-def identifyClosestSources(closestSources, outputs, mode = ""):
+def identifyClosestSources(closestSources, outputs, mode=""):
     global layers
-    
     dictionary = activationsByLayers
-    if(mode == "Sum"):
-        layerNumbersToCheck = [idx*2 for idx, (name, layerNumber, activation) in enumerate(layers)]
-    elif(mode == "Activation"):
-        layerNumbersToCheck = [(idx*2)+1 for idx, (name, layerNumber, activation) in enumerate(layers) if getActivation(hidden_sizes, idx) != False]
+
+    if mode == "Sum":
+        layerNumbersToCheck = [idx * 2 for idx, (name, layerNumber, activation) in enumerate(layers)]
+    elif mode == "Activation":
+        layerNumbersToCheck = [
+            (idx * 2) + 1 for idx, (name, layerNumber, activation) in enumerate(layers)
+            if getActivation(hidden_sizes, idx) != False
+        ]
     else:
         layerNumbersToCheck = [idx for idx, _ in enumerate(layers)]
 
@@ -280,16 +283,20 @@ def identifyClosestSources(closestSources, outputs, mode = ""):
     outputsToCheck = outputs[layerNumbersToCheck]
     identifiedClosestSources = np.empty((len(layersToCheck), np.max(layerSizes), closestSources), dtype=tuple)
 
-    #print(len(layersToCheck), len(outputsToCheck))
     for currentLayer, layer in enumerate(layersToCheck):
         for currentNeuron, neuron in enumerate(layer):
-            maxNeurons = layers[currentLayer][1] if mode == "" else layers[currentLayer][1].out_features
-            if(currentNeuron < maxNeurons):
-                #print(currentLayer, currentNeuron, len(neuron), outputsToCheck[currentLayer][currentNeuron], outputsToCheck.shape)
+            maxNeurons = layers[currentLayer][1]
+            if not isinstance(maxNeurons, int):  # Ensure maxNeurons is an integer
+                maxNeurons = maxNeurons.out_features
+            if currentNeuron < maxNeurons:
                 differencesBetweenSources = np.abs(neuron - np.full(len(neuron), outputsToCheck[currentLayer][currentNeuron]))
-                sortedSourceIndices = np.argsort(differencesBetweenSources) # for highest difference uncomment this: [::-1]
+                sortedSourceIndices = np.argsort(differencesBetweenSources)
                 closestSourceIndices = sortedSourceIndices[:closestSources]
-                tuples = tuple((closestSourceIndices[i], neuron[closestSourceIndices[i]], abs(neuron[closestSourceIndices[i]]-outputsToCheck[currentLayer][currentNeuron])) for i in range(closestSources))
+                tuples = tuple(
+                    (closestSourceIndices[i], neuron[closestSourceIndices[i]],
+                     abs(neuron[closestSourceIndices[i]] - outputsToCheck[currentLayer][currentNeuron]))
+                    for i in range(closestSources)
+                )
                 identifiedClosestSources[currentLayer][currentNeuron] = tuples
     return identifiedClosestSources, outputsToCheck, layerNumbersToCheck
 
@@ -299,6 +306,8 @@ def getMostUsed(sources, mode=""):
     for currentLayer, layer in enumerate(sources):
         for currentNeuron, neuron in enumerate(layer):
             maxNeurons = layers[currentLayer][1] if mode == "" else layers[currentLayer][1].out_features
+            if not isinstance(maxNeurons, int):  # Ensure maxNeurons is an integer
+                maxNeurons = maxNeurons.out_features
             if(currentNeuron < maxNeurons):
                 for sourceNumber, value, difference in neuron:
                     mostUsed.append(sourceNumber)
@@ -313,6 +322,7 @@ def getMostUsedSources(sources, closestSources, weightedMode=""):
 
     print("Total closest Sources :" , sourceCounter, " | ", closestSources, " closest Sources (",weightedMode,") in format: [SourceNumber, Occurances]: ", counter.most_common()[:closestSources])
     return counter.most_common()[:closestSources]
+
 def save_sparse_3d_array(array, filename):
     # Flatten the 3D array to a 2D array where each row represents one element
     shape = array.shape
@@ -445,15 +455,74 @@ def getMinimumPrecision(unique_values):
 
     return mse_results, loss_results
 
-def analyzeData(analyzeActivationsBySources = True):
+def mse(true_values, predicted_values):
+    """
+    Compute the Mean Squared Error between the true and predicted values.
+    """
+    return np.mean((true_values - predicted_values) ** 2)
+
+def compare_precision_results(closestSources, outputs):
+    # Define the precision levels
+    float_precisions = {
+        np.float128: 33,  # 33 to 34 decimal places (reference for float128 comparison)
+        np.float64: 15,   # Reference precision (original)
+        np.float32: 7,    # 7 to 8 decimal places
+        np.float16: 3     # 3 to 4 decimal places
+    }
+
+    # Add custom precisions for 1 to 8 decimal places
+    for i in range(1, 9):
+        float_precisions[f'float_{9-i}'] = 9 - i
+
+    # Use the highest precision (np.float128) as the base reference
+    base_results, _, _ = identifyClosestSources(closestSources, outputs)  # Using np.float128
+
+    # Run the RENN.getMostUsedSources method with base precision
+    mostUsedBase = getMostUsedSources(base_results, closestSources)
+
+    # Store the precision levels and their corresponding differences
+    precision_results = {}
+
+    for float_type, precision in float_precisions.items():
+        # Handle custom float precisions differently
+        if isinstance(float_type, str):  # Custom precision (like 'float_8')
+            # Round values in outputs and dictionary to the specified decimal places
+            rounded_outputs = np.round(outputs, decimals=precision)
+            rounded_dictionary = np.round(activationsByLayers, decimals=precision)
+        else:  # Standard numpy float types
+            rounded_outputs = outputs.astype(float_type)
+            rounded_dictionary = activationsByLayers.astype(float_type)
+
+        # Run identifyClosestSources with the rounded or cast values
+        results, _, _ = identifyClosestSources(closestSources, rounded_outputs)
+
+        # Run RENN.getMostUsedSources with the new results
+        mostUsed = getMostUsedSources(results, closestSources)
+
+        # Compare the results from getMostUsedSources (this is where you compare)
+        if mostUsed == mostUsedBase:
+            precision_results[float_type] = precision
+
+    # Find the precision with the least decimals but still producing identical results
+    if precision_results:
+        best_precision = min(precision_results, key=precision_results.get)
+    else:
+        best_precision = np.float128  # Fallback to np.float128 if no match was found
+
+    print(f"Best Precision with least decimals: {best_precision}")
+    return best_precision, precision_results
+
+def analyzeData(closestSources, outputs, analyzeActivationsBySources = True):
     dictionary = activationsBySources
     if(analyzeActivationsBySources):
         dictionary = activationsByLayers
 
-    save_sparse_3d_array(dictionary, 'SparseArray.txt')
-    unique_values = getValuesCount(dictionary)
-    getValueClusters(dictionary)
-    getMinimumPrecision(unique_values)
+    #save_sparse_3d_array(dictionary, 'SparseArray.txt')
+    #unique_values = getValuesCount(dictionary)
+    compare_precision_results(closestSources, outputs)
+
+    #getValueClusters(dictionary)
+    #getMinimumPrecision(unique_values)
     print("\n")
 
     

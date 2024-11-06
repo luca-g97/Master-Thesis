@@ -496,9 +496,6 @@ def getLLMPrediction(sample):
 
 def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
     global train_samples, test_samples, eval_samples, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
-
-    if(analyze):
-        RENN.analyzeData()
     
     dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource = RENN.initializeEvaluationHook(hidden_sizes, eval_loader, eval_samples, model)
     
@@ -515,5 +512,8 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
         for sourceNumber, count in mostUsedSources[:closestSources]:
             print(f"Source: {sourceNumber}, Count: {count}, Sentence: {small1x1[sourceNumber]}")
         print("Whole List: ", [(sourceNumber, count, small1x1[sourceNumber]) for sourceNumber, count in mostUsedSources], "\n")
+
+        if(analyze):
+            RENN.analyzeData(closestSources, dictionaryForSourceLayerNeuron[sampleNumber])
     
     #print(f"Time passed since start: {time_since_start(startTime)}")
