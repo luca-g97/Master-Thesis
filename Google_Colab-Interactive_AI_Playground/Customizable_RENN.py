@@ -4,15 +4,20 @@ import numpy as np
 from collections import Counter
 import LLM_Small1x1 as Small1x1
 import LLM_Verdict as Verdict
-import scipy.sparse
+import scipy.sparse as sp
+import pickle
 import math
+import gzip
+import os
 
 layer, source, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, activationsBySources, activationsByLayers, totalLayers = "", "", "", "", "", "", ""
 llm, layerSizes, device, hidden_sizes, layers, layers, currentLayer, relevantLayerIndices, useBitNet = "", "", "", "", "", [], 0, [], False
+sourceArray, contextLength, io, pd, pa, pq = "", 1, "", "", "", ""
 
-def initializePackages(devicePackage, seed="", useBitLinear=False):
-    global device, np, torch, useBitNet 
-    device = devicePackage
+def initializePackages(devicePackage, ioPackage, pdPackage, paPackage, pqPackage, seed="", useBitLinear=False):
+    global device, np, torch, useBitNet, io, pd, pa, pq 
+    
+    device, io, pd, pa, pq = devicePackage, ioPackage, pdPackage, paPackage, pqPackage
     useBitNet = useBitLinear
     if(seed != ""):
         torch.manual_seed(seed)
@@ -134,12 +139,7 @@ class CustomizableRENN(nn.Module):
 
 # Forward hook
 def forward_hook(module, input, output):
-    global layer
-    global source
-    global dictionaryForSourceLayerNeuron
-    global dictionaryForLayerNeuronSource
-    global hidden_sizes
-    global llm
+    global layer, source, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, sourceArray, hidden_sizes, llm
 
     if not (isinstance(module, nn.Sequential) or isinstance(module, Small1x1.FeedForward) or isinstance(module, Small1x1.TransformerBlock) or isinstance(module, nn.Dropout) or isinstance(module, Verdict.FeedForward) or isinstance(module, Verdict.TransformerBlock)):
         if (llm == True):
@@ -168,17 +168,25 @@ def forward_hook(module, input, output):
                 if(relevantOutput.shape[1] != layerNeurons):
                     layerNeurons = relevantOutput.shape[1]
                     #layers[actualLayer] = (layers[actualLayer][0], relevantOutput.shape[1], layers[layer][2:])
-            dictionaryForSourceLayerNeuron[source][layer,:layerNeurons] = relevantOutput
+            if(contextLength == 1):
+                dictionaryForSourceLayerNeuron[source][layer,:layerNeurons] = relevantOutput
+                sourceArray[layer, :layerNeurons] = relevantOutput
+            else:
+                if relevantOutput.ndim == 1:
+                    relevantOutput = relevantOutput.reshape(1, relevantOutput.shape[0])
+                #print("SourceArray: ", sourceArray.shape, ", RelevantOutput: ", relevantOutput.shape)
+                sourceArray[layer, :relevantOutput.shape[0], :relevantOutput.shape[1]] = relevantOutput
             # if(source == 0):
             #   print(relevantOutput, dictionaryForSourceLayerNeuron[source][layer,:layerNeurons])
 
-            #Use for array structure like: [layer, neuron, source]
-            output = relevantOutput if len(relevantOutput.shape) == 1 else relevantOutput[0]
-            for neuronNumber, neuron in enumerate(output):
-                if neuronNumber < layerNeurons:
-                    dictionaryForLayerNeuronSource[layer][neuronNumber][source] = neuron
-                else:
-                    break
+            if(contextLength == 1):
+                #Use for array structure like: [layer, neuron, source]
+                output = relevantOutput if len(relevantOutput.shape) == 1 else relevantOutput[0]
+                for neuronNumber, neuron in enumerate(output):
+                    if neuronNumber < layerNeurons:
+                        dictionaryForLayerNeuronSource[layer][neuronNumber][source] = neuron
+                    else:
+                        break
 
         if(layer % 2 == 0 and llm != True):
             if(checkIfActivationLayerExists(hidden_sizes, actualLayer)):
@@ -191,10 +199,10 @@ def forward_hook(module, input, output):
             if((layer == (len(layers)*2)-1 and llm != True) or (layer == (len(layers))-1 and llm == True)):
                 layer = 0
             else:
-                layer += 1    
+                layer += 1
 
-def attachHooks(hookLoader, model, llmType = False):
-    global source, layer
+def attachHooks(hookLoader, model, llmType = False, fileName = ""):
+    global source, layer, sourceArray, contextLength
 
     hooks = []  # Store the handles for each hook
     outputs = np.array([])
@@ -203,16 +211,20 @@ def attachHooks(hookLoader, model, llmType = False):
         if not isinstance(module, CustomizableRENN):
             hook = module.register_forward_hook(forward_hook)
             hooks.append(hook)
-
+    
     with torch.no_grad():
         # Forward Pass
+        print(len(hookLoader))
         for source, (inputs, labels) in enumerate(hookLoader):
             layer = 0
-            # Uncomment for array structure like: [source, layer, neuron]
+            sourceArray = np.zeros((totalLayers, np.max(layerSizes)), dtype=np.float128)
+            if(contextLength != 1):
+                sourceArray = np.zeros((totalLayers, contextLength, np.max(layerSizes)), dtype=np.float128)
             if not llmType:
                 inputs = inputs.float()
             inputs = inputs.to(device)
             _ = model(inputs)
+            saveSparseArray(sourceArray, fileName + str(source) + ".gz")
 
     # Remove hooks after use
     for hook in hooks:
@@ -230,16 +242,17 @@ def createDictionaries(hidden_sizes, totalLayersParameter, train_samples):
         activationsByLayers = np.zeros((totalLayers, np.max(layerSizes), train_samples), dtype=np.float128)
     print("Hook-Dictionaries created")# - ", "Activations by Sources (Shape): ", activationsBySources.shape, " | ", "Activations by Layers (Shape): ", activationsByLayers.shape)
 
-def runHooks(train_dataloader, model, layersParameter=layers, llmType = False):
-    global layers, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, activationsBySources, activationsByLayers, llm
+def runHooks(train_dataloader, model, layersParameter=layers, llmType = False, context_length = 1):
+    global layers, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, activationsBySources, activationsByLayers, llm, contextLength
     
     #Variables for usage within the hook
     llm = llmType
     layers = layersParameter
+    contextLength = context_length
     dictionaryForSourceLayerNeuron = activationsBySources
     dictionaryForLayerNeuronSource = activationsByLayers
 
-    attachHooks(train_dataloader, model, llmType)
+    attachHooks(train_dataloader, model, llmType, fileName="T")
     activationsBySources = dictionaryForSourceLayerNeuron
     activationsByLayers = dictionaryForLayerNeuronSource
     print("Hooks finished successfully")
@@ -253,15 +266,15 @@ def initializeHook(train_dataloader, model, hidden_sizesParameter, train_samples
     createDictionaries(hidden_sizes, totalLayers, train_samples)
     runHooks(train_dataloader, model, layers)
 
-def initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model):
+def initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model, llmType = False):
     global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
     
-    dictionaryForSourceLayerNeuron = np.zeros((eval_samples, totalLayers, np.max(layerSizes)))
-    dictionaryForLayerNeuronSource = np.zeros((totalLayers, np.max(layerSizes), eval_samples))
+    dictionaryForSourceLayerNeuron = np.zeros((eval_samples, totalLayers, np.max(layerSizes)), dtype=np.float128)
+    dictionaryForLayerNeuronSource = np.zeros((totalLayers, np.max(layerSizes), eval_samples), dtype=np.float128)
 
     with torch.no_grad():
         model.eval()  # Set the model to evaluation mode
-        attachHooks(eval_dataloader, model)
+        attachHooks(eval_dataloader, model, llmType, "E")
 
     return dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
 
@@ -323,13 +336,133 @@ def getMostUsedSources(sources, closestSources, weightedMode=""):
     print("Total closest Sources :" , sourceCounter, " | ", closestSources, " closest Sources (",weightedMode,") in format: [SourceNumber, Occurances]: ", counter.most_common()[:closestSources])
     return counter.most_common()[:closestSources]
 
+# Normalize to integer
+def normalize_to_integer(data):
+    if data.size == 0:  # Check if the data array is empty
+        return data  # Return the data unchanged if it's empty
+
+    min_int, max_int = 0, 4294967295
+
+    # Calculate min and max of the data
+    min_val = np.min(data)
+    max_val = np.max(data)
+
+    # If min_val and max_val are the same, we can't scale the data. In this case, return a default integer array.
+    if min_val == max_val:
+        return np.zeros_like(data, dtype=int)
+
+    # Normalize data to integer range
+    normalized = np.round((data - min_val) * (max_int - min_int) / (max_val - min_val) + min_int).astype(int)
+
+    return normalized
+
+# Compress the DataFrame and save as Parquet with gzip
+def compress_dataframe_parquet_gzip(df):
+    buffer = io.BytesIO()
+    pq.write_table(pa.Table.from_pandas(df), buffer, compression='ZSTD')  # Parquet compression
+    return gzip.compress(buffer.getvalue())  # Further gzip compression
+
+# Save sparse array (as sparse DataFrame) to a compressed file
+
+def sparse_array_to_dataframe(sparse_array):
+    df = pd.DataFrame({
+        'row': sparse_array.row,
+        'col': sparse_array.col,
+        'value': sparse_array.data
+    })
+
+    return df
+def saveSparseArray(array, filename):
+    # Define the LookUp directory within the working directory
+    directory = './LookUp'  # Adjust this if tf is not the current working dir
+    os.makedirs(directory, exist_ok=True)  # Create the directory if it doesn't exist
+
+    # Full path for the file
+    filepath = os.path.join(directory, filename)
+
+    # Convert the sparse array to COO format (if it isn't already)
+    sparse_array = sp.coo_matrix(array)  # Assuming array is 2D or reshape beforehand
+
+    # Normalize the data (you need to implement `normalize_to_integer` yourself)
+    normalizedArray = normalize_to_integer(sparse_array.data)
+
+    # Store the min and max used for normalization
+    min_value = sparse_array.data.min()  # Minimum value of the original data
+    max_value = sparse_array.data.max()  # Maximum value of the original data
+
+    # Convert the sparse array to a dataframe
+    df = pd.DataFrame({
+        'row': sparse_array.row,
+        'col': sparse_array.col,
+        'value': normalizedArray
+    })
+
+    # Compress the dataframe
+    compressedArray = compress_dataframe_parquet_gzip(df)
+
+    # Save the min, max, and the compressed array to the file
+    with open(filepath, 'wb') as f:
+        # Save min and max values as part of the saved file
+        pickle.dump((min_value, max_value, compressedArray), f)
+
+def decompress_dataframe_parquet_gzip(compressed_data):
+    decompressed_data = gzip.decompress(compressed_data)
+
+    buffer = io.BytesIO(decompressed_data)
+    table = pq.read_table(buffer)
+    df = table.to_pandas()
+
+    return df
+
+def denormalize_data(normalized_data, min_value, max_value):
+    # Assuming the normalization was done using a scaling factor
+    return normalized_data * (max_value - min_value) + min_value
+
+def dataframe_to_sparse_array(df):
+    # Assuming df has columns 'row', 'col', and 'value' for the sparse matrix entries
+    if 'row' not in df.columns or 'col' not in df.columns or 'value' not in df.columns:
+        raise ValueError("DataFrame must contain 'row', 'col', and 'value' columns.")
+
+    # Extract the row, column, and value data from the DataFrame
+    rows = df['row'].values
+    cols = df['col'].values
+    values = df['value'].values
+
+    # Create the sparse matrix in COO format
+    sparse_matrix = sp.coo_matrix((values, (rows, cols)), shape=(df['row'].max() + 1, df['col'].max() + 1))
+
+    return sparse_matrix
+def restoreSparseArray(filename):
+    # Full path for the file
+    directory = './LookUp'  # Adjust this if tf is not the current working dir
+    filepath = os.path.join(directory, filename)
+
+    # Load the saved file (using pickle to get the min, max, and compressed data)
+    with open(filepath, 'rb') as f:
+        min_value, max_value, compressedArray = pickle.load(f)
+
+    # Decompress the array (you need to implement decompress logic)
+    df = decompress_dataframe_parquet_gzip(compressedArray)  # You need to implement this function
+
+    # Convert the dataframe back to a sparse matrix (you need to implement this)
+    sparse_array = dataframe_to_sparse_array(df)  # You need to implement this conversion
+
+    # Denormalize the data using min and max values
+    denormalized_data = denormalize_data(sparse_array.data, min_value, max_value)
+
+    # Restore the sparse array with denormalized data
+    restored_sparse_array = sp.coo_matrix((denormalized_data, sparse_array.indices, sparse_array.indptr), shape=sparse_array.shape)
+
+    return restored_sparse_array
+
+#-------------------------------------------Debug----------------------------
 def save_sparse_3d_array(array, filename):
     # Flatten the 3D array to a 2D array where each row represents one element
     shape = array.shape
     flat_array = array.reshape(-1)
 
     # Convert flattened array to COO format (ignoring zeros)
-    sparse_array = scipy.sparse.coo_matrix(flat_array)
+    sparse_array = sp.coo_matrix(flat_array)
 
     # Save row indices, column indices (which we interpret as flat indices), and data
     np.savetxt(filename, np.column_stack((sparse_array.col, sparse_array.data)), fmt='%d %.6f')
@@ -517,7 +650,7 @@ def analyzeData(closestSources, outputs, analyzeActivationsBySources = True):
     if(analyzeActivationsBySources):
         dictionary = activationsByLayers
 
-    #save_sparse_3d_array(dictionary, 'SparseArray.txt')
+    save_sparse_3d_array(dictionary, 'SparseArray.txt')
     #unique_values = getValuesCount(dictionary)
     compare_precision_results(closestSources, outputs)
 
