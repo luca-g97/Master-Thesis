@@ -6,25 +6,20 @@ import os
 import requests
 import urllib.request
 import Customizable_RENN as RENN
+import pandas as pd
 
-random, lorem, device, tiktoken, DataLoader, spacy = "", "", "", "", "", ""
+random, lorem, device, tiktoken, DataLoader, nlp, GPT2Tokenizer = "", "", "", "", "", "", ""
 train_samples, test_samples, eval_samples = "", "", ""
 GPT_CONFIG_124M, settings = "", ""
-train_loader, val_loader, eval_loader, tokenizer, sentences = "", "", "", "", ""
+train_loader, val_loader, eval_loader, tokenizer, sentences, sentencesStructure = "", "", "", "", "", ""
 dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource = [], []
 
-def initializePackages(randomPackage, loremPackage, devicePackage, tiktokenPackage, DataLoaderPackage, spacyPackage):
-    global random, lorem, device, tiktoken, DataLoader, spacy
-    random, lorem, device, tiktoken, DataLoader, spacy = randomPackage, loremPackage, devicePackage, tiktokenPackage, DataLoaderPackage, spacyPackage
+def initializePackages(randomPackage, loremPackage, devicePackage, tiktokenPackage, DataLoaderPackage, nlpPackage, GPT2TokenizerPackage):
+    global random, lorem, device, tiktoken, DataLoader, nlp, GPT2Tokenizer
+    random, lorem, device, tiktoken, DataLoader, nlp, GPT2Tokenizer = randomPackage, loremPackage, devicePackage, tiktokenPackage, DataLoaderPackage, nlpPackage, GPT2TokenizerPackage
 
 def createTrainSet():
-    global sentences
-
-    # Check if GPU is available and prefer it
-    spacy.prefer_gpu()
-
-    # Load the spaCy language model
-    nlp = spacy.load("en_core_web_sm")
+    global sentences, sentencesStructure
 
     file_path = "TheVerdict.txt"
     url = "https://raw.githubusercontent.com/rasbt/LLMs-from-scratch/main/ch02/01_main-chapter-code/the-verdict.txt"
@@ -41,10 +36,14 @@ def createTrainSet():
     # Remove any newline characters and extra spaces
     text_data = text_data.replace("\n", " ").strip()
 
-    # Process the text with spaCy to extract sentences
+    # Process the text with Stanza to extract sentences
     doc = nlp(text_data)
-    sentences = [sent.text for sent in doc.sents]
-    print("Created a train set with " + str(len(sentences)) + " sentences")
+    sentencesStructure = [sentence.text for sentence in doc.sentences]
+
+    # Flatten the list of sentences correctly
+    sentences = [sentence for sentence in sentencesStructure]
+
+    print(f"Created a train set with {len(sentences)} sentences")
     return sentences
 
 # Wikipedia API endpoint for querying
@@ -82,36 +81,69 @@ def fetch_and_parse_content(title):
     return content
 
 def split_sentences(content, nlp):
-    """Split the content into sentences using spaCy."""
+    """Split the content into sentences using nlp."""
     doc = nlp(content)
     return [sent.text for sent in doc.sents]
 
 def createWikiTrainSet(category):
-    """Create a training set by fetching articles from a specified Wikipedia category."""
-    global sentences
-
-    # Check if GPU is available and prefer it
-    spacy.prefer_gpu()
-
-    # Load the spaCy language model
-    nlp = spacy.load("en_core_web_sm")
+    global sentences, sentencesStructure
 
     # Fetch a list of article titles from the specified category
     titles = fetch_article_titles(category)
     print(f"Number of titles fetched from category '{category}': {len(titles)}")
 
-    all_sentences = []  # Store all sentences from fetched articles
+    sentencesStructure = []  # Store all sentences from fetched articles
 
     # Fetch content from each title and split into sentences
     for title in titles:
         content = fetch_and_parse_content(title)
-        all_sentences.extend(split_sentences(content, nlp))  # Add sentences to the global list
+        # Tokenize the paragraph into sentences
+        sentence_data = split_sentences(content, nlp)
 
-    all_sentences = [sentence for sentence in all_sentences if "===" not in sentence]
-    print("Created a training set with " + str(len(all_sentences)) + " sentences")
-    sentences = all_sentences
-    return all_sentences
+        # Add the list of sentences for this paragraph
+        sentencesStructure.append(sentence_data)
 
+    sentences = [sentence for sublist in sentencesStructure for sentence in sublist]
+    print("Created a training set with " + str(len(sentences)) + " sentences")
+    return sentences
+
+def createEnglishWikiTrainSet(filePath):
+    global sentences, sentencesStructure
+    
+    # Load the specific Parquet file using pandas
+    df = pd.read_parquet(filePath)
+
+    # Extract the relevant column ('maintext')
+    paragraphs = df['maintext'].tolist()
+    print(df['filename'][0])
+
+    # Convert paragraphs to individual sentences and group them by source
+    sentencesStructure = []
+
+    for paragraph in paragraphs:
+        # Process the paragraph through Stanza
+        doc = nlp(paragraph)
+        sentences_data = [sentence.text for sentence in doc.sentences]
+
+        # Add the list of sentences for this paragraph
+        sentencesStructure.append(sentences_data)
+
+    # Flatten the list of lists to have a total collection of sentences
+    sentences = [sentence for sublist in sentencesStructure for sentence in sublist]
+
+    return sentences
+
+# Function to map a flattened index back to its source and sentence index
+def getSourceAndSentenceIndex(flat_index):
+    # Iterate over the sentences list of lists to find the corresponding sublist and sentence index
+    current_index = 0
+    for source_index, sublist in enumerate(sentencesStructure):
+        sublist_length = len(sublist)
+        if flat_index < current_index + sublist_length:
+            sentence_index = flat_index - current_index
+            return [source_index, sentence_index]
+        current_index += sublist_length
+    return None  # Return None if the index is out of range
 
 def setGPTSettings(layerAmount, learningRate, epochs):
     global GPT_CONFIG_124M, settings, tokenizer
@@ -127,7 +159,9 @@ def setGPTSettings(layerAmount, learningRate, epochs):
     }
 
     # Initialize the tokenizer
-    tokenizer = tiktoken.get_encoding("gpt2")
+    #tokenizer = tiktoken.get_encoding("gpt2")
+    tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+    tokenizer.pad_token = tokenizer.eos_token  # Set padding token to EOS token if not already set
 
     settings = {"learning_rate": learningRate, "weight_decay": 0.1, "batch_size": 8, "num_epochs": epochs}
 
@@ -151,17 +185,27 @@ def setGPTSettings(layerAmount, learningRate, epochs):
 """#Data Initialization"""
 
 class GPTDatasetV1(Dataset):
-    def __init__(self, txt, tokenizer, max_length, stride):
+    def __init__(self, sentences, tokenizer, max_length):
         self.input_ids = []
         self.target_ids = []
 
-        # Tokenize the entire text
-        token_ids = tokenizer.encode(txt)
+        for sentence in sentences:
+            # Tokenize the sentence using GPT2Tokenizer
+            token_ids = tokenizer.encode(sentence, add_special_tokens=True)  # add_special_tokens=True adds the EOS token by default
+            
+            if(max_length > 1):
+                # Manually truncate or pad if necessary
+                if len(token_ids) > max_length:
+                    token_ids = token_ids[:max_length]
+                else:
+                    # Pad if necessary (pad_token_id is used for padding)
+                    token_ids += [tokenizer.pad_token_id] * (max_length - len(token_ids))
 
-        # Use a sliding window to chunk the book into overlapping sequences of max_length
-        for i in range(0, len(token_ids) - max_length, stride):
-            input_chunk = token_ids[i:i + max_length]
-            target_chunk = token_ids[i + 1: i + max_length + 1]
+            # Input chunk: all tokens except the last one (to predict the next token)
+            input_chunk = token_ids[:-1]
+            # Target chunk: shifted tokens (next token prediction)
+            target_chunk = token_ids[1:]
+
             self.input_ids.append(torch.tensor(input_chunk))
             self.target_ids.append(torch.tensor(target_chunk))
 
@@ -171,56 +215,52 @@ class GPTDatasetV1(Dataset):
     def __getitem__(self, idx):
         return self.input_ids[idx], self.target_ids[idx]
 
-def create_dataloader_v1(txt, batch_size=4, max_length=256,
-                         stride=128, shuffle=True, drop_last=True):
-    global tokenizer
+# Custom collate function to handle padding of variable-length sentences
+def custom_collate_fn(batch):
+    input_ids, target_ids = zip(*batch)
 
+    # Pad sequences for batch processing to the maximum sequence length in the batch
+    input_ids_padded = torch.nn.utils.rnn.pad_sequence(input_ids, batch_first=True, padding_value=0)
+    target_ids_padded = torch.nn.utils.rnn.pad_sequence(target_ids, batch_first=True, padding_value=0)
+
+    return input_ids_padded, target_ids_padded
+
+def create_dataloader_v1(sentences, tokenizer, batch_size=4, max_length=256, shuffle=True, drop_last=True):
     # Create dataset
-    dataset = GPTDatasetV1(txt, tokenizer, max_length, stride)
+    dataset = GPTDatasetV1(sentences, tokenizer, max_length)
 
     # Create dataloader
     dataloader = DataLoader(
-        dataset, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last)
+        dataset, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last, collate_fn=custom_collate_fn
+    )
 
     return dataloader
 
-def createLLMLoader(samples, context_length, shuffle=False, drop_last=True):
-    global tokenizer
-    
-    tokenized_samples = tokenizer.encode(samples)
-
-    # Get the total number of tokens available
-    total_tokens = len(tokenized_samples)
-
-    # Ensure context_length does not exceed total tokens
-    if context_length > total_tokens:
-        print(f"Context length ({context_length}) exceeds available tokens ({total_tokens}). Adjusting context length.")
-        context_length = total_tokens
-    
-    # Create the data loader with the adjusted context length
+def createLLMLoader(sentences, batch_size, context_length, shuffle=False, drop_last=True):
     loader = create_dataloader_v1(
-        samples,
-        batch_size=settings["batch_size"],
+        sentences,
+        tokenizer=tokenizer,
+        batch_size=batch_size,  # Ensure settings is defined somewhere
         max_length=context_length,
-        stride=context_length,
         drop_last=drop_last,
         shuffle=shuffle
     )
-
     return loader
 
 def createLLMLoaders(train_samplesParameter, test_samplesParameter, eval_samplesParameter):
-    global train_loader, val_loader, eval_loader, train_samples, test_samples, eval_samples
-    train_samples, test_samples, eval_samples = train_samplesParameter, test_samplesParameter, eval_samplesParameter
+    global train_loader, val_loader, eval_loader, sentences
 
-    samples = "\n".join(sentences[:train_samples])
-    train_loader = createLLMLoader(samples, 32, True)
-    
-    samples = "\n".join(sentences[train_samples:train_samples+test_samples])
-    val_loader = createLLMLoader(samples, 32, True)
+    # Split the sentences into train, test, and eval sets
+    train_sentences = sentences[:train_samplesParameter]
+    test_sentences = sentences[train_samplesParameter:train_samplesParameter + test_samplesParameter]
+    eval_sentences = sentences[train_samplesParameter + test_samplesParameter:train_samplesParameter + test_samplesParameter + eval_samplesParameter]
 
-    samples = "\n".join(sentences[train_samples+test_samples:train_samples+test_samples+eval_samples])
-    eval_loader = createLLMLoader(samples, 1)
+    # Create loaders with sentences and context length
+    train_loader = createLLMLoader(train_sentences, 32, 32, True)
+    val_loader = createLLMLoader(test_sentences, 32, 32, True)
+    eval_loader = createLLMLoader(eval_sentences, 1, context_length=1)
+
+    return train_loader, val_loader, eval_loader
 
 """# Setup Customizable Network"""
 
@@ -519,11 +559,12 @@ def trainModel(hidden_sizes, loss_function, optimizer, learning_rate, epochs):
 
 def initializeHook(hidden_sizes, train_samples):  
     RENN.createDictionaries(hidden_sizes, len(hidden_sizes), train_samples)
-    
-    samples = "\n".join(sentences[:train_samples])
-    train_loader = createLLMLoader(samples, 1)
+
+    samples = sentences[:train_samples]
+    train_loader = createLLMLoader(samples, 1, context_length=1)
     
     RENN.runHooks(train_loader, model, hidden_sizes, True)
+    
 
 def generate(model, idx, max_new_tokens, context_size, temperature, top_k=None):
 
@@ -585,7 +626,6 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
     global train_samples, test_samples, eval_samples, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
     
     dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource = RENN.initializeEvaluationHook(hidden_sizes, eval_loader, train_samples, model)
-    
     for sampleNumber in range(eval_samples):
         #TODO: Save calculations to file and hook in evaluation mode onto the model!
         sources, outputs, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[sampleNumber])

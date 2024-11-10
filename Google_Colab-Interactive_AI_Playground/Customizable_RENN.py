@@ -12,12 +12,12 @@ import os
 
 layer, source, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, activationsBySources, activationsByLayers, totalLayers = "", "", "", "", "", "", ""
 llm, layerSizes, device, hidden_sizes, layers, layers, currentLayer, relevantLayerIndices, useBitNet = "", "", "", "", "", [], 0, [], False
-sourceArray, contextLength, io, pd, pa, pq = "", 1, "", "", "", ""
+sourceArray, contextLength, io, pd, pa, pq, zstd = "", 1, "", "", "", "", ""
 
-def initializePackages(devicePackage, ioPackage, pdPackage, paPackage, pqPackage, seed="", useBitLinear=False):
-    global device, np, torch, useBitNet, io, pd, pa, pq 
+def initializePackages(devicePackage, ioPackage, pdPackage, paPackage, pqPackage, zstdPackage, seed="", useBitLinear=False):
+    global device, np, torch, useBitNet, io, pd, pa, pq, zstd 
     
-    device, io, pd, pa, pq = devicePackage, ioPackage, pdPackage, paPackage, pqPackage
+    device, io, pd, pa, pq, zstd = devicePackage, ioPackage, pdPackage, paPackage, pqPackage, zstdPackage
     useBitNet = useBitLinear
     if(seed != ""):
         torch.manual_seed(seed)
@@ -168,37 +168,36 @@ def forward_hook(module, input, output):
                 if(relevantOutput.shape[1] != layerNeurons):
                     layerNeurons = relevantOutput.shape[1]
                     #layers[actualLayer] = (layers[actualLayer][0], relevantOutput.shape[1], layers[layer][2:])
-            if(contextLength == 1):
+            if(correctTypes):
                 dictionaryForSourceLayerNeuron[source][layer,:layerNeurons] = relevantOutput
-                sourceArray[layer, :layerNeurons] = relevantOutput
-            else:
-                if relevantOutput.ndim == 1:
-                    relevantOutput = relevantOutput.reshape(1, relevantOutput.shape[0])
-                #print("SourceArray: ", sourceArray.shape, ", RelevantOutput: ", relevantOutput.shape)
-                sourceArray[layer, :relevantOutput.shape[0], :relevantOutput.shape[1]] = relevantOutput
             # if(source == 0):
             #   print(relevantOutput, dictionaryForSourceLayerNeuron[source][layer,:layerNeurons])
 
-            if(contextLength == 1):
-                #Use for array structure like: [layer, neuron, source]
-                output = relevantOutput if len(relevantOutput.shape) == 1 else relevantOutput[0]
+            #Use for array structure like: [layer, neuron, source]
+            output = relevantOutput if len(relevantOutput.shape) == 1 else relevantOutput[0]
+            if(llm):
+                result = Verdict.getSourceAndSentenceIndex(source)
+                if result is not None:
+                    print("Filename: ", "Layer" + str(layer), ", Source: ", str(result[0]), ", SentenceNr: ", str(result[1]))
+                    #append_structured_sparse(relevantOutput[:layerNeurons], "Layer" + str(layer), str(result[0]), str(result[1]))
+            else:
                 for neuronNumber, neuron in enumerate(output):
                     if neuronNumber < layerNeurons:
                         dictionaryForLayerNeuronSource[layer][neuronNumber][source] = neuron
                     else:
                         break
 
-        if(layer % 2 == 0 and llm != True):
-            if(checkIfActivationLayerExists(hidden_sizes, actualLayer)):
-                layer += 1
-            elif(layer == (len(layers)*2)-2):
-                layer = 0
+            if(layer % 2 == 0 and not llm):
+                if(checkIfActivationLayerExists(hidden_sizes, actualLayer)):
+                    layer += 1
+                elif(layer == (len(layers)*2)-2):
+                    layer = 0
+                else:
+                    layer += 2
             else:
-                layer += 2
-        else:
-            if((layer == (len(layers)*2)-1 and llm != True) or (layer == (len(layers))-1 and llm == True)):
-                layer = 0
-            else:
+                #if((layer == (len(layers)*2)-1 and not llm) or (layer == (len(layers))-1 and llm)):
+                #    layer = 0
+                #else:
                 layer += 1
 
 def attachHooks(hookLoader, model, llmType = False, fileName = ""):
@@ -217,14 +216,10 @@ def attachHooks(hookLoader, model, llmType = False, fileName = ""):
         print(len(hookLoader))
         for source, (inputs, labels) in enumerate(hookLoader):
             layer = 0
-            sourceArray = np.zeros((totalLayers, np.max(layerSizes)), dtype=np.float128)
-            if(contextLength != 1):
-                sourceArray = np.zeros((totalLayers, contextLength, np.max(layerSizes)), dtype=np.float128)
             if not llmType:
                 inputs = inputs.float()
             inputs = inputs.to(device)
             _ = model(inputs)
-            saveSparseArray(sourceArray, fileName + str(source) + ".gz")
 
     # Remove hooks after use
     for hook in hooks:
@@ -336,124 +331,84 @@ def getMostUsedSources(sources, closestSources, weightedMode=""):
     print("Total closest Sources :" , sourceCounter, " | ", closestSources, " closest Sources (",weightedMode,") in format: [SourceNumber, Occurances]: ", counter.most_common()[:closestSources])
     return counter.most_common()[:closestSources]
 
-# Normalize to integer
-def normalize_to_integer(data):
-    if data.size == 0:  # Check if the data array is empty
-        return data  # Return the data unchanged if it's empty
-
+# Normalize function to convert to integer range
+def normalize_to_integer(data, min_val, max_val):
     min_int, max_int = 0, 4294967295
 
-    # Calculate min and max of the data
-    min_val = np.min(data)
-    max_val = np.max(data)
-
-    # If min_val and max_val are the same, we can't scale the data. In this case, return a default integer array.
     if min_val == max_val:
         return np.zeros_like(data, dtype=int)
 
-    # Normalize data to integer range
     normalized = np.round((data - min_val) * (max_int - min_int) / (max_val - min_val) + min_int).astype(int)
-
     return normalized
 
-# Compress the DataFrame and save as Parquet with gzip
-def compress_dataframe_parquet_gzip(df):
+# Function to compress DataFrame using ZSTD
+def compress_dataframe_zstd(df):
     buffer = io.BytesIO()
-    pq.write_table(pa.Table.from_pandas(df), buffer, compression='ZSTD')  # Parquet compression
-    return gzip.compress(buffer.getvalue())  # Further gzip compression
+    pq.write_table(pa.Table.from_pandas(df), buffer, compression='NONE')
+    uncompressed_data = buffer.getvalue()
 
-# Save sparse array (as sparse DataFrame) to a compressed file
+    cctx = zstd.ZstdCompressor()
+    compressed_data = cctx.compress(uncompressed_data)
+    return compressed_data
 
-def sparse_array_to_dataframe(sparse_array):
-    df = pd.DataFrame({
-        'row': sparse_array.row,
-        'col': sparse_array.col,
-        'value': sparse_array.data
-    })
+# Function to read and decompress DataFrame
+def read_existing_file(filepath):
+    if os.path.exists(filepath):
+        with open(filepath, 'rb') as f:
+            compressed_data = f.read()
 
-    return df
-def saveSparseArray(array, filename):
-    # Define the LookUp directory within the working directory
-    directory = './LookUp'  # Adjust this if tf is not the current working dir
-    os.makedirs(directory, exist_ok=True)  # Create the directory if it doesn't exist
+        dctx = zstd.ZstdDecompressor()
+        decompressed_data = dctx.decompress(compressed_data)
+        df = pd.read_parquet(io.BytesIO(decompressed_data))
+        return df
+    else:
+        return pd.DataFrame()
 
-    # Full path for the file
+# Function to append structured data
+def append_structured_sparse(array, filename, source_name, sentence_number):
+    directory = './LookUp'
+    os.makedirs(directory, exist_ok=True)
     filepath = os.path.join(directory, filename)
-
-    # Convert the sparse array to COO format (if it isn't already)
-    sparse_array = sp.coo_matrix(array)  # Assuming array is 2D or reshape beforehand
-
-    # Normalize the data (you need to implement `normalize_to_integer` yourself)
-    normalizedArray = normalize_to_integer(sparse_array.data)
-
-    # Store the min and max used for normalization
-    min_value = sparse_array.data.min()  # Minimum value of the original data
-    max_value = sparse_array.data.max()  # Maximum value of the original data
-
-    # Convert the sparse array to a dataframe
-    df = pd.DataFrame({
-        'row': sparse_array.row,
-        'col': sparse_array.col,
-        'value': normalizedArray
-    })
-
-    # Compress the dataframe
-    compressedArray = compress_dataframe_parquet_gzip(df)
-
-    # Save the min, max, and the compressed array to the file
+    
+    # Read existing file
+    df_existing = read_existing_file(filepath)
+    
+    # Convert dense array to sparse if necessary
+    if not sp.issparse(array):
+        array = sp.coo_matrix(array)  # Convert dense array to sparse COO format
+    
+    # Flatten the sparse array
+    flat_array = array.toarray().flatten()
+    
+    # Normalize the flattened data
+    min_val = flat_array.min()
+    max_val = flat_array.max()
+    normalized_flat_array = normalize_to_integer(flat_array, min_val, max_val)
+    
+    # Ensure column has consistent data type (float for metadata, int for neurons)
+    new_data = np.concatenate(([float(min_val), float(max_val)], normalized_flat_array.astype(int)))
+    
+    print("Filename: ", filename, ", Source: ", source_name, ", SentenceNr: ", sentence_number)
+    # Create a new DataFrame for this sentence
+    structured_data = pd.DataFrame({f'{source_name}:{sentence_number}': new_data})
+    
+    # Add index labels for the first column creation
+    if df_existing.empty:
+        index_labels = ['Min', 'Max'] + [f'Neuron {i}' for i in range(len(normalized_flat_array))]
+        structured_data.index = index_labels
+    else:
+        # Reuse existing index for alignment
+        structured_data.index = df_existing.index
+    
+    # Combine with existing data, ensuring consistent alignment and types
+    df_combined = pd.concat([df_existing, structured_data], axis=1)
+    
+    # Compress and save
+    compressed_data = compress_dataframe_zstd(df_combined)
     with open(filepath, 'wb') as f:
-        # Save min and max values as part of the saved file
-        pickle.dump((min_value, max_value, compressedArray), f)
+        f.write(compressed_data)
 
-def decompress_dataframe_parquet_gzip(compressed_data):
-    decompressed_data = gzip.decompress(compressed_data)
-
-    buffer = io.BytesIO(decompressed_data)
-    table = pq.read_table(buffer)
-    df = table.to_pandas()
-
-    return df
-
-def denormalize_data(normalized_data, min_value, max_value):
-    # Assuming the normalization was done using a scaling factor
-    return normalized_data * (max_value - min_value) + min_value
-
-def dataframe_to_sparse_array(df):
-    # Assuming df has columns 'row', 'col', and 'value' for the sparse matrix entries
-    if 'row' not in df.columns or 'col' not in df.columns or 'value' not in df.columns:
-        raise ValueError("DataFrame must contain 'row', 'col', and 'value' columns.")
-
-    # Extract the row, column, and value data from the DataFrame
-    rows = df['row'].values
-    cols = df['col'].values
-    values = df['value'].values
-
-    # Create the sparse matrix in COO format
-    sparse_matrix = sp.coo_matrix((values, (rows, cols)), shape=(df['row'].max() + 1, df['col'].max() + 1))
-
-    return sparse_matrix
-def restoreSparseArray(filename):
-    # Full path for the file
-    directory = './LookUp'  # Adjust this if tf is not the current working dir
-    filepath = os.path.join(directory, filename)
-
-    # Load the saved file (using pickle to get the min, max, and compressed data)
-    with open(filepath, 'rb') as f:
-        min_value, max_value, compressedArray = pickle.load(f)
-
-    # Decompress the array (you need to implement decompress logic)
-    df = decompress_dataframe_parquet_gzip(compressedArray)  # You need to implement this function
-
-    # Convert the dataframe back to a sparse matrix (you need to implement this)
-    sparse_array = dataframe_to_sparse_array(df)  # You need to implement this conversion
-
-    # Denormalize the data using min and max values
-    denormalized_data = denormalize_data(sparse_array.data, min_value, max_value)
-
-    # Restore the sparse array with denormalized data
-    restored_sparse_array = sp.coo_matrix((denormalized_data, sparse_array.indices, sparse_array.indptr), shape=sparse_array.shape)
-
-    return restored_sparse_array
+    #print(f"Data for {source_name} appended to {filename}.")
 
 #-------------------------------------------Debug----------------------------
 def save_sparse_3d_array(array, filename):
@@ -650,7 +605,7 @@ def analyzeData(closestSources, outputs, analyzeActivationsBySources = True):
     if(analyzeActivationsBySources):
         dictionary = activationsByLayers
 
-    save_sparse_3d_array(dictionary, 'SparseArray.txt')
+    #save_sparse_3d_array(dictionary, 'SparseArray.txt')
     #unique_values = getValuesCount(dictionary)
     compare_precision_results(closestSources, outputs)
 
