@@ -380,11 +380,14 @@ def append_structured_sparse(array, filename, source_name, sentence_number):
 
     # Convert to sparse COO format and flatten
     sparse_array = sp.coo_matrix(array) if not sp.issparse(array) else array
+    del array
     flat_array = sparse_array.toarray().flatten()
+    del sparse_array
 
     # Normalize to integer range
     min_val, max_val = flat_array.min(), flat_array.max()
     normalized_flat_array = normalize_to_integer(flat_array, min_val, max_val)
+    del flat_array
 
     # Create a new DataFrame for this sentence
     new_row = pd.DataFrame(
@@ -392,12 +395,17 @@ def append_structured_sparse(array, filename, source_name, sentence_number):
         columns=['Min', 'Max'] + [f'Neuron {i}' for i in range(len(normalized_flat_array))],
         index=[f'{source_name}:{sentence_number}']
     )
+    
+    del min_val, max_val, normalized_flat_array
 
     # Combine new row with existing data
     df_combined = pd.concat([df_existing, new_row])
+    del df_existing, new_row
 
     # Save compressed data
     compressed_data = compress_dataframe_zstd(df_combined)
+    del df_combined
+    
     with open(filepath, 'wb') as f:
         f.write(compressed_data)
 
