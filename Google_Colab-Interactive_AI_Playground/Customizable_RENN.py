@@ -179,7 +179,7 @@ def forward_hook(module, input, output):
             result = Verdict.getSourceAndSentenceIndex(source)
             if result is not None:
                 print("Filename: ", "Layer" + str(layer), ", Source: ", str(result[0]), ", SentenceNr: ", str(result[1]))
-                append_structured_sparse(relevantOutput[:layerNeurons], "Layer" + str(layer), str(result[0]), str(result[1]))
+                append_structured_sparse(output[:layerNeurons], "Layer" + str(layer), str(result[0]), str(result[1]))
         else:
             for neuronNumber, neuron in enumerate(output):
                 if neuronNumber < layerNeurons:
@@ -332,82 +332,78 @@ def getMostUsedSources(sources, closestSources, weightedMode=""):
     print("Total closest Sources :" , sourceCounter, " | ", closestSources, " closest Sources (",weightedMode,") in format: [SourceNumber, Occurances]: ", counter.most_common()[:closestSources])
     return counter.most_common()[:closestSources]
 
-# Normalize function to convert to integer range
-def normalize_to_integer(data, min_val, max_val):
+# Normalize function to convert to integer range for sparse arrays
+def normalize_to_integer_sparse(sparse_data, min_val, max_val):
+    """
+    Normalize sparse matrix values to the integer range [0, 4294967295].
+    """
     min_int, max_int = 0, 4294967295
 
     if min_val == max_val:
-        return np.zeros_like(data, dtype=int)
+        # If all elements are identical, return sparse zero array
+        return sp.coo_matrix(sparse_data.shape, dtype=np.int64)
 
-    normalized = np.round((data - min_val) * (max_int - min_int) / (max_val - min_val) + min_int).astype(int)
-    return normalized
+    # Compute scaling factors for normalization
+    scale_factor = (max_int - min_int) / (max_val - min_val)
+    shift_factor = min_int - min_val * scale_factor
+
+    # Convert sparse data to COO format for element-wise multiplication
+    sparse_data = sparse_data.tocoo()
+
+    # Apply normalization directly: sparse element-wise multiplication and shift
+    normalized_data = sparse_data.multiply(scale_factor)
+    normalized_data.data += shift_factor
+
+    # Convert data to int64 and ensure values are within the correct range
+    normalized_data.data = np.clip(np.round(normalized_data.data), min_int, max_int).astype(np.int64)
+
+    return normalized_data
 
 # Function to compress DataFrame using ZSTD
-def compress_dataframe_zstd(df):
-    buffer = io.BytesIO()
-    pq.write_table(pa.Table.from_pandas(df), buffer, compression='NONE')
-    uncompressed_data = buffer.getvalue()
+def compress_dataframe_zstd(filepath, df):
+    # Convert to PyArrow Table
+    table = pa.Table.from_pandas(df)
 
-    cctx = zstd.ZstdCompressor()
-    compressed_data = cctx.compress(uncompressed_data)
-    return compressed_data
+    # Ensure the layer directory exists
+    os.makedirs(filepath, exist_ok=True)
 
-# Function to read and decompress DataFrame
-def read_existing_file(filepath):
-    if os.path.exists(filepath):
-        with open(filepath, 'rb') as f:
-            compressed_data = f.read()
+    # Write to partitioned dataset, creating partitions if necessary
+    pq.write_to_dataset(
+        table,
+        root_path=filepath,
+        partition_cols=['source', 'sentence'],
+        compression='zstd'
+    )
 
-        dctx = zstd.ZstdDecompressor()
-        decompressed_data = dctx.decompress(compressed_data)
-        df = pd.read_parquet(io.BytesIO(decompressed_data))
-        return df
-    else:
-        return pd.DataFrame()
-
-# Function to append structured data
+# Function to append structured data to Parquet file without loading entire file
 def append_structured_sparse(array, filename, source_name, sentence_number):
     directory = './LookUp'
     os.makedirs(directory, exist_ok=True)
     filepath = os.path.join(directory, filename)
 
-    # Read existing data or initialize an empty DataFrame
-    df_existing = read_existing_file(filepath) if os.path.exists(filepath) else pd.DataFrame()
-
-    # Flatten array if it has more than 2 dimensions
-    if array.ndim > 2:
-        array = array.reshape(-1, array.shape[-1])
-
-    # Convert to sparse COO format and flatten
+    # Convert to sparse COO format and normalize
     sparse_array = sp.coo_matrix(array) if not sp.issparse(array) else array
-    del array
-    flat_array = sparse_array.toarray().flatten()
-    del sparse_array
+    del array  # Free original array memory
 
-    # Normalize to integer range
-    min_val, max_val = flat_array.min(), flat_array.max()
-    normalized_flat_array = normalize_to_integer(flat_array, min_val, max_val)
-    del flat_array
+    # Normalize the sparse array directly (still in COO format)
+    min_val, max_val = sparse_array.min(), sparse_array.max()
+    normalized_sparse_array = normalize_to_integer_sparse(sparse_array, min_val, max_val)
+    del sparse_array  # Free the sparse array memory
 
-    # Create a new DataFrame for this sentence
-    new_row = pd.DataFrame(
-        [[float(min_val), float(max_val)] + normalized_flat_array.tolist()],
-        columns=['Min', 'Max'] + [f'Neuron {i}' for i in range(len(normalized_flat_array))],
-        index=[f'{source_name}:{sentence_number}']
-    )
-    
-    del min_val, max_val, normalized_flat_array
+    # Prepare sparse row dictionary with normalization
+    row_dict = {
+        'Min': float(min_val),
+        'Max': float(max_val),
+        **{f'Neuron {col}': value for col, value in zip(normalized_sparse_array.indices, normalized_sparse_array.data)},
+        'source': source_name,
+        'sentence': sentence_number
+    }
 
-    # Combine new row with existing data
-    df_combined = pd.concat([df_existing, new_row])
-    del df_existing, new_row
+    # Convert to DataFrame and pass into the compression function
+    new_row = pd.DataFrame([row_dict])
+    compress_dataframe_zstd(filepath, new_row)
 
-    # Save compressed data
-    compressed_data = compress_dataframe_zstd(df_combined)
-    del df_combined
-    
-    with open(filepath, 'wb') as f:
-        f.write(compressed_data)
+    del new_row
 
     #print(f"Data for {source_name} appended to {filename}.")
 
