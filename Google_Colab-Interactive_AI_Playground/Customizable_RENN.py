@@ -140,64 +140,64 @@ class CustomizableRENN(nn.Module):
 # Forward hook
 def forward_hook(module, input, output):
     global layer, source, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, sourceArray, hidden_sizes, llm
+        
+    #if not (isinstance(module, nn.Sequential) or isinstance(module, Small1x1.FeedForward) or isinstance(module, Small1x1.TransformerBlock) or isinstance(module, nn.Dropout) or isinstance(module, Verdict.FeedForward) or isinstance(module, Verdict.TransformerBlock)):
+    if (llm == True):
+        actualLayer = layer
+        layerNeurons = layers[actualLayer][1]
+        if(source >= dictionaryForSourceLayerNeuron.shape[0]):
+            return
+    else:
+        actualLayer = int(layer/2)
+        layerNeurons = layers[actualLayer][1].out_features
 
-    if not (isinstance(module, nn.Sequential) or isinstance(module, Small1x1.FeedForward) or isinstance(module, Small1x1.TransformerBlock) or isinstance(module, nn.Dropout) or isinstance(module, Verdict.FeedForward) or isinstance(module, Verdict.TransformerBlock)):
-        if (llm == True):
-            actualLayer = layer
-            layerNeurons = layers[actualLayer][1]
-            if(source >= dictionaryForSourceLayerNeuron.shape[0]):
-                return
+    correctTypes = False
+    if(llm == False):
+        activation_type = type(getActivation(hidden_sizes, actualLayer)) 
+        layer_type = type(getLayer(hidden_sizes, actualLayer))
+        if (type(module) == activation_type or type(module) == layer_type):
+            correctTypes = True
+
+    relevantOutput = output[0].cpu().numpy()
+
+    #print(layer, layers[layer], relevantOutput.shape)
+
+    if(correctTypes or llm):
+        #Use for array structure like: [source, layer, neuron]
+        if(len(relevantOutput.shape) > 1):
+            if(relevantOutput.shape[1] != layerNeurons):
+                layerNeurons = relevantOutput.shape[1]
+                #layers[actualLayer] = (layers[actualLayer][0], relevantOutput.shape[1], layers[layer][2:])
+        if(correctTypes):
+            dictionaryForSourceLayerNeuron[source][layer,:layerNeurons] = relevantOutput
+        # if(source == 0):
+        #   print(relevantOutput, dictionaryForSourceLayerNeuron[source][layer,:layerNeurons])
+
+        #Use for array structure like: [layer, neuron, source]
+        output = relevantOutput if len(relevantOutput.shape) == 1 else relevantOutput[0]
+        if(llm):
+            result = Verdict.getSourceAndSentenceIndex(source)
+            if result is not None:
+                print("Filename: ", "Layer" + str(layer), ", Source: ", str(result[0]), ", SentenceNr: ", str(result[1]))
+                append_structured_sparse(relevantOutput[:layerNeurons], "Layer" + str(layer), str(result[0]), str(result[1]))
         else:
-            actualLayer = int(layer/2)
-            layerNeurons = layers[actualLayer][1].out_features
-
-        correctTypes = False
-        if(llm == False):
-            activation_type = type(getActivation(hidden_sizes, actualLayer)) 
-            layer_type = type(getLayer(hidden_sizes, actualLayer))
-            if (type(module) == activation_type or type(module) == layer_type):
-                correctTypes = True
-
-        relevantOutput = output[0].cpu().numpy()
-
-        #print(layer, layers[layer], relevantOutput.shape)
-
-        if(correctTypes or llm):
-            #Use for array structure like: [source, layer, neuron]
-            if(len(relevantOutput.shape) > 1):
-                if(relevantOutput.shape[1] != layerNeurons):
-                    layerNeurons = relevantOutput.shape[1]
-                    #layers[actualLayer] = (layers[actualLayer][0], relevantOutput.shape[1], layers[layer][2:])
-            if(correctTypes):
-                dictionaryForSourceLayerNeuron[source][layer,:layerNeurons] = relevantOutput
-            # if(source == 0):
-            #   print(relevantOutput, dictionaryForSourceLayerNeuron[source][layer,:layerNeurons])
-
-            #Use for array structure like: [layer, neuron, source]
-            output = relevantOutput if len(relevantOutput.shape) == 1 else relevantOutput[0]
-            if(llm):
-                result = Verdict.getSourceAndSentenceIndex(source)
-                if result is not None:
-                    print("Filename: ", "Layer" + str(layer), ", Source: ", str(result[0]), ", SentenceNr: ", str(result[1]))
-                    #append_structured_sparse(relevantOutput[:layerNeurons], "Layer" + str(layer), str(result[0]), str(result[1]))
-            else:
-                for neuronNumber, neuron in enumerate(output):
-                    if neuronNumber < layerNeurons:
-                        dictionaryForLayerNeuronSource[layer][neuronNumber][source] = neuron
-                    else:
-                        break
-
-            if(layer % 2 == 0 and not llm):
-                if(checkIfActivationLayerExists(hidden_sizes, actualLayer)):
-                    layer += 1
-                elif(layer == (len(layers)*2)-2):
-                    layer = 0
+            for neuronNumber, neuron in enumerate(output):
+                if neuronNumber < layerNeurons:
+                    dictionaryForLayerNeuronSource[layer][neuronNumber][source] = neuron
                 else:
-                    layer += 2
+                    break
+
+        if(layer % 2 == 0 and not llm):
+            if(checkIfActivationLayerExists(hidden_sizes, actualLayer)):
+                layer += 1
+            elif(layer == (len(layers)*2)-2):
+                layer = 0
             else:
-                #if((layer == (len(layers)*2)-1 and not llm) or (layer == (len(layers))-1 and llm)):
-                #    layer = 0
-                #else:
+                layer += 2
+        else:
+            if((layer == (len(layers)*2)-1 and not llm) or (layer == (len(layers))-1 and llm)):
+                layer = 0
+            else:
                 layer += 1
 
 def attachHooks(hookLoader, model, llmType = False, fileName = ""):
@@ -207,7 +207,8 @@ def attachHooks(hookLoader, model, llmType = False, fileName = ""):
     outputs = np.array([])
 
     for name, module in model.named_modules():
-        if not isinstance(module, CustomizableRENN):
+        if not isinstance(module, CustomizableRENN) and not isinstance(module, Verdict.GPTModel)\
+                and not isinstance(module, Small1x1.GPTModel):
             hook = module.register_forward_hook(forward_hook)
             hooks.append(hook)
     
@@ -369,41 +370,33 @@ def append_structured_sparse(array, filename, source_name, sentence_number):
     directory = './LookUp'
     os.makedirs(directory, exist_ok=True)
     filepath = os.path.join(directory, filename)
-    
-    # Read existing file
-    df_existing = read_existing_file(filepath)
-    
-    # Convert dense array to sparse if necessary
-    if not sp.issparse(array):
-        array = sp.coo_matrix(array)  # Convert dense array to sparse COO format
-    
-    # Flatten the sparse array
-    flat_array = array.toarray().flatten()
-    
-    # Normalize the flattened data
-    min_val = flat_array.min()
-    max_val = flat_array.max()
+
+    # Read existing data or initialize an empty DataFrame
+    df_existing = read_existing_file(filepath) if os.path.exists(filepath) else pd.DataFrame()
+
+    # Flatten array if it has more than 2 dimensions
+    if array.ndim > 2:
+        array = array.reshape(-1, array.shape[-1])
+
+    # Convert to sparse COO format and flatten
+    sparse_array = sp.coo_matrix(array) if not sp.issparse(array) else array
+    flat_array = sparse_array.toarray().flatten()
+
+    # Normalize to integer range
+    min_val, max_val = flat_array.min(), flat_array.max()
     normalized_flat_array = normalize_to_integer(flat_array, min_val, max_val)
-    
-    # Ensure column has consistent data type (float for metadata, int for neurons)
-    new_data = np.concatenate(([float(min_val), float(max_val)], normalized_flat_array.astype(int)))
-    
-    print("Filename: ", filename, ", Source: ", source_name, ", SentenceNr: ", sentence_number)
+
     # Create a new DataFrame for this sentence
-    structured_data = pd.DataFrame({f'{source_name}:{sentence_number}': new_data})
-    
-    # Add index labels for the first column creation
-    if df_existing.empty:
-        index_labels = ['Min', 'Max'] + [f'Neuron {i}' for i in range(len(normalized_flat_array))]
-        structured_data.index = index_labels
-    else:
-        # Reuse existing index for alignment
-        structured_data.index = df_existing.index
-    
-    # Combine with existing data, ensuring consistent alignment and types
-    df_combined = pd.concat([df_existing, structured_data], axis=1)
-    
-    # Compress and save
+    new_row = pd.DataFrame(
+        [[float(min_val), float(max_val)] + normalized_flat_array.tolist()],
+        columns=['Min', 'Max'] + [f'Neuron {i}' for i in range(len(normalized_flat_array))],
+        index=[f'{source_name}:{sentence_number}']
+    )
+
+    # Combine new row with existing data
+    df_combined = pd.concat([df_existing, new_row])
+
+    # Save compressed data
     compressed_data = compress_dataframe_zstd(df_combined)
     with open(filepath, 'wb') as f:
         f.write(compressed_data)

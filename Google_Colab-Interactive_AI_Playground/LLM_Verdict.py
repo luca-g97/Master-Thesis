@@ -165,20 +165,31 @@ def setGPTSettings(layerAmount, learningRate, epochs):
 
     settings = {"learning_rate": learningRate, "weight_decay": 0.1, "batch_size": 8, "num_epochs": epochs}
 
-    LLM_Layers = [[('Embedding', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["vocab_size"]),
-     ('Embedding', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"])],
-     #('Dropout', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["drop_rate"])],
-      [('LayerNorm', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
-     ('Linear', GPT_CONFIG_124M["vocab_size"], GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["vocab_size"])]]
-
+    LLM_Layers = [[('Embedding', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
+         ('Embedding', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
+         ('Dropout', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["drop_rate"])
+         ], [('Sequential', GPT_CONFIG_124M["emb_dim"], 4 * GPT_CONFIG_124M["emb_dim"]),
+         ('LayerNorm', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
+         ('Linear', GPT_CONFIG_124M["vocab_size"], GPT_CONFIG_124M["emb_dim"])]]
+    
     TransformerBlockLayer = [('LayerNorm', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
-     ('Linear', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
-     ('Linear', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
-     ('Linear', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
-     #('Dropout', 2, GPT_CONFIG_124M["drop_rate"]),
-     ('Linear', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
-     ('MultiHeadAttention', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"])]
-     #('Dropout', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["drop_rate"])]
+    ('Linear', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
+    ('Linear', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
+    ('Linear', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
+    ('Dropout', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["drop_rate"]),
+    ('Linear', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
+    ('MultiHeadAttention', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
+    ('Dropout', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["drop_rate"]),
+    ('LayerNorm', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
+    ('Linear', GPT_CONFIG_124M["emb_dim"], 4 * GPT_CONFIG_124M["emb_dim"]),
+    ('GELU', 4 * GPT_CONFIG_124M["emb_dim"], 4 * GPT_CONFIG_124M["emb_dim"]),
+    ('Linear', 4 * GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
+    ('Sequential', GPT_CONFIG_124M["emb_dim"], 4 * GPT_CONFIG_124M["emb_dim"]),
+    ('FeedForward', GPT_CONFIG_124M["emb_dim"], 4 * GPT_CONFIG_124M["emb_dim"]),
+    ('Dropout', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["drop_rate"]),
+    ('TransformerBlock', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"])
+    ]
+     
     
     return LLM_Layers, TransformerBlockLayer
 
@@ -257,7 +268,7 @@ def createLLMLoaders(train_samplesParameter, test_samplesParameter, eval_samples
 
     # Create loaders with sentences and context length
     train_loader = createLLMLoader(train_sentences, 32, 32, True)
-    val_loader = createLLMLoader(test_sentences, 32, 32, True)
+    val_loader = createLLMLoader(test_sentences, 8, 32, True)
     eval_loader = createLLMLoader(eval_sentences, 1, context_length=1)
 
     return train_loader, val_loader, eval_loader
@@ -424,8 +435,8 @@ def initializeDatasets(train_samples, test_samples, eval_samples, batch_size_tra
 
 def initializeTraining(hidden_sizes, loss_function, optimizer, learning_rate):
     global model, criterion_class, chosen_optimizer, layers
-    input_size = len(torch.flatten(torch.tensor(train_loader.dataset[0][0])))
-    output_size = len(torch.flatten(torch.tensor(train_loader.dataset[0][1])))
+    input_size = len(torch.flatten(train_loader.dataset[0][0].clone().detach()))
+    output_size = len(torch.flatten(train_loader.dataset[0][1].clone().detach()))
 
     model = GPTModel(GPT_CONFIG_124M)
     model.to(device)
