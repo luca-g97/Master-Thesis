@@ -360,7 +360,7 @@ def normalize_to_integer_sparse(sparse_data, min_val, max_val):
     return normalized_data
 
 # Function to compress DataFrame using ZSTD
-def compress_dataframe_zstd(filepath, df):
+def compress_dataframe_zstd(filepath, fileName, df):
     # Convert to PyArrow Table
     table = pa.Table.from_pandas(df)
 
@@ -370,8 +370,9 @@ def compress_dataframe_zstd(filepath, df):
     # Write to partitioned dataset, creating partitions if necessary
     pq.write_to_dataset(
         table,
-        root_path=filepath,
-        partition_cols=['source', 'sentence'],
+        root_path= f"{filepath}",
+        partition_cols=['Source'],
+        filename=fileName,
         compression='zstd'
     )
 
@@ -393,16 +394,16 @@ def append_structured_sparse(array, filename, source_name, sentence_number):
     if normalized_sparse_array.nnz != 0:
         # Prepare sparse row dictionary with normalization
         row_dict = {
+            'Source': source_name,
+            'Sentence': sentence_number,
             'Min': float(min_val),
             'Max': float(max_val),
-            **{f'Neuron {col}': value for col, value in zip(normalized_sparse_array.indices, normalized_sparse_array.data)},
-            'source': source_name,
-            'sentence': sentence_number
+            **{f'Neuron {col}': value for col, value in zip(normalized_sparse_array.indices, normalized_sparse_array.data)}
         }
     
         # Convert to DataFrame and pass into the compression function
         new_row = pd.DataFrame([row_dict])
-        compress_dataframe_zstd(filepath, new_row)
+        compress_dataframe_zstd(filepath, f"Sentence{sentence_number}", new_row)
     
         del new_row
 
