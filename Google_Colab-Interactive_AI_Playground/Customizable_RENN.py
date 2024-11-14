@@ -390,20 +390,21 @@ def append_structured_sparse(array, filename, source_name, sentence_number):
     normalized_sparse_array = normalize_to_integer_sparse(sparse_array, min_val, max_val)
     del sparse_array  # Free the sparse array memory
 
-    # Prepare sparse row dictionary with normalization
-    row_dict = {
-        'Min': float(min_val),
-        'Max': float(max_val),
-        **{f'Neuron {col}': value for col, value in zip(normalized_sparse_array.indices, normalized_sparse_array.data)},
-        'source': source_name,
-        'sentence': sentence_number
-    }
-
-    # Convert to DataFrame and pass into the compression function
-    new_row = pd.DataFrame([row_dict])
-    compress_dataframe_zstd(filepath, new_row)
-
-    del new_row
+    if normalized_sparse_array.nnz != 0:
+        # Prepare sparse row dictionary with normalization
+        row_dict = {
+            'Min': float(min_val),
+            'Max': float(max_val),
+            **{f'Neuron {col}': value for col, value in zip(normalized_sparse_array.indices, normalized_sparse_array.data)},
+            'source': source_name,
+            'sentence': sentence_number
+        }
+    
+        # Convert to DataFrame and pass into the compression function
+        new_row = pd.DataFrame([row_dict])
+        compress_dataframe_zstd(filepath, new_row)
+    
+        del new_row
 
     #print(f"Data for {source_name} appended to {filename}.")
 
