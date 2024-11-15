@@ -360,7 +360,7 @@ def normalize_to_integer_sparse(sparse_data, min_val, max_val):
     return normalized_data
 
 # Function to compress DataFrame using ZSTD
-def compress_dataframe_zstd(filepath, fileName, df):
+def compress_dataframe_zstd(filepath, df):
     # Convert to PyArrow Table
     table = pa.Table.from_pandas(df)
 
@@ -371,8 +371,7 @@ def compress_dataframe_zstd(filepath, fileName, df):
     pq.write_to_dataset(
         table,
         root_path= f"{filepath}",
-        partition_cols=['Source'],
-        filename=fileName,
+        partition_cols=['Source', 'Sentence'],
         compression='zstd'
     )
 
@@ -403,7 +402,7 @@ def append_structured_sparse(array, filename, source_name, sentence_number):
     
         # Convert to DataFrame and pass into the compression function
         new_row = pd.DataFrame([row_dict])
-        compress_dataframe_zstd(filepath, f"Sentence{sentence_number}", new_row)
+        compress_dataframe_zstd(filepath, new_row)
     
         del new_row
 
