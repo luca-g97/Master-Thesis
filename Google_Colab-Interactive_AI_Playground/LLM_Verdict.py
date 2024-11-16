@@ -1,4 +1,5 @@
 import torch
+from pip._internal.index import sources
 from torch import nn
 import torch.optim as optim
 from torch.utils.data import Dataset
@@ -241,9 +242,7 @@ def create_dataloader_v1(sentences, tokenizer, batch_size=4, max_length=256, shu
     dataset = GPTDatasetV1(sentences, tokenizer, max_length)
 
     # Create dataloader
-    dataloader = DataLoader(
-        dataset, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last, collate_fn=custom_collate_fn
-    )
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last, collate_fn=custom_collate_fn)
 
     return dataloader
 
@@ -259,16 +258,17 @@ def createLLMLoader(sentences, batch_size, context_length, shuffle=False, drop_l
     return loader
 
 def createLLMLoaders(train_samplesParameter, test_samplesParameter, eval_samplesParameter):
-    global train_loader, val_loader, eval_loader, sentences
+    global train_loader, val_loader, eval_loader, train_samples, test_samples, eval_samples, tokenizer
 
+    train_samples, test_samples, eval_samples = train_samplesParameter, test_samplesParameter, eval_samplesParameter
     # Split the sentences into train, test, and eval sets
-    train_sentences = sentences[:train_samplesParameter]
-    test_sentences = sentences[train_samplesParameter:train_samplesParameter + test_samplesParameter]
-    eval_sentences = sentences[train_samplesParameter + test_samplesParameter:train_samplesParameter + test_samplesParameter + eval_samplesParameter]
+    train_sentences = sentences[:train_samples]
+    test_sentences = sentences[train_samples:train_samples + test_samples]
+    eval_sentences = sentences[train_samples + test_samples:train_samples + test_samples + eval_samples]
 
     # Create loaders with sentences and context length
-    train_loader = createLLMLoader(train_sentences, 32, 32, True)
-    val_loader = createLLMLoader(test_sentences, 8, 32, True)
+    train_loader = createLLMLoader(train_sentences, 32 if train_samples >= 32 else train_samples, 32, True)
+    val_loader = createLLMLoader(test_sentences, 8 if test_samples >= 8 else test_samples, 32, True)
     eval_loader = createLLMLoader(eval_sentences, 1, context_length=1)
 
     return train_loader, val_loader, eval_loader
@@ -573,9 +573,9 @@ def initializeHook(hidden_sizes, train_samples):
 
     samples = sentences[:train_samples]
     train_loader = createLLMLoader(samples, 1, context_length=1)
-    
+
     RENN.runHooks(train_loader, model, hidden_sizes, True)
-    
+
 
 def generate(model, idx, max_new_tokens, context_size, temperature, top_k=None):
 
@@ -635,23 +635,22 @@ def getLLMPrediction(sample):
 
 def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
     global train_samples, test_samples, eval_samples, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
-    
-    dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource = RENN.initializeEvaluationHook(hidden_sizes, eval_loader, train_samples, model)
+
+    RENN.initializeEvaluationHook(hidden_sizes, eval_loader, train_samples, model)
+    closestSourcesPerNeuron = RENN.identifyClosestLLMSources(closestSources, eval_samples)
+
     for sampleNumber in range(eval_samples):
-        #TODO: Save calculations to file and hook in evaluation mode onto the model!
-        sources, outputs, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[sampleNumber])
-        #print(activationsByLayers, dictionaryForSourceLayerNeuron[sampleNumber])
-        mostUsedSources = RENN.getMostUsedSources(sources, closestSources, "")
+        mostUsedSources = RENN.getMostUsedSources(closestSourcesPerNeuron[sampleNumber], closestSources, "")
         sample, prediction = getLLMPrediction(sentences[train_samples+test_samples+sampleNumber])
-        print("Evaluation Sample ", sampleNumber, ": ", sample.replace('\n', ''))
-        print("Follow up: ", prediction.replace('\n', ''))
+        print("Evaluation Sample ", sampleNumber, ": ", sample.replace('\n', '').replace('<|endoftext|>', ''))
+        print("Follow up: ", prediction.replace('\n', '').replace('<|endoftext|>', ''))
         print("Closest Sources in format [SourceNumber, Occurrences, Source]:")
         for sourceNumber, count in mostUsedSources[:closestSources]:
-            sentence = sentences[sourceNumber].replace('\n', '')
+            print(sourceNumber, count)
+            tempSource = sourceNumber.split(":")
+            source, sentence = tempSource[0], tempSource[1]
+            sentence = sentencesStructure[source][sentence].replace('\n', '').replace('<|endoftext|>', '')
             print(f"Source: {sourceNumber}, Count: {count}, Sentence: {sentence}")
-        print("Whole List: ", [(sourceNumber, count, sentences[sourceNumber]) for sourceNumber, count in mostUsedSources], "\n")
-
-        if(analyze):
-            RENN.analyzeData(closestSources, dictionaryForSourceLayerNeuron[sampleNumber])
+        print("Whole List: ", [(sourceNumber, count, sentencesStructure[sourceNumber.split(":")[0]][sourceNumber.split(":")[1]].replace('\n', '').replace('<|endoftext|>', '')) for sourceNumber, count in mostUsedSources], "\n")
     
     #print(f"Time passed since start: {time_since_start(startTime)}")

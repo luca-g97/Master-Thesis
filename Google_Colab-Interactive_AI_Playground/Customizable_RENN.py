@@ -5,24 +5,25 @@ from collections import Counter
 import LLM_Small1x1 as Small1x1
 import LLM_Verdict as Verdict
 import scipy.sparse as sp
+import shutil
 import pickle
 import math
 import gzip
 import os
 
 layer, source, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, activationsBySources, activationsByLayers, totalLayers = "", "", "", "", "", "", ""
-llm, layerSizes, device, hidden_sizes, layers, layers, currentLayer, relevantLayerIndices, useBitNet = "", "", "", "", "", [], 0, [], False
-sourceArray, contextLength, io, pd, pa, pq, zstd = "", 1, "", "", "", "", ""
+llm, layerSizes, device, hidden_sizes, layers, currentLayer, relevantLayerIndices, useBitNet = "", "", "", "", [], 0, [], False
+sourceArray, fileName, contextLength, io, pd, pa, pq, zstd, baseDirectory = "", "", 1, "", "", "", "", "", "./LookUp"
 
 def initializePackages(devicePackage, ioPackage, pdPackage, paPackage, pqPackage, zstdPackage, seed="", useBitLinear=False):
-    global device, np, torch, useBitNet, io, pd, pa, pq, zstd 
-    
+    global device, np, torch, useBitNet, io, pd, pa, pq, zstd
+
     device, io, pd, pa, pq, zstd = devicePackage, ioPackage, pdPackage, paPackage, pqPackage, zstdPackage
     useBitNet = useBitLinear
     if(seed != ""):
         torch.manual_seed(seed)
         np.random.seed(seed)
-        
+
 #Bitnet-1.58b
 def weight_quant(weight, num_bits=1):
     dtype = weight.dtype
@@ -97,6 +98,7 @@ def createLayers(layerName, layerType, activationLayerType):
 class CustomizableRENN(nn.Module):
     def __init__(self, input_size, hidden_layers, output_size):
         super(CustomizableRENN, self).__init__()
+        
         #Add input and output layer to the hidden_layers
         self.num_layers = (len(hidden_layers))
         self.hidden_layers = hidden_layers
@@ -139,20 +141,20 @@ class CustomizableRENN(nn.Module):
 
 # Forward hook
 def forward_hook(module, input, output):
-    global layer, source, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, sourceArray, hidden_sizes, llm
-        
+    global layer, source, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, sourceArray, hidden_sizes, llm, fileName
+
     #if not (isinstance(module, nn.Sequential) or isinstance(module, Small1x1.FeedForward) or isinstance(module, Small1x1.TransformerBlock) or isinstance(module, nn.Dropout) or isinstance(module, Verdict.FeedForward) or isinstance(module, Verdict.TransformerBlock)):
-    if (llm == True):
+    if (llm):
         actualLayer = layer
         layerNeurons = layers[actualLayer][1]
-        if(source >= dictionaryForSourceLayerNeuron.shape[0]):
-            return
+        #if(source >= dictionaryForSourceLayerNeuron.shape[0]):
+        #    return
     else:
         actualLayer = int(layer/2)
         layerNeurons = layers[actualLayer][1].out_features
 
     correctTypes = False
-    if(llm == False):
+    if not llm:
         activation_type = type(getActivation(hidden_sizes, actualLayer)) 
         layer_type = type(getLayer(hidden_sizes, actualLayer))
         if (type(module) == activation_type or type(module) == layer_type):
@@ -178,8 +180,8 @@ def forward_hook(module, input, output):
         if(llm):
             result = Verdict.getSourceAndSentenceIndex(source)
             if result is not None:
-                print("Filename: ", "Layer" + str(layer), ", Source: ", str(result[0]), ", SentenceNr: ", str(result[1]))
-                append_structured_sparse(output[:layerNeurons], "Layer" + str(layer), str(result[0]), str(result[1]))
+                print(f"Create File: LookUp/{fileName}/Layer{layer}/Source{result[0]}/Sentence{result[1]}-0")
+                append_structured_sparse(output[:layerNeurons], str(layer), str(result[0]), str(result[1]))
         else:
             for neuronNumber, neuron in enumerate(output):
                 if neuronNumber < layerNeurons:
@@ -200,9 +202,10 @@ def forward_hook(module, input, output):
             else:
                 layer += 1
 
-def attachHooks(hookLoader, model, llmType = False, fileName = ""):
-    global source, layer, sourceArray, contextLength
+def attachHooks(hookLoader, model, llmType = False, filename = ""):
+    global source, layer, sourceArray, fileName
 
+    fileName = filename
     hooks = []  # Store the handles for each hook
     outputs = np.array([])
 
@@ -211,10 +214,9 @@ def attachHooks(hookLoader, model, llmType = False, fileName = ""):
                 and not isinstance(module, Small1x1.GPTModel):
             hook = module.register_forward_hook(forward_hook)
             hooks.append(hook)
-    
+
     with torch.no_grad():
         # Forward Pass
-        print(len(hookLoader))
         for source, (inputs, labels) in enumerate(hookLoader):
             layer = 0
             if not llmType:
@@ -236,26 +238,29 @@ def createDictionaries(hidden_sizes, totalLayersParameter, train_samples):
     else:
         activationsBySources = np.zeros((train_samples, totalLayers, np.max(layerSizes)), dtype=np.float128)
         activationsByLayers = np.zeros((totalLayers, np.max(layerSizes), train_samples), dtype=np.float128)
-    print("Hook-Dictionaries created")# - ", "Activations by Sources (Shape): ", activationsBySources.shape, " | ", "Activations by Layers (Shape): ", activationsByLayers.shape)
+    print("Hook-Dictionaries created")
 
-def runHooks(train_dataloader, model, layersParameter=layers, llmType = False, context_length = 1):
+def runHooks(train_dataloader, model, layersParameter=layers, llmType=False, context_length=1):
     global layers, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, activationsBySources, activationsByLayers, llm, contextLength
-    
+
     #Variables for usage within the hook
     llm = llmType
     layers = layersParameter
     contextLength = context_length
-    dictionaryForSourceLayerNeuron = activationsBySources
-    dictionaryForLayerNeuronSource = activationsByLayers
+    if not llm:
+        dictionaryForSourceLayerNeuron = activationsBySources
+        dictionaryForLayerNeuronSource = activationsByLayers
 
-    attachHooks(train_dataloader, model, llmType, fileName="T")
-    activationsBySources = dictionaryForSourceLayerNeuron
-    activationsByLayers = dictionaryForLayerNeuronSource
+    attachHooks(train_dataloader, model, llmType, filename="Training")
+
+    if not llm:
+        activationsBySources = dictionaryForSourceLayerNeuron
+        activationsByLayers = dictionaryForLayerNeuronSource
     print("Hooks finished successfully")
 
 def initializeHook(train_dataloader, model, hidden_sizesParameter, train_samples):
     global totalLayers, layer, hidden_sizes, source, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, activationsBySources, activationsByLayers
-    
+
     print("Initializing Hooks")
     hidden_sizes = hidden_sizesParameter
     totalLayers = len(layers)*2
@@ -265,12 +270,13 @@ def initializeHook(train_dataloader, model, hidden_sizesParameter, train_samples
 def initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model, llmType = False):
     global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
     
-    dictionaryForSourceLayerNeuron = np.zeros((eval_samples, totalLayers, np.max(layerSizes)), dtype=np.float128)
-    dictionaryForLayerNeuronSource = np.zeros((totalLayers, np.max(layerSizes), eval_samples), dtype=np.float128)
+    if not llm:
+        dictionaryForSourceLayerNeuron = np.zeros((eval_samples, totalLayers, np.max(layerSizes)), dtype=np.float128)
+        dictionaryForLayerNeuronSource = np.zeros((totalLayers, np.max(layerSizes), eval_samples), dtype=np.float128)
 
     with torch.no_grad():
         model.eval()  # Set the model to evaluation mode
-        attachHooks(eval_dataloader, model, llmType, "E")
+        attachHooks(eval_dataloader, model, llmType, "Evaluation")
 
     return dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
 
@@ -329,14 +335,11 @@ def getMostUsedSources(sources, closestSources, weightedMode=""):
     sourceCounter, mostUsed = getMostUsed(sources, weightedMode)
     counter = Counter(mostUsed)
 
-    print("Total closest Sources :" , sourceCounter, " | ", closestSources, " closest Sources (",weightedMode,") in format: [SourceNumber, Occurances]: ", counter.most_common()[:closestSources])
+    print("Total closest Sources :", sourceCounter, " | ", closestSources, " closest Sources (", weightedMode, ") in format: [SourceNumber, Occurances]: ", counter.most_common()[:closestSources])
     return counter.most_common()[:closestSources]
 
 # Normalize function to convert to integer range for sparse arrays
 def normalize_to_integer_sparse(sparse_data, min_val, max_val):
-    """
-    Normalize sparse matrix values to the integer range [0, 4294967295].
-    """
     min_int, max_int = 0, 4294967295
 
     if min_val == max_val:
@@ -360,7 +363,7 @@ def normalize_to_integer_sparse(sparse_data, min_val, max_val):
     return normalized_data
 
 # Function to compress DataFrame using ZSTD
-def compress_dataframe_zstd(filepath, df):
+def compress_dataframe_zstd(filepath, df, sentence_number):
     # Convert to PyArrow Table
     table = pa.Table.from_pandas(df)
 
@@ -370,16 +373,16 @@ def compress_dataframe_zstd(filepath, df):
     # Write to partitioned dataset, creating partitions if necessary
     pq.write_to_dataset(
         table,
-        root_path= f"{filepath}",
-        partition_cols=['Source', 'Sentence'],
+        root_path=f"{filepath}",
+        partition_cols=['Source'],
+        basename_template=f"Sentence{sentence_number}-{{i}}.parquet",
         compression='zstd'
     )
 
 # Function to append structured data to Parquet file without loading entire file
 def append_structured_sparse(array, filename, source_name, sentence_number):
-    directory = './LookUp'
-    os.makedirs(directory, exist_ok=True)
-    filepath = os.path.join(directory, filename)
+    os.makedirs(baseDirectory, exist_ok=True)
+    filepath = os.path.join(baseDirectory, fileName, f"Layer{filename}")
 
     # Convert to sparse COO format and normalize
     sparse_array = sp.coo_matrix(array) if not sp.issparse(array) else array
@@ -397,16 +400,122 @@ def append_structured_sparse(array, filename, source_name, sentence_number):
             'Sentence': sentence_number,
             'Min': float(min_val),
             'Max': float(max_val),
-            **{f'Neuron {col}': value for col, value in zip(normalized_sparse_array.indices, normalized_sparse_array.data)}
+            **{f"Neuron {idx}": val for idx, val in zip(normalized_sparse_array.indices, normalized_sparse_array.data)},
         }
-    
+
         # Convert to DataFrame and pass into the compression function
         new_row = pd.DataFrame([row_dict])
-        compress_dataframe_zstd(filepath, new_row)
-    
+        compress_dataframe_zstd(filepath, new_row, sentence_number)
         del new_row
 
     #print(f"Data for {source_name} appended to {filename}.")
+
+# Split the path based on "/" to get the relevant parts
+def getInformationFromFileName(filepath):
+    path_parts = filepath.split('/')
+
+    # Extract Layer, Source, and Sentence
+    layer = int(path_parts[3].replace('Layer', ''))  # Layer part: "Layer0" -> 0
+    source = int(path_parts[4].replace('Source=', ''))  # Source part: "Source=0" -> 0
+    sentence = int(path_parts[5].split('-')[0].replace('Sentence', ''))  # Sentence part: "Sentence0-0" -> 0
+    return layer, source, sentence
+
+def reconstruct_from_normalized(sparse_array, min_val, max_val):
+    # Inverse normalization scaling factors
+    scale_factor = (max_val - min_val) / 4294967295
+    shift_factor = min_val
+
+    # Apply normalization directly on sparse matrix (element-wise multiplication)
+    normalized_data = sparse_array.multiply(scale_factor)
+    normalized_data.data += shift_factor
+
+    # Return the updated sparse matrix with normalized data
+    return normalized_data
+
+def identifyClosestLLMSources(evalSamples, closestSources):
+    global layers, layerSizes, fileName
+
+    # Use a structured NumPy array for storing source, value, and difference efficiently
+    #dtype = np.dtype([('source', 'U20'), ('value', 'f8'), ('difference', np.float64)])
+    dtype = np.dtype([('source', 'U20'), ('value', 'f8'), ('difference', np.float64)])
+    
+    # Create a compatible fill_value
+    fill_value = np.array(('None', np.inf, np.inf), dtype=dtype)
+
+    identifiedClosestSources = np.full((evalSamples, len(layers), np.max(layerSizes), closestSources),
+        fill_value=fill_value, dtype=dtype)
+
+    trainPath = os.path.join(baseDirectory, "Training")
+    evalPath = os.path.join(baseDirectory, "Evaluation")
+
+    # Traverse both paths simultaneously
+    for (train_dirpath, _, train_filenames), (eval_dirpath, _, eval_filenames) in zip(os.walk(trainPath), os.walk(evalPath)):
+        for train_filename, eval_filename in zip(train_filenames, eval_filenames):
+            # Get full paths for both training and evaluation files
+            # Get full paths for both training and evaluation files
+            train_full_path = os.path.join(train_dirpath, train_filename)
+            eval_full_path = os.path.join(eval_dirpath, eval_filename)
+
+            # Extract layer, source, and sentence info from filenames
+            layerNumber, sourceNumber, train_sentenceNumber = getInformationFromFileName(train_full_path)
+            _, _, eval_sentenceNumber = getInformationFromFileName(eval_full_path)
+
+            # Duplicate files to preserve the originals
+            train_copy_path = train_full_path.replace(".parquet", "_copy.parquet")
+            eval_copy_path = eval_full_path.replace(".parquet", "_copy.parquet")
+
+            shutil.copy(train_full_path, train_copy_path)
+            shutil.copy(eval_full_path, eval_copy_path)
+
+            print(f"Duplicated train file to {train_copy_path}")
+            print(f"Duplicated eval file to {eval_copy_path}")
+
+            # Read sparse arrays directly from the duplicated parquet files
+            train_sentenceDf = pq.read_table(train_copy_path).to_pandas(safe=False)
+            eval_sentenceDf = pq.read_table(eval_copy_path).to_pandas(safe=False)
+
+            # Extract scalar min and max values from the first row
+            trainMin, trainMax = train_sentenceDf['Min'].iloc[0], train_sentenceDf['Max'].iloc[0]
+            evalMin, evalMax = eval_sentenceDf['Min'].iloc[0], eval_sentenceDf['Max'].iloc[0]
+
+            # Drop the non-neuron columns
+            train_sentenceDf = train_sentenceDf.drop(columns=['Source', 'Sentence', 'Min', 'Max'])
+            eval_sentenceDf = eval_sentenceDf.drop(columns=['Source', 'Sentence', 'Min', 'Max'])
+
+            # Convert DataFrames to sparse COO matrices
+            train_neurons = sp.coo_matrix(train_sentenceDf.to_numpy())
+            eval_neurons = sp.coo_matrix(eval_sentenceDf.to_numpy())
+
+            # Reconstruct neuron data
+            normalizedTrainNeurons = reconstruct_from_normalized(train_neurons, trainMin, trainMax)
+            normalizedEvalNeurons = reconstruct_from_normalized(eval_neurons, evalMin, evalMax)
+
+            # Compute absolute differences between the two sparse arrays
+            differencesBetweenSources = sp.coo_matrix(np.abs(normalizedTrainNeurons - normalizedEvalNeurons))
+
+            # Iterate over the non-zero elements of the sparse matrix directly
+            for neuron_idx, difference in zip(differencesBetweenSources.col, differencesBetweenSources.data):
+                # Extract numeric part of neuron_idx (e.g., "Neuron 0" → 0)
+                neuron_numeric_idx = int(str(differencesBetweenSources.col[neuron_idx]).replace("Neuron ", ""))
+                
+                print(neuron_numeric_idx, ", ", neuron_idx)
+                # Access the value from the sparse matrix at the specified neuron index
+                neuron_value = normalizedTrainNeurons.data[neuron_idx]  # This could be a sparse value
+                current_sources = identifiedClosestSources[eval_sentenceNumber, layerNumber, neuron_numeric_idx]
+
+                # Find the max difference index
+                max_difference_idx = np.argmax(current_sources['difference'])
+                if difference < current_sources[max_difference_idx]['difference']:
+                    # Update with new source if closer
+                    identifiedClosestSources[eval_sentenceNumber, layerNumber, neuron_numeric_idx, max_difference_idx]['source'] = f"{sourceNumber}:{train_sentenceNumber}"
+                    identifiedClosestSources[eval_sentenceNumber, layerNumber, neuron_numeric_idx, max_difference_idx]['value'] = neuron_value
+                    identifiedClosestSources[eval_sentenceNumber, layerNumber, neuron_numeric_idx, max_difference_idx]['difference'] = difference
+
+            # Clean up duplicated files to save memory
+            os.remove(train_copy_path)
+            os.remove(eval_copy_path)
+
+    return identifiedClosestSources
 
 #-------------------------------------------Debug----------------------------
 def save_sparse_3d_array(array, filename):
@@ -451,7 +560,7 @@ def getValuesCount(dictionary):
     non_unique_counts = Counter(non_unique_list)
 
     print(non_unique_counts.most_common()[:100])
-    
+
     return unique_values
 
 def getValueClusters(dictionary):
@@ -542,9 +651,6 @@ def getMinimumPrecision(unique_values):
     return mse_results, loss_results
 
 def mse(true_values, predicted_values):
-    """
-    Compute the Mean Squared Error between the true and predicted values.
-    """
     return np.mean((true_values - predicted_values) ** 2)
 
 def compare_precision_results(closestSources, outputs):
@@ -610,7 +716,3 @@ def analyzeData(closestSources, outputs, analyzeActivationsBySources = True):
     #getValueClusters(dictionary)
     #getMinimumPrecision(unique_values)
     print("\n")
-
-    
-                
-                
