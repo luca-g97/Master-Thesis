@@ -39,10 +39,10 @@ def createTrainSet():
 
     # Process the text with Stanza to extract sentences
     doc = nlp(text_data)
-    sentencesStructure = [sentence.text for sentence in doc.sentences]
+    sentencesStructure = [[sentence.text for sentence in doc.sentences]]
 
     # Flatten the list of sentences correctly
-    sentences = [sentence for sentence in sentencesStructure]
+    sentences = [sentence for sublist in sentencesStructure for sentence in sublist]
 
     print(f"Created a train set with {len(sentences)} sentences")
     return sentences
@@ -614,23 +614,23 @@ def generate(model, idx, max_new_tokens, context_size, temperature, top_k=None):
 
 def getLLMPrediction(sample):
     global tokenizer
-    
+
     token_ids = generate(
-    model=model,
-    idx=text_to_token_ids(sample, tokenizer),
-    max_new_tokens=100,
-    context_size=GPT_CONFIG_124M["context_length"],
-    top_k=25,
-    temperature=1.4
+        model=model,
+        idx=text_to_token_ids(sample, tokenizer),
+        max_new_tokens=150,
+        context_size=GPT_CONFIG_124M["context_length"],
+        top_k=50,
+        temperature=1.0
     )
+
     prediction = token_ids_to_text(token_ids, tokenizer)
-    
+
     # Remove the sample from the prediction if it's a prefix
     if prediction.startswith(sample):
         prediction = prediction[len(sample):].strip()
-        # Remove newlines by replacing them with a space
-        prediction = prediction.replace("\n", "\\n")  # or .replace("\n", "")
-        
+        prediction = prediction.replace("\n", "\\n")  # Replace newlines with a space
+
     return sample, prediction
 
 def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
@@ -645,12 +645,11 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
         print("Evaluation Sample ", sampleNumber, ": ", sample.replace('\n', '').replace('<|endoftext|>', ''))
         print("Follow up: ", prediction.replace('\n', '').replace('<|endoftext|>', ''))
         print("Closest Sources in format [SourceNumber, Occurrences, Source]:")
-        for sourceNumber, count in mostUsedSources[:closestSources]:
-            print(sourceNumber, count)
-            tempSource = sourceNumber.split(":")
-            source, sentence = int(tempSource[0]), int(tempSource[1])
-            sentence = sentencesStructure[source][sentence].replace('\n', '').replace('<|endoftext|>', '')
-            print(f"Source: {sourceNumber}, Count: {count}, Sentence: {sentence}")
-        print("Whole List: ", [(sourceNumber, count, sentencesStructure[int(sourceNumber.split(":"))[0]][int(sourceNumber.split(":"))[1]].replace('\n', '').replace('<|endoftext|>', '')) for sourceNumber, count in mostUsedSources], "\n")
-    
+        for source, count in mostUsedSources[:closestSources]:
+            tempSource = source.split(":")
+            sourceNumber, sentenceNumber = int(tempSource[0]), int(tempSource[1])
+            trainSentence = sentencesStructure[sourceNumber][sentenceNumber].replace('\n', '').replace('<|endoftext|>', '')
+            print(f"Source: {source}, Count: {count}, Sentence: {trainSentence}")
+        print("Whole List: ", [(source, count, sentencesStructure[int(source.split(":")[0])][int(source.split(":")[1])].replace('\n', '').replace('<|endoftext|>', '')) for source, count in mostUsedSources], "\n")
+
     #print(f"Time passed since start: {time_since_start(startTime)}")

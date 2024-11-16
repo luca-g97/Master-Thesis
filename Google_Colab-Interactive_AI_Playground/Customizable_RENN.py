@@ -452,6 +452,8 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
 
     # Traverse both paths simultaneously
     for sampleNumber in range(evalSamples):
+        evalSource, eval_sentenceNumber = Verdict.getSourceAndSentenceIndex(evalOffset+sampleNumber)
+        print(f"Starting Evaluation for Evaluation-Sample {sampleNumber} (Actual Source: {evalSource}:{eval_sentenceNumber})")
         for (train_dirpath, _, train_filenames) in os.walk(trainPath):
             for train_filename in train_filenames:
                 # Get full paths for both training and evaluation files
@@ -459,7 +461,6 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
                 train_full_path = os.path.join(train_dirpath, train_filename)
                 # Extract layer, source, and sentence info from filenames
                 layerNumber, sourceNumber, train_sentenceNumber = getInformationFromFileName(train_full_path)
-                evalSource, eval_sentenceNumber = Verdict.getSourceAndSentenceIndex(evalOffset+sampleNumber)
                 eval_full_path = os.path.join(evalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-0.parquet")
 
                 # Duplicate files to preserve the originals
@@ -468,60 +469,57 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
 
                 shutil.copy(train_full_path, train_copy_path)
                 shutil.copy(eval_full_path, eval_copy_path)
-    
-                print(f"Duplicated train file to {train_copy_path}")
-                print(f"Duplicated eval file to {eval_copy_path}")
-    
+
                 # Read sparse arrays directly from the duplicated parquet files
                 train_sentenceDf = pq.read_table(train_copy_path).to_pandas(safe=False)
                 eval_sentenceDf = pq.read_table(eval_copy_path).to_pandas(safe=False)
-    
+
                 # Extract scalar min and max values from the first row
                 trainMin, trainMax = train_sentenceDf['Min'].iloc[0], train_sentenceDf['Max'].iloc[0]
                 evalMin, evalMax = eval_sentenceDf['Min'].iloc[0], eval_sentenceDf['Max'].iloc[0]
-    
+
                 # Drop the non-neuron columns
                 train_sentenceDf = train_sentenceDf.drop(columns=['Source', 'Sentence', 'Min', 'Max'])
                 eval_sentenceDf = eval_sentenceDf.drop(columns=['Source', 'Sentence', 'Min', 'Max'])
-    
+
                 # Convert DataFrames to sparse COO matrices
                 train_neurons = sp.coo_matrix(train_sentenceDf.to_numpy())
                 eval_neurons = sp.coo_matrix(eval_sentenceDf.to_numpy())
-    
+
                 # Reconstruct neuron data
                 normalizedTrainNeurons = reconstruct_from_normalized(train_neurons, trainMin, trainMax)
                 normalizedEvalNeurons = reconstruct_from_normalized(eval_neurons, evalMin, evalMax)
-    
+
                 # Ensure both matrices are in COO format
                 normalizedTrainNeurons = normalizedTrainNeurons.tocoo()
                 normalizedEvalNeurons = normalizedEvalNeurons.tocoo()
-    
+
                 # Broadcast to maximum shape
                 max_rows = max(normalizedTrainNeurons.shape[0], normalizedEvalNeurons.shape[0])
                 max_cols = max(normalizedTrainNeurons.shape[1], normalizedEvalNeurons.shape[1])
-    
+
                 # Create sparse matrices with the maximum shape, without losing data
                 alignedTrain = sp.coo_matrix((normalizedTrainNeurons.data,
                                             (normalizedTrainNeurons.row, normalizedTrainNeurons.col)), shape=(max_rows, max_cols))
-    
+
                 alignedEval = sp.coo_matrix((normalizedEvalNeurons.data,
                                            (normalizedEvalNeurons.row, normalizedEvalNeurons.col)), shape=(max_rows, max_cols))
-    
+
                 # Element-wise multiplication
                 common_mask = alignedTrain.multiply(alignedEval)
-    
+
                 # Compute absolute differences only where both matrices have non-zero entries
                 differencesBetweenSources = sp.coo_matrix(np.abs(alignedTrain - alignedEval).multiply(common_mask))
-    
+
                 # Directly access neuron values if they exist in sparse columns
                 for neuron_idx, difference in zip(differencesBetweenSources.col, differencesBetweenSources.data):
                     # Get the sparse column data for the specific neuron
                     sparse_col = normalizedTrainNeurons.getcol(neuron_idx)
-    
+
                     # Only process if the sparse column has non-zero data
                     if sparse_col.nnz > 0:  # nnz gives the number of non-zero elements in the column
                         current_sources = identifiedClosestSources[sampleNumber, layerNumber, neuron_idx]
-    
+
                         # Update closest source based on minimum difference
                         max_difference_idx = np.argmax(current_sources['difference'])
                         if difference < current_sources[max_difference_idx]['difference']:
@@ -529,7 +527,7 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
                             identifiedClosestSources[sampleNumber, layerNumber, neuron_idx, max_difference_idx]['source'] = f"{sourceNumber}:{train_sentenceNumber}"
                             identifiedClosestSources[sampleNumber, layerNumber, neuron_idx, max_difference_idx]['value'] = neuron_value
                             identifiedClosestSources[sampleNumber, layerNumber, neuron_idx, max_difference_idx]['difference'] = difference
-    
+
                 # Clean up duplicated files to save memory
                 os.remove(train_copy_path)
                 os.remove(eval_copy_path)
