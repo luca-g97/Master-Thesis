@@ -636,8 +636,8 @@ def getLLMPrediction(sample):
 def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
     global train_samples, test_samples, eval_samples, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
 
-    RENN.initializeEvaluationHook(hidden_sizes, eval_loader, train_samples, model)
-    closestSourcesPerNeuron = RENN.identifyClosestLLMSources(closestSources, eval_samples)
+    RENN.initializeEvaluationHook(hidden_sizes, eval_loader, eval_samples, model, True, train_samples+test_samples)
+    closestSourcesPerNeuron = RENN.identifyClosestLLMSources(closestSources, train_samples+test_samples, eval_samples)
 
     for sampleNumber in range(eval_samples):
         mostUsedSources = RENN.getMostUsedSources(closestSourcesPerNeuron[sampleNumber], closestSources, "")
@@ -648,9 +648,9 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
         for sourceNumber, count in mostUsedSources[:closestSources]:
             print(sourceNumber, count)
             tempSource = sourceNumber.split(":")
-            source, sentence = tempSource[0], tempSource[1]
+            source, sentence = int(tempSource[0]), int(tempSource[1])
             sentence = sentencesStructure[source][sentence].replace('\n', '').replace('<|endoftext|>', '')
             print(f"Source: {sourceNumber}, Count: {count}, Sentence: {sentence}")
-        print("Whole List: ", [(sourceNumber, count, sentencesStructure[sourceNumber.split(":")[0]][sourceNumber.split(":")[1]].replace('\n', '').replace('<|endoftext|>', '')) for sourceNumber, count in mostUsedSources], "\n")
+        print("Whole List: ", [(sourceNumber, count, sentencesStructure[int(sourceNumber.split(":"))[0]][int(sourceNumber.split(":"))[1]].replace('\n', '').replace('<|endoftext|>', '')) for sourceNumber, count in mostUsedSources], "\n")
     
     #print(f"Time passed since start: {time_since_start(startTime)}")

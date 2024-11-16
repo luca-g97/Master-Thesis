@@ -180,7 +180,7 @@ def forward_hook(module, input, output):
         if(llm):
             result = Verdict.getSourceAndSentenceIndex(source)
             if result is not None:
-                print(f"Create File: LookUp/{fileName}/Layer{layer}/Source{result[0]}/Sentence{result[1]}-0")
+                print(f"Create File: LookUp/{fileName}/Layer{layer}/Source={result[0]}/Sentence{result[1]}-0")
                 append_structured_sparse(output[:layerNeurons], str(layer), str(result[0]), str(result[1]))
         else:
             for neuronNumber, neuron in enumerate(output):
@@ -202,7 +202,7 @@ def forward_hook(module, input, output):
             else:
                 layer += 1
 
-def attachHooks(hookLoader, model, llmType = False, filename = ""):
+def attachHooks(hookLoader, model, llmType = False, filename = "", sourceOffset=0):
     global source, layer, sourceArray, fileName
 
     fileName = filename
@@ -217,7 +217,8 @@ def attachHooks(hookLoader, model, llmType = False, filename = ""):
 
     with torch.no_grad():
         # Forward Pass
-        for source, (inputs, labels) in enumerate(hookLoader):
+        for tempSource, (inputs, labels) in enumerate(hookLoader):
+            source = tempSource + sourceOffset
             layer = 0
             if not llmType:
                 inputs = inputs.float()
@@ -251,7 +252,7 @@ def runHooks(train_dataloader, model, layersParameter=layers, llmType=False, con
         dictionaryForSourceLayerNeuron = activationsBySources
         dictionaryForLayerNeuronSource = activationsByLayers
 
-    attachHooks(train_dataloader, model, llmType, filename="Training")
+    attachHooks(train_dataloader, model, llmType, filename="Training", sourceOffset=0)
 
     if not llm:
         activationsBySources = dictionaryForSourceLayerNeuron
@@ -267,16 +268,16 @@ def initializeHook(train_dataloader, model, hidden_sizesParameter, train_samples
     createDictionaries(hidden_sizes, totalLayers, train_samples)
     runHooks(train_dataloader, model, layers)
 
-def initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model, llmType = False):
+def initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model, llmType = False, sourceOffset=0):
     global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
-    
+
     if not llm:
         dictionaryForSourceLayerNeuron = np.zeros((eval_samples, totalLayers, np.max(layerSizes)), dtype=np.float128)
         dictionaryForLayerNeuronSource = np.zeros((totalLayers, np.max(layerSizes), eval_samples), dtype=np.float128)
 
     with torch.no_grad():
         model.eval()  # Set the model to evaluation mode
-        attachHooks(eval_dataloader, model, llmType, "Evaluation")
+        attachHooks(eval_dataloader, model, llmType, "Evaluation", sourceOffset)
 
     return dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
 
@@ -325,8 +326,9 @@ def getMostUsed(sources, mode=""):
                 maxNeurons = maxNeurons.out_features
             if(currentNeuron < maxNeurons):
                 for sourceNumber, value, difference in neuron:
-                    mostUsed.append(sourceNumber)
-                    sourceCounter += 1
+                    if(sourceNumber != 'None'):
+                        mostUsed.append(sourceNumber)
+                        sourceCounter += 1
     return sourceCounter, mostUsed
 
 def getMostUsedSources(sources, closestSources, weightedMode=""):
@@ -432,13 +434,13 @@ def reconstruct_from_normalized(sparse_array, min_val, max_val):
     # Return the updated sparse matrix with normalized data
     return normalized_data
 
-def identifyClosestLLMSources(evalSamples, closestSources):
+def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
     global layers, layerSizes, fileName
 
     # Use a structured NumPy array for storing source, value, and difference efficiently
     #dtype = np.dtype([('source', 'U20'), ('value', 'f8'), ('difference', np.float64)])
     dtype = np.dtype([('source', 'U20'), ('value', 'f8'), ('difference', np.float64)])
-    
+
     # Create a compatible fill_value
     fill_value = np.array(('None', np.inf, np.inf), dtype=dtype)
 
@@ -449,71 +451,88 @@ def identifyClosestLLMSources(evalSamples, closestSources):
     evalPath = os.path.join(baseDirectory, "Evaluation")
 
     # Traverse both paths simultaneously
-    for (train_dirpath, _, train_filenames), (eval_dirpath, _, eval_filenames) in zip(os.walk(trainPath), os.walk(evalPath)):
-        for train_filename, eval_filename in zip(train_filenames, eval_filenames):
-            # Get full paths for both training and evaluation files
-            # Get full paths for both training and evaluation files
-            train_full_path = os.path.join(train_dirpath, train_filename)
-            eval_full_path = os.path.join(eval_dirpath, eval_filename)
+    for sampleNumber in range(evalSamples):
+        for (train_dirpath, _, train_filenames) in os.walk(trainPath):
+            for train_filename in train_filenames:
+                # Get full paths for both training and evaluation files
+                # Get full paths for both training and evaluation files
+                train_full_path = os.path.join(train_dirpath, train_filename)
+                # Extract layer, source, and sentence info from filenames
+                layerNumber, sourceNumber, train_sentenceNumber = getInformationFromFileName(train_full_path)
+                evalSource, eval_sentenceNumber = Verdict.getSourceAndSentenceIndex(evalOffset+sampleNumber)
+                eval_full_path = os.path.join(evalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-0.parquet")
 
-            # Extract layer, source, and sentence info from filenames
-            layerNumber, sourceNumber, train_sentenceNumber = getInformationFromFileName(train_full_path)
-            _, _, eval_sentenceNumber = getInformationFromFileName(eval_full_path)
+                # Duplicate files to preserve the originals
+                train_copy_path = train_full_path.replace(".parquet", "_copy.parquet")
+                eval_copy_path = eval_full_path.replace(".parquet", "_copy.parquet")
 
-            # Duplicate files to preserve the originals
-            train_copy_path = train_full_path.replace(".parquet", "_copy.parquet")
-            eval_copy_path = eval_full_path.replace(".parquet", "_copy.parquet")
-
-            shutil.copy(train_full_path, train_copy_path)
-            shutil.copy(eval_full_path, eval_copy_path)
-
-            print(f"Duplicated train file to {train_copy_path}")
-            print(f"Duplicated eval file to {eval_copy_path}")
-
-            # Read sparse arrays directly from the duplicated parquet files
-            train_sentenceDf = pq.read_table(train_copy_path).to_pandas(safe=False)
-            eval_sentenceDf = pq.read_table(eval_copy_path).to_pandas(safe=False)
-
-            # Extract scalar min and max values from the first row
-            trainMin, trainMax = train_sentenceDf['Min'].iloc[0], train_sentenceDf['Max'].iloc[0]
-            evalMin, evalMax = eval_sentenceDf['Min'].iloc[0], eval_sentenceDf['Max'].iloc[0]
-
-            # Drop the non-neuron columns
-            train_sentenceDf = train_sentenceDf.drop(columns=['Source', 'Sentence', 'Min', 'Max'])
-            eval_sentenceDf = eval_sentenceDf.drop(columns=['Source', 'Sentence', 'Min', 'Max'])
-
-            # Convert DataFrames to sparse COO matrices
-            train_neurons = sp.coo_matrix(train_sentenceDf.to_numpy())
-            eval_neurons = sp.coo_matrix(eval_sentenceDf.to_numpy())
-
-            # Reconstruct neuron data
-            normalizedTrainNeurons = reconstruct_from_normalized(train_neurons, trainMin, trainMax)
-            normalizedEvalNeurons = reconstruct_from_normalized(eval_neurons, evalMin, evalMax)
-
-            # Compute absolute differences between the two sparse arrays
-            differencesBetweenSources = sp.coo_matrix(np.abs(normalizedTrainNeurons - normalizedEvalNeurons))
-
-            # Iterate over the non-zero elements of the sparse matrix directly
-            for neuron_idx, difference in zip(differencesBetweenSources.col, differencesBetweenSources.data):
-                # Extract numeric part of neuron_idx (e.g., "Neuron 0" → 0)
-                neuron_numeric_idx = int(str(differencesBetweenSources.col[neuron_idx]).replace("Neuron ", ""))
-                
-                print(neuron_numeric_idx, ", ", neuron_idx)
-                # Access the value from the sparse matrix at the specified neuron index
-                neuron_value = normalizedTrainNeurons.data[neuron_idx]  # This could be a sparse value
-                current_sources = identifiedClosestSources[eval_sentenceNumber, layerNumber, neuron_numeric_idx]
-
-                # Find the max difference index
-                max_difference_idx = np.argmax(current_sources['difference'])
-                if difference < current_sources[max_difference_idx]['difference']:
-                    # Update with new source if closer
-                    identifiedClosestSources[eval_sentenceNumber, layerNumber, neuron_numeric_idx, max_difference_idx]['source'] = f"{sourceNumber}:{train_sentenceNumber}"
-                    identifiedClosestSources[eval_sentenceNumber, layerNumber, neuron_numeric_idx, max_difference_idx]['value'] = neuron_value
-                    identifiedClosestSources[eval_sentenceNumber, layerNumber, neuron_numeric_idx, max_difference_idx]['difference'] = difference
-
-            # Clean up duplicated files to save memory
-            os.remove(train_copy_path)
-            os.remove(eval_copy_path)
+                shutil.copy(train_full_path, train_copy_path)
+                shutil.copy(eval_full_path, eval_copy_path)
+    
+                print(f"Duplicated train file to {train_copy_path}")
+                print(f"Duplicated eval file to {eval_copy_path}")
+    
+                # Read sparse arrays directly from the duplicated parquet files
+                train_sentenceDf = pq.read_table(train_copy_path).to_pandas(safe=False)
+                eval_sentenceDf = pq.read_table(eval_copy_path).to_pandas(safe=False)
+    
+                # Extract scalar min and max values from the first row
+                trainMin, trainMax = train_sentenceDf['Min'].iloc[0], train_sentenceDf['Max'].iloc[0]
+                evalMin, evalMax = eval_sentenceDf['Min'].iloc[0], eval_sentenceDf['Max'].iloc[0]
+    
+                # Drop the non-neuron columns
+                train_sentenceDf = train_sentenceDf.drop(columns=['Source', 'Sentence', 'Min', 'Max'])
+                eval_sentenceDf = eval_sentenceDf.drop(columns=['Source', 'Sentence', 'Min', 'Max'])
+    
+                # Convert DataFrames to sparse COO matrices
+                train_neurons = sp.coo_matrix(train_sentenceDf.to_numpy())
+                eval_neurons = sp.coo_matrix(eval_sentenceDf.to_numpy())
+    
+                # Reconstruct neuron data
+                normalizedTrainNeurons = reconstruct_from_normalized(train_neurons, trainMin, trainMax)
+                normalizedEvalNeurons = reconstruct_from_normalized(eval_neurons, evalMin, evalMax)
+    
+                # Ensure both matrices are in COO format
+                normalizedTrainNeurons = normalizedTrainNeurons.tocoo()
+                normalizedEvalNeurons = normalizedEvalNeurons.tocoo()
+    
+                # Broadcast to maximum shape
+                max_rows = max(normalizedTrainNeurons.shape[0], normalizedEvalNeurons.shape[0])
+                max_cols = max(normalizedTrainNeurons.shape[1], normalizedEvalNeurons.shape[1])
+    
+                # Create sparse matrices with the maximum shape, without losing data
+                alignedTrain = sp.coo_matrix((normalizedTrainNeurons.data,
+                                            (normalizedTrainNeurons.row, normalizedTrainNeurons.col)), shape=(max_rows, max_cols))
+    
+                alignedEval = sp.coo_matrix((normalizedEvalNeurons.data,
+                                           (normalizedEvalNeurons.row, normalizedEvalNeurons.col)), shape=(max_rows, max_cols))
+    
+                # Element-wise multiplication
+                common_mask = alignedTrain.multiply(alignedEval)
+    
+                # Compute absolute differences only where both matrices have non-zero entries
+                differencesBetweenSources = sp.coo_matrix(np.abs(alignedTrain - alignedEval).multiply(common_mask))
+    
+                # Directly access neuron values if they exist in sparse columns
+                for neuron_idx, difference in zip(differencesBetweenSources.col, differencesBetweenSources.data):
+                    # Get the sparse column data for the specific neuron
+                    sparse_col = normalizedTrainNeurons.getcol(neuron_idx)
+    
+                    # Only process if the sparse column has non-zero data
+                    if sparse_col.nnz > 0:  # nnz gives the number of non-zero elements in the column
+                        current_sources = identifiedClosestSources[sampleNumber, layerNumber, neuron_idx]
+    
+                        # Update closest source based on minimum difference
+                        max_difference_idx = np.argmax(current_sources['difference'])
+                        if difference < current_sources[max_difference_idx]['difference']:
+                            neuron_value = sparse_col.data[0]  # The first non-zero value in the column
+                            identifiedClosestSources[sampleNumber, layerNumber, neuron_idx, max_difference_idx]['source'] = f"{sourceNumber}:{train_sentenceNumber}"
+                            identifiedClosestSources[sampleNumber, layerNumber, neuron_idx, max_difference_idx]['value'] = neuron_value
+                            identifiedClosestSources[sampleNumber, layerNumber, neuron_idx, max_difference_idx]['difference'] = difference
+    
+                # Clean up duplicated files to save memory
+                os.remove(train_copy_path)
+                os.remove(eval_copy_path)
 
     return identifiedClosestSources
 
