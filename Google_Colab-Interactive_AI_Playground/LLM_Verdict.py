@@ -638,6 +638,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
 
     RENN.initializeEvaluationHook(hidden_sizes, eval_loader, eval_samples, model, True, train_samples+test_samples)
     closestSourcesPerNeuron = RENN.identifyClosestLLMSources(eval_samples, train_samples+test_samples, closestSources)
+    print("\n")
 
     for sampleNumber in range(eval_samples):
         mostUsedSources = RENN.getMostUsedSources(closestSourcesPerNeuron[sampleNumber], closestSources, "")
