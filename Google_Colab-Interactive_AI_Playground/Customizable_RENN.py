@@ -180,7 +180,7 @@ def forward_hook(module, input, output):
         if(llm):
             result = Verdict.getSourceAndSentenceIndex(source)
             if result is not None:
-                print(f"Create File: LookUp/{fileName}/Layer{layer}/Source={result[0]}/Sentence{result[1]}-0")
+                #print(f"Create File: LookUp/{fileName}/Layer{layer}/Source={result[0]}/Sentence{result[1]}-0")
                 append_structured_sparse(output[:layerNeurons], str(layer), str(result[0]), str(result[1]))
         else:
             for neuronNumber, neuron in enumerate(output):
@@ -222,6 +222,9 @@ def attachHooks(hookLoader, model, llmType = False, filename = "", sourceOffset=
             layer = 0
             if not llmType:
                 inputs = inputs.float()
+            else:
+                actualSource, actualSentenceNumber = Verdict.getSourceAndSentenceIndex(source)
+                print(f"Saving all Activations for {fileName}-Source {tempSource} (Actual Source: {actualSource}:{actualSentenceNumber})")
             inputs = inputs.to(device)
             _ = model(inputs)
 
