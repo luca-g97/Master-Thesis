@@ -612,7 +612,7 @@ def generate(model, idx, max_new_tokens, context_size, temperature, top_k=None):
 
     return idx
 
-def getLLMPrediction(sample):
+def getLLMPrediction(sample, singleSentence=False):
     global tokenizer
 
     token_ids = generate(
@@ -629,27 +629,47 @@ def getLLMPrediction(sample):
     # Remove the sample from the prediction if it's a prefix
     if prediction.startswith(sample):
         prediction = prediction[len(sample):].strip()
-        prediction = prediction.replace("\n", "\\n")  # Replace newlines with a space
 
-    return sample, prediction
+    if(singleSentence):
+        # Use Stanza to split the sample into sentences
+        doc = nlp(prediction)
+        sentences = [sentence.text for sentence in doc.sentences]
+        return sentences[0], prediction
+    else:
+        prediction = prediction.replace("\n", "\\n")  # Replace newlines with a space
+        return sample, prediction
 
 def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
     global train_samples, test_samples, eval_samples, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
 
-    RENN.initializeEvaluationHook(hidden_sizes, eval_loader, eval_samples, model, True, train_samples+test_samples)
-    closestSourcesPerNeuron = RENN.identifyClosestLLMSources(eval_samples, train_samples+test_samples, closestSources)
+    #Generate sentences and get their activation values
+    generatedEvalSentences, generatedPrediction = zip(*[getLLMPrediction(sentences[train_samples + test_samples + evalSample], True) for evalSample in range(eval_samples)])
+    generatedEvalLoader = createLLMLoader(generatedEvalSentences, 1, context_length=1)
+    RENN.initializeEvaluationHook(hidden_sizes, generatedEvalLoader, eval_samples, model, os.path.join("Evaluation", "Generated"), True, train_samples+test_samples)
+
+    RENN.initializeEvaluationHook(hidden_sizes, eval_loader, eval_samples, model, os.path.join("Evaluation", "Sample"), True, train_samples+test_samples)
+    closestSourcesEvaluation, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(eval_samples, train_samples+test_samples, closestSources)
 
     for sampleNumber in range(eval_samples):
-        mostUsedSources = RENN.getMostUsedSources(closestSourcesPerNeuron, closestSources, sampleNumber)
+        mostUsedEvalSources = RENN.getMostUsedSources(closestSourcesEvaluation, closestSources, sampleNumber)
+        mostUsedGeneratedEvalSources = RENN.getMostUsedSources(closestSourcesGeneratedEvaluation, closestSources, sampleNumber)
         sample, prediction = getLLMPrediction(sentences[train_samples+test_samples+sampleNumber])
         print("Evaluation Sample ", sampleNumber, ": ", sample.replace('\n', '').replace('<|endoftext|>', ''))
         print("Follow up: ", prediction.replace('\n', '').replace('<|endoftext|>', ''))
-        print("Closest Sources in format [SourceNumber, Occurrences, Source]:")
-        for source, count in mostUsedSources[:closestSources]:
+        print(f"Closest Sources for Evaluation-Sample {sampleNumber} in format [SourceNumber, Occurrences, Source]:")
+        for source, count in mostUsedEvalSources[:closestSources]:
             tempSource = source.split(":")
             sourceNumber, sentenceNumber = int(tempSource[0]), int(tempSource[1])
             trainSentence = sentencesStructure[sourceNumber][sentenceNumber].replace('\n', '').replace('<|endoftext|>', '')
             print(f"Source: {source}, Count: {count}, Sentence: {trainSentence}")
-        print("Whole List: ", [(source, count, sentencesStructure[int(source.split(":")[0])][int(source.split(":")[1])].replace('\n', '').replace('<|endoftext|>', '')) for source, count in mostUsedSources], "\n")
-
+        print("Whole List: ", [(source, count, sentencesStructure[int(source.split(":")[0])][int(source.split(":")[1])].replace('\n', '').replace('<|endoftext|>', '')) for source, count in mostUsedEvalSources], "\n")
+        print(f"Generated Source Sentence: {generatedEvalSentences[sampleNumber]}")
+        print(f"Generated Source: {generatedPrediction[sampleNumber]}")
+        print(f"Closest Sources for GeneratedEvaluation-Sample {sampleNumber} in format [SourceNumber, Occurrences, Source]:")
+        for source, count in mostUsedGeneratedEvalSources[:closestSources]:
+            tempSource = source.split(":")
+            sourceNumber, sentenceNumber = int(tempSource[0]), int(tempSource[1])
+            trainSentence = sentencesStructure[sourceNumber][sentenceNumber].replace('\n', '').replace('<|endoftext|>', '')
+            print(f"Source: {source}, Count: {count}, Sentence: {trainSentence}")
+        print("Whole List: ", [(source, count, sentencesStructure[int(source.split(":")[0])][int(source.split(":")[1])].replace('\n', '').replace('<|endoftext|>', '')) for source, count in mostUsedGeneratedEvalSources], "\n")
     #print(f"Time passed since start: {time_since_start(startTime)}")
