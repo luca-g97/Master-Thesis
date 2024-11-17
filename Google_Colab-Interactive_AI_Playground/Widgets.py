@@ -231,7 +231,8 @@ def updateVisualizationTab():
     outputLayerSizeChoice = createRangeSliderChoice(max=10, description=f"Output Layer")
     outputLayerActivationChoiceType = createBoolButtonChoice(description=f"Activation layer ({outputActivationLayerChoice.value})", tooltip="Include activation layer", disabled = True if outputActivationLayerChoice.value == "None" else False)
     if(datasetChoice.value == "Small 1x1" or datasetChoice.value == "The Verdict"):
-        evalSamplesChoice = createIntSlider(1, min=1, max=(1.25*trainSamplesChoice.value) - trainSamplesChoice.value - testSamplesChoice.value, description="Evaluations")
+        maxEvalSamples = (1.25*trainSamplesChoice.value) - trainSamplesChoice.value - testSamplesChoice.value
+        evalSamplesChoice = createIntSlider(1, min=1, max=maxEvalSamples if maxEvalSamples >= 1 else 1, description="Evaluations")
         closestSourceTrainingLink = widgets.jslink((trainSamplesChoice, 'value'), (closestSourcesChoice, 'max'))
         return widgets.VBox([evalSamplesChoice, closestSourcesChoice, showClosestMostUsedSourcesChoice])
 

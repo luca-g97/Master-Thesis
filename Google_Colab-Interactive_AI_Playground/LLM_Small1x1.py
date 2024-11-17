@@ -4,7 +4,7 @@ import torch.optim as optim
 from torch.utils.data import Dataset
 import Customizable_RENN as RENN
 
-random, lorem, device, tiktoken, DataLoader = "", "", "", "", ""
+random, lorem, xp, device, tiktoken, DataLoader = "", "", "", "", "", ""
 train_samples, test_samples, eval_samples = "", "", ""
 GPT_CONFIG_124M, settings = "", ""
 train_loader, val_loader, eval_loader, tokenizer  = "", "", "", ""
@@ -12,8 +12,16 @@ dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource = [], []
 small1x1 = []
 
 def initializePackages(randomPackage, loremPackage, devicePackage, tiktokenPackage, DataLoaderPackage):
-    global random, lorem, device, tiktoken, DataLoader
+    global random, lorem, device, tiktoken, DataLoader, xp
     random, lorem, device, tiktoken, DataLoader = randomPackage, loremPackage, devicePackage, tiktokenPackage, DataLoaderPackage
+
+    try:
+        import cupy as cp
+        cp.cuda.Device(0).use()  # Try to initialize the GPU
+        xp = cp  # Use CuPy if the GPU is available
+    except (ImportError, cp.cuda.runtime.CUDARuntimeError):
+        import numpy as np
+        xp = np  # Fallback to NumPy for CPU operations
 
 def createUniqueCalculation(createdCalculations, xMin = 0, xMax = 9, yMin = 0, yMax = 9):
     x = random.randint(xMin, xMax)

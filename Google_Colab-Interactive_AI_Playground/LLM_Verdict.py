@@ -569,7 +569,7 @@ def trainModel(hidden_sizes, loss_function, optimizer, learning_rate, epochs):
     print("Training finished")
 
 def initializeHook(hidden_sizes, train_samples):  
-    RENN.createDictionaries(hidden_sizes, len(hidden_sizes), train_samples)
+    RENN.createDictionaries(hidden_sizes, len(hidden_sizes), train_samples, llmType=True)
 
     samples = sentences[:train_samples]
     train_loader = createLLMLoader(samples, 1, context_length=1)
@@ -638,10 +638,9 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
 
     RENN.initializeEvaluationHook(hidden_sizes, eval_loader, eval_samples, model, True, train_samples+test_samples)
     closestSourcesPerNeuron = RENN.identifyClosestLLMSources(eval_samples, train_samples+test_samples, closestSources)
-    print("\n")
 
     for sampleNumber in range(eval_samples):
-        mostUsedSources = RENN.getMostUsedSources(closestSourcesPerNeuron[sampleNumber], closestSources, "")
+        mostUsedSources = RENN.getMostUsedSources(closestSourcesPerNeuron, closestSources, sampleNumber)
         sample, prediction = getLLMPrediction(sentences[train_samples+test_samples+sampleNumber])
         print("Evaluation Sample ", sampleNumber, ": ", sample.replace('\n', '').replace('<|endoftext|>', ''))
         print("Follow up: ", prediction.replace('\n', '').replace('<|endoftext|>', ''))

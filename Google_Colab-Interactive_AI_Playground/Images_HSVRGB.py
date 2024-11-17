@@ -2,18 +2,26 @@ import torch
 from torch.utils.data import Dataset
 from torch import nn
 import torch.optim as optim
-import numpy as np
+from IPython.display import display
 import matplotlib.patches as patches
 import Customizable_RENN as RENN
 
-colorsys, go, pio, device, DataLoader, trainSet, testSet, train_data = "", "", "", "", "", "", "", ""
+colorsys, xp, go, pio, device, DataLoader, trainSet, testSet, train_data = "", "", "", "", "", "", "", "", ""
 model, criterion_class, chosen_optimizer, layers, vectorsToShow = "", "", "", "", []
 train_samples, eval_samples, test_samples = 1, 1, 1
 dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource = [], []
 
 def initializePackages(colorsysPackage, goPackage, pioPackage, DataLoaderPackage, devicePackage):
-    global colorsys, go, pio, device, DataLoader
+    global colorsys, go, pio, device, DataLoader, xp
     colorsys, go, pio, device, DataLoader = colorsysPackage, goPackage, pioPackage, devicePackage, DataLoaderPackage
+
+    try:
+        import cupy as cp
+        cp.cuda.Device(0).use()  # Try to initialize the GPU
+        xp = cp  # Use CuPy if the GPU is available
+    except (ImportError, cp.cuda.runtime.CUDARuntimeError):
+        import numpy as np
+        xp = np  # Fallback to NumPy for CPU operations
 
 def createTrainAndTestSet(trainSamples, testSamples, visualize=False):
     global trainSet, testSet
@@ -33,14 +41,14 @@ def generate_equidistant_color_samples(n_samples):
     step_size = 1 / (steps_per_dimension - 1)
 
     # Generate the RGB values scaled to 0-1
-    r_values = np.arange(0, 1.001, step_size)
-    g_values = np.arange(0, 1.001, step_size)
-    b_values = np.arange(0, 1.001, step_size)
+    r_values = xp.arange(0, 1.001, step_size)
+    g_values = xp.arange(0, 1.001, step_size)
+    b_values = xp.arange(0, 1.001, step_size)
 
     # Create a grid of RGB values
-    rgb_array = np.array(np.meshgrid(r_values, g_values, b_values)).T.reshape(-1,3)
-    array = np.zeros([len(rgb_array), 2, 3])
-    colorArray = np.zeros([len(rgb_array), 1, 3])
+    rgb_array = xp.array(xp.meshgrid(r_values, g_values, b_values)).T.reshape(-1,3)
+    array = xp.zeros([len(rgb_array), 2, 3])
+    colorArray = xp.zeros([len(rgb_array), 1, 3])
 
     for x in range(len(rgb_array)): # merge the rgb and hsv values
         hsv = colorsys.rgb_to_hsv(rgb_array[x][0],rgb_array[x][1],rgb_array[x][2])
@@ -51,10 +59,10 @@ def generate_equidistant_color_samples(n_samples):
     return [(torch.from_numpy(x[0]), torch.from_numpy(x[1])) for x in array]
 
 def generate_random_color_samples(n_samples):
-    data = np.empty([n_samples, 2, 3])
+    data = xp.empty([n_samples, 2, 3])
 
     for x in range(n_samples):
-        hsv = np.random.random(3) # instance hsv values 0 - 1
+        hsv = xp.random.random(3) # instance hsv values 0 - 1
         hsv = [float(color) for color in hsv]
         rgb = colorsys.hsv_to_rgb(hsv[0],hsv[1],hsv[2])
         rgb = [float(color) for color in rgb]
@@ -85,10 +93,10 @@ def visualizeTrainAndTestSet():
         height=400,  # Adjust the height as needed
         grid=dict(rows=1, columns=len(plots), pattern='independent'),
     )
-    
+
     # Save the plot as an HTML file
     #pio.write_html(fig, file='multiple_rgb_plots.html', auto_open=True)
-    
+
     display(fig)
 
 def draw_RGB_3D(array, traceName):
@@ -127,14 +135,13 @@ def draw_RGB_3D(array, traceName):
 """#Data Initialization"""
 
 def initializeDatasets(train_samplesParameter, test_samplesParameter, eval_samplesParameter, batch_size_training, batch_size_test, seed=""):
-    global train_samples, test_samples, eval_samples, np, torch
-    global train_dataloader, test_dataloader, eval_dataloader, x_train, y_train, x_test, y_test, x_eval, y_eval, train_data
+    global train_samples, test_samples, eval_samples, train_dataloader, test_dataloader, eval_dataloader, x_train, y_train, x_test, y_test, x_eval, y_eval, train_data
     train_samples, test_samples, eval_samples = train_samplesParameter, test_samplesParameter, eval_samplesParameter
-    
+
     if(seed != ""):
         print("Setting seed number to ", seed)
         torch.manual_seed(seed)
-        np.random.seed(seed)
+        xp.random.seed(seed)
     else: print("Setting random seed")
 
     x_train, y_train = trainSet[0][:train_samples], trainSet[1][:train_samples]
@@ -157,7 +164,7 @@ def initializeTraining(hidden_sizes, loss_function, optimizer, learning_rate):
 
     model = RENN.CustomizableRENN(input_size, hidden_sizes, output_size)
     model.to(device)
-    layers = np.array(RENN.layers)
+    layers = xp.array(RENN.layers)
 
     if(loss_function == "MSE"):
         criterion_class = nn.MSELoss()  # For regression
@@ -234,11 +241,11 @@ def showImagesUnweighted(originalImage, blendedSourceImageActivation, blendedSou
 
     # Display weightedSourceImageActivation
     axes[3].set_title(f"WA=WeightedActivation - Closest Sources/Neuron (Weighted)")
-    axes[3].imshow(Image.fromarray(np.zeros(shape=[28,28], dtype=np.uint8)).convert("RGBA"))
+    axes[3].imshow(Image.fromarray(xp.zeros(shape=[28,28], dtype=xp.uint8)).convert("RGBA"))
 
     # Display weightedSourceImageSum
     axes[4].set_title(f"WS=WeigthedSum - Closest Sources/Neuron (Weighted)")
-    axes[4].imshow(Image.fromarray(np.zeros(shape=[28,28], dtype=np.uint8)).convert("RGBA"))
+    axes[4].imshow(Image.fromarray(xp.zeros(shape=[28,28], dtype=xp.uint8)).convert("RGBA"))
 
     plt.show()
 
@@ -290,13 +297,13 @@ def showIndividualImages(images):
     for i in range(num_images):
         row_index = i // num_cols
         col_index = i % num_cols
-        axs[row_index, col_index].imshow(np.array(Image.open(io.BytesIO(images[i][0]))))
+        axs[row_index, col_index].imshow(xp.array(Image.open(io.BytesIO(images[i][0]))))
         axs[row_index, col_index].set_title(images[i][1], fontweight='bold')
         axs[row_index, col_index].axis('off')
 
     #Fill up with empty images if necessary
     for i in range(num_images % num_cols):
-        image = Image.fromarray(np.ones(shape=[28,28], dtype=np.uint8)).convert("RGBA")
+        image = Image.fromarray(xp.ones(shape=[28,28], dtype=xp.uint8)).convert("RGBA")
         row_index = (num_images-1 + i) // num_cols
         col_index = (num_images-1 + i) % num_cols
         axs[row_index, col_index].imshow(image)
@@ -347,26 +354,26 @@ def createComparison(hsv_sample, rgb_predicted, blendedHSV, blendedRGB, weightin
     original_rgb = colorsys.hsv_to_rgb(hsv_sample[0], hsv_sample[1], hsv_sample[2])
 
     # Original color patch (HSV to RGB)
-    axs[0].add_patch(patches.Rectangle((0, 0), 1, 1, color=np.array(hsv_sample)))
+    axs[0].add_patch(patches.Rectangle((0, 0), 1, 1, color=xp.array(hsv_sample)))
     axs[0].axis('off')
     axs[0].set_title(f'HSV - Original: {tuple([int(x * 255) for x in hsv_sample])}')
 
     blended_hsv = tuple(float("{:.2f}".format(x * 255)) for x in blendedHSV[0])
     blendedHSV_difference = tuple(float("{:.2f}".format((x*255) - y)) for x, y in zip(hsv_sample, blended_hsv))
-    axs[1].add_patch(patches.Rectangle((0, 0), 1, 1, color=np.array(blendedHSV[0])))
+    axs[1].add_patch(patches.Rectangle((0, 0), 1, 1, color=xp.array(blendedHSV[0])))
     axs[1].axis('off')
     axs[1].set_title(f"HSV-Blended : {blended_hsv}\nDifference: {blendedHSV_difference}")
 
     # Original color patch (HSV to RGB)
     vectorsToShow.append([tuple([int(x * 255) for x in original_rgb]), 1, [255/255, 165/255, 0/255], "RGB-Reference"])
-    axs[2].add_patch(patches.Rectangle((0, 0), 1, 1, color=np.array(original_rgb)))
+    axs[2].add_patch(patches.Rectangle((0, 0), 1, 1, color=xp.array(original_rgb)))
     axs[2].axis('off')
     axs[2].set_title(f'RGB - Original: {tuple([int(x * 255) for x in original_rgb])}')
 
     # Predicted color patch
     vectorsToShow.append([tuple([int(x * 255) for x in rgb_predicted]), 1, [0/255, 128/255, 128/255], "RGB-Predicted"])
     difference = tuple(float("{:.2f}".format((x - y) * 255)) for x, y in zip(original_rgb, rgb_predicted))
-    axs[3].add_patch(patches.Rectangle((0, 0), 1, 1, color=np.array(rgb_predicted)))
+    axs[3].add_patch(patches.Rectangle((0, 0), 1, 1, color=xp.array(rgb_predicted)))
     axs[3].axis('off')
     axs[3].set_title(f'RGB - Predicted: {tuple([int(x * 255) for x in rgb_predicted])}\nDifference: {difference}')
 
@@ -378,7 +385,7 @@ def createComparison(hsv_sample, rgb_predicted, blendedHSV, blendedRGB, weightin
     blendedRGBOriginal_difference = tuple(float("{:.2f}".format((x*255) - y)) for x, y in zip(original_rgb, blended_rgb))
     blendedRGBPredicted_difference = tuple(float("{:.2f}".format((x*255) - y)) for x, y in zip(rgb_predicted, blended_rgb))
     vectorsToShow.append([blended_rgb, 1, [0,0,0], f"RGB-Weighted"])
-    axs[4].add_patch(patches.Rectangle((0, 0), 1, 1, color=np.array(blendedRGB)))
+    axs[4].add_patch(patches.Rectangle((0, 0), 1, 1, color=xp.array(blendedRGB)))
     axs[4].axis('off')
     axs[4].set_title(f"RGB - Blended: {blended_rgb}\nOriginal->Blended: {blendedRGBOriginal_difference}\nPredicted->Blended: {blendedRGBPredicted_difference}")
     plt.tight_layout()
@@ -442,8 +449,8 @@ def getClosestSourcesPerNeuronAndLayer(sources, layersToCheck, mode=""):
 def blendIndividualImagesTogether(mostUsedSources, closestSources, layer=False):
     global trainSet
     
-    hsv = np.zeros(shape=[1, 3], dtype=float)
-    rgb = np.zeros(shape=[1, 3], dtype=float)
+    hsv = xp.zeros(shape=[1, 3], dtype=float)
+    rgb = xp.zeros(shape=[1, 3], dtype=float)
     weighting = []
 
     total = 0
@@ -467,13 +474,13 @@ def blendIndividualImagesTogether(mostUsedSources, closestSources, layer=False):
                     weighting = [[wSource.source, 1]]
             else:
                 if(layer):
-                    hsv += np.concatenate((trainSet[wSource[0]][0],)) * (wSource[1] / total)
-                    rgb += np.concatenate((trainSet[wSource[0]][1],)) * (wSource[1] / total)
+                    hsv += xp.concatenate((trainSet[wSource[0]][0],)) * (wSource[1] / total)
+                    rgb += xp.concatenate((trainSet[wSource[0]][1],)) * (wSource[1] / total)
                     weighting.append([wSource[0], wSource[1] / total])
                 else:
                     #print(f"Diff: {wSource.difference}, Total: {total}, Calculation: {(1 - (wSource.difference / total)) / closestSources}")
-                    hsv += np.concatenate((trainSet[wSource.source][0],)) * ((1 - (wSource.difference / total)) / closestSources)
-                    rgb += np.concatenate((trainSet[wSource.source][1],)) * ((1 - (wSource.difference / total)) / closestSources)
+                    hsv += xp.concatenate((trainSet[wSource.source][0],)) * ((1 - (wSource.difference / total)) / closestSources)
+                    rgb += xp.concatenate((trainSet[wSource.source][1],)) * ((1 - (wSource.difference / total)) / closestSources)
                     weighting.append([wSource.source, (1 - (wSource.difference / total)) / closestSources])
 
     return hsv, rgb, weighting
@@ -515,7 +522,7 @@ def getClosestSourcesPerNeuronAndLayer(hsvSample, prediction, sources, closestSo
                 image = createComparison(hsvSample[0], prediction[0], hsv, rgb, weighting)
 
                 plt.figure(figsize=(28,28))
-                plt.imshow(np.array(Image.open(io.BytesIO(image))))
+                plt.imshow(xp.array(Image.open(io.BytesIO(image))))
                 plt.title(f"{mode} - Layer: {cLayer}, {closestSources} most used Sources")
                 plt.show()
 
@@ -535,8 +542,8 @@ def createImageWithPrediction(sample, true, prediction):
     return [sample, f"pred: {prediction}, prob: {probability:.2f}, true: {true_class}"]
 
 def normalizePredictions(array):
-    min = np.min(array)
-    max = np.max(array)
+    min = xp.min(array)
+    max = xp.max(array)
     return (array - min) / (max - min)
 
 def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
@@ -560,7 +567,6 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
 def visualize3DCube(closestSources, layerNumber, neuronNumber, neuronsInLayer):
 
     import plotly.graph_objects as go
-    import numpy as np
 
     size = 3
     xValues, yValues, zValues, weightValues, colourValues, textValues = [], [], [], [], [], []
