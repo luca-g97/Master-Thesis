@@ -499,7 +499,7 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
 
                 toCheck = []
                 # Reconstruct neuron data
-                normalizedTrainNeurons, train_copy_path = getNormalizedValues(train_full_path) 
+                normalizedTrainNeurons, train_copy_path = getNormalizedValues(train_full_path)
 
                 if(evalPathExists):
                     normalizedEvalNeurons, eval_copy_path = getNormalizedValues(eval_full_path)
