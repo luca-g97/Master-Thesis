@@ -244,11 +244,11 @@ def createDictionaries(hidden_sizes, totalLayersParameter, train_samples, llmTyp
     layerSizes = [size[1] for size in hidden_sizes[:]]
     if not llmType:
         if useBitNet:
-            activationsBySources = xp.zeros((train_samples, totalLayers, xp.max(layerSizes)), dtype=int)
-            activationsByLayers = xp.zeros((totalLayers, xp.max(layerSizes), train_samples), dtype=int)
+            activationsBySources = xp.zeros((train_samples, totalLayers, max(layerSizes)), dtype=int)
+            activationsByLayers = xp.zeros((totalLayers, max(layerSizes), train_samples), dtype=int)
         else:
-            activationsBySources = xp.zeros((train_samples, totalLayers, xp.max(layerSizes)), dtype=xp.float128)
-            activationsByLayers = xp.zeros((totalLayers, xp.max(layerSizes), train_samples), dtype=xp.float128)
+            activationsBySources = xp.zeros((train_samples, totalLayers, max(layerSizes)), dtype=xp.float128)
+            activationsByLayers = xp.zeros((totalLayers, max(layerSizes), train_samples), dtype=xp.float128)
     print("Hook-Dictionaries created")
 
 def runHooks(train_dataloader, model, layersParameter=layers, llmType=False, context_length=1):
