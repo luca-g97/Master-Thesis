@@ -337,7 +337,7 @@ def getMostUsed(sources, mode=""):
                 maxNeurons = maxNeurons.out_features
             if(currentNeuron < maxNeurons):
                 for sourceNumber, value, difference in neuron:
-                    if(sourceNumber != 'None'):
+                    if(sourceNumber.item() != 'None'):
                         mostUsed.append(sourceNumber)
                         sourceCounter += 1
     return sourceCounter, mostUsed
