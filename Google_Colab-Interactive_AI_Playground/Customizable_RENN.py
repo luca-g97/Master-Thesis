@@ -308,7 +308,7 @@ def identifyClosestSources(closestSources, outputs, mode=""):
 
     layersToCheck = dictionary[layerNumbersToCheck]
     outputsToCheck = outputs[layerNumbersToCheck]
-    identifiedClosestSources = xp.empty((len(layersToCheck), xp.max(layerSizes), closestSources), dtype=tuple)
+    identifiedClosestSources = xp.empty((len(layersToCheck), max(layerSizes), closestSources), dtype=tuple)
 
     for currentLayer, layer in enumerate(layersToCheck):
         for currentNeuron, neuron in enumerate(layer):
