@@ -66,16 +66,15 @@ def generate_equidistant_color_samples(n_samples):
     return [(torch.from_numpy(xp.array(x[0])), torch.from_numpy(xp.array(x[1]))) for x in array]
 
 def generate_random_color_samples(n_samples):
-    data = xp.empty([n_samples, 2, 3])
-
+    array = []
     for x in range(n_samples):
         hsv = xp.random.random(3) # instance hsv values 0 - 1
         hsv = [float(color) for color in hsv]
         rgb = colorsys.hsv_to_rgb(hsv[0],hsv[1],hsv[2])
         rgb = [float(color) for color in rgb]
-        data[x] = (hsv, rgb)
+        array.append((hsv, rgb))  # Store as a tuple in a Python list
 
-    return [(torch.from_numpy(x[0]), torch.from_numpy(x[1])) for x in data]
+    return [(torch.from_numpy(xp.array(x[0])), torch.from_numpy(xp.array(x[1]))) for x in array]
 
 def visualizeTrainAndTestSet():
     train = [(hsv, rgb) for hsv, rgb in trainSet]
