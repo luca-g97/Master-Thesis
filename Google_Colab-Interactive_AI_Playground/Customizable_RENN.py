@@ -177,7 +177,8 @@ def forward_hook(module, input, output):
                 layerNeurons = relevantOutput.shape[1]
                 #layers[actualLayer] = (layers[actualLayer][0], relevantOutput.shape[1], layers[layer][2:])
         if(correctTypes):
-            dictionaryForSourceLayerNeuron[source][layer, :layerNeurons] = relevantOutput.reshape(-1)
+            relevantOutput_cupy = xp.asarray(relevantOutput).reshape(-1)  # Ensure CuPy and flat
+            dictionaryForSourceLayerNeuron[source][layer, :layerNeurons] = relevantOutput_cupy[:layerNeurons]
         # if(source == 0):
         #   print(relevantOutput, dictionaryForSourceLayerNeuron[source][layer,:layerNeurons])
 
@@ -282,8 +283,8 @@ def initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model,
     global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
 
     if not llm:
-        dictionaryForSourceLayerNeuron = xp.zeros((eval_samples, totalLayers, xp.max(layerSizes)), dtype=xp.float64)
-        dictionaryForLayerNeuronSource = xp.zeros((totalLayers, xp.max(layerSizes), eval_samples), dtype=xp.float64)
+        dictionaryForSourceLayerNeuron = xp.zeros((eval_samples, totalLayers, max(layerSizes)), dtype=xp.float64)
+        dictionaryForLayerNeuronSource = xp.zeros((totalLayers, max(layerSizes), eval_samples), dtype=xp.float64)
 
     with torch.no_grad():
         model.eval()  # Set the model to evaluation mode
