@@ -323,6 +323,7 @@ def predict(sample):
         model.eval()
         output = model(torch.flatten(sample))
     normalizedPredictions = normalizePredictions(output.cpu().numpy())
+    normalizedPredictions = xp.asarray(normalizedPredictions)
     return xp.argmax(normalizedPredictions), normalizedPredictions[xp.argmax(normalizedPredictions)]
 
 def createImageWithPrediction(sample, true, prediction):
