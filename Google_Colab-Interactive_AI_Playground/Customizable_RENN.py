@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+import numpy as np
 from collections import Counter
 import LLM_Small1x1 as Small1x1
 import LLM_Verdict as Verdict
@@ -9,26 +10,17 @@ import os
 
 layer, source, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, activationsBySources, activationsByLayers, totalLayers = "", "", "", "", "", "", ""
 llm, layerSizes, device, hidden_sizes, layers, currentLayer, relevantLayerIndices, useBitNet = "", "", "", "", [], 0, [], False
-sourceArray, fileName, contextLength, io, pd, pa, pq, zstd, xp, baseDirectory = "", "", 1, "", "", "", "", "", "", "./LookUp"
+sourceArray, fileName, contextLength, io, pd, pa, pq, zstd, baseDirectory = "", "", 1, "", "", "", "", "", "./LookUp"
 
 def initializePackages(devicePackage, ioPackage, pdPackage, paPackage, pqPackage, zstdPackage, seed="", useBitLinear=False):
-    global device, useBitNet, io, pd, pa, pq, zstd, xp
+    global device, useBitNet, io, pd, pa, pq, zstd
 
     device, io, pd, pa, pq, zstd = devicePackage, ioPackage, pdPackage, paPackage, pqPackage, zstdPackage
-
     useBitNet = useBitLinear
-
-    try:
-        import cupy as cp
-        cp.cuda.Device(0).use()  # Try to initialize the GPU
-        xp = cp  # Use CuPy if the GPU is available
-    except (ImportError, cp.cuda.runtime.CUDARuntimeError):
-        import numpy as np
-        xp = np  # Fallback to NumPy for CPU operations
 
     if(seed != ""):
         torch.manual_seed(seed)
-        xp.random.seed(seed)
+        np.random.seed(seed)
 
 #Bitnet-1.58b
 def weight_quant(weight, num_bits=1):
@@ -104,7 +96,7 @@ def createLayers(layerName, layerType, activationLayerType):
 class CustomizableRENN(nn.Module):
     def __init__(self, input_size, hidden_layers, output_size):
         super(CustomizableRENN, self).__init__()
-        
+
         #Add input and output layer to the hidden_layers
         self.num_layers = (len(hidden_layers))
         self.hidden_layers = hidden_layers
@@ -133,9 +125,9 @@ class CustomizableRENN(nn.Module):
         if isinstance(module, nn.Linear):
             # Generate random values of -1, 0, or 1 for each weight element
             with torch.no_grad():
-                module.weight.data = torch.tensor(xp.random.choice([-1, 0, 1], module.weight.shape)).float()
+                module.weight.data = torch.tensor(np.random.choice([-1, 0, 1], module.weight.shape)).float()
             if module.bias is not None:
-                module.bias.data = torch.tensor(xp.random.choice([-1, 0, 1], module.bias.shape)).float()
+                module.bias.data = torch.tensor(np.random.choice([-1, 0, 1], module.bias.shape)).float()
 
     def forward(self, x):
         for layer in range(self.num_layers):
@@ -213,7 +205,7 @@ def attachHooks(hookLoader, model, llmType = False, filename = "", sourceOffset=
 
     fileName = filename
     hooks = []  # Store the handles for each hook
-    outputs = xp.array([])
+    outputs = np.array([])
 
     for name, module in model.named_modules():
         if not isinstance(module, CustomizableRENN) and not isinstance(module, Verdict.GPTModel)\
@@ -244,11 +236,11 @@ def createDictionaries(hidden_sizes, totalLayersParameter, train_samples, llmTyp
     layerSizes = [size[1] for size in hidden_sizes[:]]
     if not llmType:
         if useBitNet:
-            activationsBySources = xp.zeros((train_samples, totalLayers, xp.max(layerSizes)), dtype=int)
-            activationsByLayers = xp.zeros((totalLayers, xp.max(layerSizes), train_samples), dtype=int)
+            activationsBySources = np.zeros((train_samples, totalLayers, np.max(layerSizes)), dtype=int)
+            activationsByLayers = np.zeros((totalLayers, np.max(layerSizes), train_samples), dtype=int)
         else:
-            activationsBySources = xp.zeros((train_samples, totalLayers, xp.max(layerSizes)), dtype=xp.float128)
-            activationsByLayers = xp.zeros((totalLayers, xp.max(layerSizes), train_samples), dtype=xp.float128)
+            activationsBySources = np.zeros((train_samples, totalLayers, np.max(layerSizes)), dtype=np.float128)
+            activationsByLayers = np.zeros((totalLayers, np.max(layerSizes), train_samples), dtype=np.float128)
     print("Hook-Dictionaries created")
 
 def runHooks(train_dataloader, model, layersParameter=layers, llmType=False, context_length=1):
@@ -282,8 +274,8 @@ def initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model,
     global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
 
     if not llm:
-        dictionaryForSourceLayerNeuron = xp.zeros((eval_samples, totalLayers, xp.max(layerSizes)), dtype=xp.float128)
-        dictionaryForLayerNeuronSource = xp.zeros((totalLayers, xp.max(layerSizes), eval_samples), dtype=xp.float128)
+        dictionaryForSourceLayerNeuron = np.zeros((eval_samples, totalLayers, np.max(layerSizes)), dtype=np.float128)
+        dictionaryForLayerNeuronSource = np.zeros((totalLayers, np.max(layerSizes), eval_samples), dtype=np.float128)
 
     with torch.no_grad():
         model.eval()  # Set the model to evaluation mode
@@ -307,7 +299,7 @@ def identifyClosestSources(closestSources, outputs, mode=""):
 
     layersToCheck = dictionary[layerNumbersToCheck]
     outputsToCheck = outputs[layerNumbersToCheck]
-    identifiedClosestSources = xp.empty((len(layersToCheck), xp.max(layerSizes), closestSources), dtype=tuple)
+    identifiedClosestSources = np.empty((len(layersToCheck), np.max(layerSizes), closestSources), dtype=tuple)
 
     for currentLayer, layer in enumerate(layersToCheck):
         for currentNeuron, neuron in enumerate(layer):
@@ -315,8 +307,8 @@ def identifyClosestSources(closestSources, outputs, mode=""):
             if not isinstance(maxNeurons, int):  # Ensure maxNeurons is an integer
                 maxNeurons = maxNeurons.out_features
             if currentNeuron < maxNeurons:
-                differencesBetweenSources = xp.abs(neuron - xp.full(len(neuron), outputsToCheck[currentLayer][currentNeuron]))
-                sortedSourceIndices = xp.argsort(differencesBetweenSources)
+                differencesBetweenSources = np.abs(neuron - np.full(len(neuron), outputsToCheck[currentLayer][currentNeuron]))
+                sortedSourceIndices = np.argsort(differencesBetweenSources)
                 closestSourceIndices = sortedSourceIndices[:closestSources]
                 tuples = tuple(
                     (closestSourceIndices[i], neuron[closestSourceIndices[i]],
@@ -373,7 +365,7 @@ def normalize_to_integer_sparse(sparse_data, min_val, max_val):
 
     if min_val == max_val:
         # If all elements are identical, return sparse zero array
-        return sp.coo_matrix(sparse_data.shape, dtype=xp.int64)
+        return sp.coo_matrix(sparse_data.shape, dtype=np.int64)
 
     # Compute scaling factors for normalization
     scale_factor = (max_int - min_int) / (max_val - min_val)
@@ -387,7 +379,7 @@ def normalize_to_integer_sparse(sparse_data, min_val, max_val):
     normalized_data.data += shift_factor
 
     # Convert data to int64 and ensure values are within the correct range
-    normalized_data.data = xp.clip(xp.round(normalized_data.data), min_int, max_int).astype(xp.int64)
+    normalized_data.data = np.clip(np.round(normalized_data.data), min_int, max_int).astype(np.int64)
 
     return normalized_data
 
@@ -472,7 +464,7 @@ def getNormalizedValues(full_path):
     # Drop non-neuron columns
     sentenceDf = sentenceDf.drop(columns=['Source', 'Sentence', 'Min', 'Max'])
     # Convert DataFrames to sparse COO matrices
-    neurons = sp.coo_matrix(xp.asarray(sentenceDf.to_numpy()))
+    neurons = sp.coo_matrix(np.asarray(sentenceDf.to_numpy()))
 
     return reconstruct_from_normalized(neurons, min, max).tocoo(), copy_path
 
@@ -534,7 +526,7 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
 
                         # Element-wise multiplication and compute absolute differences
                         common_mask = alignedTrain.multiply(alignedEval)
-                        differencesBetweenSources = sp.coo_matrix(xp.abs(alignedTrain - alignedEval).multiply(common_mask))
+                        differencesBetweenSources = sp.coo_matrix(np.abs(alignedTrain - alignedEval).multiply(common_mask))
 
                         # Process differences
                         for neuron_idx, difference in zip(differencesBetweenSources.col, differencesBetweenSources.data):
@@ -579,7 +571,7 @@ def save_sparse_3d_array(array, filename):
     sparse_array = sp.coo_matrix(flat_array)
 
     # Save row indices, column indices (which we interpret as flat indices), and data
-    xp.savetxt(filename, xp.column_stack((sparse_array.col, sparse_array.data)), fmt='%d %.6f')
+    np.savetxt(filename, np.column_stack((sparse_array.col, sparse_array.data)), fmt='%d %.6f')
 
     # Save the shape for reconstruction
     with open(filename, 'a') as f:
@@ -587,10 +579,10 @@ def save_sparse_3d_array(array, filename):
 
 def getValuesCount(dictionary):
     # Get unique values and their counts
-    unique_values, counts = xp.unique(dictionary, return_counts=True)
+    unique_values, counts = np.unique(dictionary, return_counts=True)
 
     # Calculate the total number of elements in the dictionary
-    total_elements = xp.prod(dictionary.shape)  # Total elements in the 3D array
+    total_elements = np.prod(dictionary.shape)  # Total elements in the 3D array
 
     # Flatten the dictionary to work with all values easily
     flat_values = dictionary.flatten()
@@ -663,10 +655,10 @@ def find_differing_position(val1, val2):
 def getMinimumPrecision(unique_values):
     # Define the valid float precisions and their approximate decimal places
     float_precisions = {
-        xp.float128: 33,  # 33 to 34 decimal places (reference for float128 comparison)
-        xp.float64: 15,   # Reference precision (original)
-        xp.float32: 7,    # 7 to 8 decimal places
-        xp.float16: 3     # 3 to 4 decimal places
+        np.float128: 33,  # 33 to 34 decimal places (reference for float128 comparison)
+        np.float64: 15,   # Reference precision (original)
+        np.float32: 7,    # 7 to 8 decimal places
+        np.float16: 3     # 3 to 4 decimal places
     }
 
     # Add custom precisions for 1 to 8 decimal places
@@ -675,51 +667,51 @@ def getMinimumPrecision(unique_values):
 
     def calculate_mse(original_values, rounded_values):
         # Calculate the Mean Squared Error
-        mse = xp.mean((original_values - rounded_values) ** 2)
+        mse = np.mean((original_values - rounded_values) ** 2)
         return mse
 
     mse_results = {}
     loss_results = {}
 
-    # Step 1: Compare each precision with xp.float128 (highest precision reference)
+    # Step 1: Compare each precision with np.float128 (highest precision reference)
     print("Comparing float128 (highest precision) with other float types:")
     for float_type, precision in float_precisions.items():
         if isinstance(float_type, str):  # Custom precision (float_1 to float_8)
-            rounded_values = xp.round(unique_values, decimals=precision)
-            mse = calculate_mse(unique_values.astype(xp.float128), rounded_values)
+            rounded_values = np.round(unique_values, decimals=precision)
+            mse = calculate_mse(unique_values.astype(np.float128), rounded_values)
         else:  # Standard float types (float128, float64, etc.)
-            rounded_values = xp.round(unique_values.astype(float_type), decimals=precision)
-            mse = calculate_mse(unique_values.astype(xp.float128), rounded_values)
+            rounded_values = np.round(unique_values.astype(float_type), decimals=precision)
+            mse = calculate_mse(unique_values.astype(np.float128), rounded_values)
 
         mse_results[float_type] = mse
-        loss_percentage = mse / xp.mean(unique_values.astype(xp.float128)**2) * 100
+        loss_percentage = mse / np.mean(unique_values.astype(np.float128)**2) * 100
         loss_results[float_type] = loss_percentage
 
         precision_name = float_type if isinstance(float_type, str) else float_type.__name__
-        precision_bits = precision if isinstance(float_type, str) else xp.dtype(float_type).itemsize * 8
+        precision_bits = precision if isinstance(float_type, str) else np.dtype(float_type).itemsize * 8
         print(f"Float type: {precision_name}, Precision: {precision_bits} bits, "
               f"MSE: {mse}, Loss of Information: {loss_percentage}%")
 
     return mse_results, loss_results
 
 def mse(true_values, predicted_values):
-    return xp.mean((true_values - predicted_values) ** 2)
+    return np.mean((true_values - predicted_values) ** 2)
 
 def compare_precision_results(closestSources, outputs):
     # Define the precision levels
     float_precisions = {
-        xp.float128: 33,  # 33 to 34 decimal places (reference for float128 comparison)
-        xp.float64: 15,   # Reference precision (original)
-        xp.float32: 7,    # 7 to 8 decimal places
-        xp.float16: 3     # 3 to 4 decimal places
+        np.float128: 33,  # 33 to 34 decimal places (reference for float128 comparison)
+        np.float64: 15,   # Reference precision (original)
+        np.float32: 7,    # 7 to 8 decimal places
+        np.float16: 3     # 3 to 4 decimal places
     }
 
     # Add custom precisions for 1 to 8 decimal places
     for i in range(1, 9):
         float_precisions[f'float_{9-i}'] = 9 - i
 
-    # Use the highest precision (xp.float128) as the base reference
-    base_results, _, _ = identifyClosestSources(closestSources, outputs)  # Using xp.float128
+    # Use the highest precision (np.float128) as the base reference
+    base_results, _, _ = identifyClosestSources(closestSources, outputs)  # Using np.float128
 
     # Run the RENN.getMostUsedSources method with base precision
     mostUsedBase = getMostUsedSources(base_results, closestSources)
@@ -731,8 +723,8 @@ def compare_precision_results(closestSources, outputs):
         # Handle custom float precisions differently
         if isinstance(float_type, str):  # Custom precision (like 'float_8')
             # Round values in outputs and dictionary to the specified decimal places
-            rounded_outputs = xp.round(outputs, decimals=precision)
-            rounded_dictionary = xp.round(activationsByLayers, decimals=precision)
+            rounded_outputs = np.round(outputs, decimals=precision)
+            rounded_dictionary = np.round(activationsByLayers, decimals=precision)
         else:  # Standard numpy float types
             rounded_outputs = outputs.astype(float_type)
             rounded_dictionary = activationsByLayers.astype(float_type)
@@ -751,7 +743,7 @@ def compare_precision_results(closestSources, outputs):
     if precision_results:
         best_precision = min(precision_results, key=precision_results.get)
     else:
-        best_precision = xp.float128  # Fallback to xp.float128 if no match was found
+        best_precision = np.float128  # Fallback to np.float128 if no match was found
 
     print(f"Best Precision with least decimals: {best_precision}")
     return best_precision, precision_results

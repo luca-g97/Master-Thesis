@@ -1,33 +1,27 @@
 import torch
 from torch.utils.data import Dataset
 from torch import nn
+import numpy as np
 import torch.optim as optim
 from IPython.display import display
 import matplotlib.patches as patches
 import Customizable_RENN as RENN
 
-colorsys, xp, go, pio, device, DataLoader, trainSet, testSet, train_data = "", "", "", "", "", "", "", "", ""
+colorsys, go, pio, device, DataLoader, trainSet, testSet, train_data = "", "", "", "", "", "", "", ""
 model, criterion_class, chosen_optimizer, layers, vectorsToShow = "", "", "", "", []
 train_samples, eval_samples, test_samples = 1, 1, 1
 dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource = [], []
 
 def initializePackages(colorsysPackage, goPackage, pioPackage, DataLoaderPackage, devicePackage):
     global colorsys, go, pio, device, DataLoader, xp
-    colorsys, go, pio, device, DataLoader = colorsysPackage, goPackage, pioPackage, devicePackage, DataLoaderPackage
 
-    try:
-        import cupy as cp
-        cp.cuda.Device(0).use()  # Try to initialize the GPU
-        xp = cp  # Use CuPy if the GPU is available
-    except (ImportError, cp.cuda.runtime.CUDARuntimeError):
-        import numpy as np
-        xp = np  # Fallback to NumPy for CPU operations
+    colorsys, go, pio, device, DataLoader = colorsysPackage, goPackage, pioPackage, devicePackage, DataLoaderPackage
 
 def createTrainAndTestSet(trainSamples, testSamples, visualize=False):
     global trainSet, testSet
     trainSet = generate_equidistant_color_samples(trainSamples)
     testSet = generate_random_color_samples(testSamples)
-    
+
     if(visualize):
         visualizeTrainAndTestSet()
     print(f"Created {len(trainSet)} Trainsamples & {len(testSet)} Testsamples")    
@@ -41,14 +35,14 @@ def generate_equidistant_color_samples(n_samples):
     step_size = 1 / (steps_per_dimension - 1)
 
     # Generate the RGB values scaled to 0-1
-    r_values = xp.arange(0, 1.001, step_size)
-    g_values = xp.arange(0, 1.001, step_size)
-    b_values = xp.arange(0, 1.001, step_size)
+    r_values = np.arange(0, 1.001, step_size)
+    g_values = np.arange(0, 1.001, step_size)
+    b_values = np.arange(0, 1.001, step_size)
 
     # Create a grid of RGB values
-    rgb_array = xp.array(xp.meshgrid(r_values, g_values, b_values)).T.reshape(-1,3)
-    array = xp.zeros([len(rgb_array), 2, 3])
-    colorArray = xp.zeros([len(rgb_array), 1, 3])
+    rgb_array = np.array(np.meshgrid(r_values, g_values, b_values)).T.reshape(-1,3)
+    array = np.zeros([len(rgb_array), 2, 3])
+    colorArray = np.zeros([len(rgb_array), 1, 3])
 
     for x in range(len(rgb_array)): # merge the rgb and hsv values
         hsv = colorsys.rgb_to_hsv(rgb_array[x][0],rgb_array[x][1],rgb_array[x][2])
@@ -59,10 +53,10 @@ def generate_equidistant_color_samples(n_samples):
     return [(torch.from_numpy(x[0]), torch.from_numpy(x[1])) for x in array]
 
 def generate_random_color_samples(n_samples):
-    data = xp.empty([n_samples, 2, 3])
+    data = np.empty([n_samples, 2, 3])
 
     for x in range(n_samples):
-        hsv = xp.random.random(3) # instance hsv values 0 - 1
+        hsv = np.random.random(3) # instance hsv values 0 - 1
         hsv = [float(color) for color in hsv]
         rgb = colorsys.hsv_to_rgb(hsv[0],hsv[1],hsv[2])
         rgb = [float(color) for color in rgb]
@@ -75,18 +69,18 @@ def visualizeTrainAndTestSet():
     test = [(hsv, rgb) for hsv, rgb in testSet]
     array = (train, test)
     names = ("Training", "Test")
-    
+
     # Create multiple plots side by side
     plots = []
     for i in range(2):
         test_subset = array[i]
         plots.append(draw_RGB_3D(test_subset, names[i]))
-    
+
     # Display the plots side by side
     fig = go.Figure()
     for i, plot in enumerate(plots):
         fig.add_trace(plot.data[0])
-    
+
     fig.update_layout(
         title='Train and Testsamples for HSV-RGB',
         width=800,  # Adjust the total width as needed
@@ -141,7 +135,7 @@ def initializeDatasets(train_samplesParameter, test_samplesParameter, eval_sampl
     if(seed != ""):
         print("Setting seed number to ", seed)
         torch.manual_seed(seed)
-        xp.random.seed(seed)
+        np.random.seed(seed)
     else: print("Setting random seed")
 
     x_train, y_train = trainSet[0][:train_samples], trainSet[1][:train_samples]
@@ -164,7 +158,7 @@ def initializeTraining(hidden_sizes, loss_function, optimizer, learning_rate):
 
     model = RENN.CustomizableRENN(input_size, hidden_sizes, output_size)
     model.to(device)
-    layers = xp.array(RENN.layers)
+    layers = np.array(RENN.layers)
 
     if(loss_function == "MSE"):
         criterion_class = nn.MSELoss()  # For regression
@@ -241,11 +235,11 @@ def showImagesUnweighted(originalImage, blendedSourceImageActivation, blendedSou
 
     # Display weightedSourceImageActivation
     axes[3].set_title(f"WA=WeightedActivation - Closest Sources/Neuron (Weighted)")
-    axes[3].imshow(Image.fromarray(xp.zeros(shape=[28,28], dtype=xp.uint8)).convert("RGBA"))
+    axes[3].imshow(Image.fromarray(np.zeros(shape=[28,28], dtype=np.uint8)).convert("RGBA"))
 
     # Display weightedSourceImageSum
     axes[4].set_title(f"WS=WeigthedSum - Closest Sources/Neuron (Weighted)")
-    axes[4].imshow(Image.fromarray(xp.zeros(shape=[28,28], dtype=xp.uint8)).convert("RGBA"))
+    axes[4].imshow(Image.fromarray(np.zeros(shape=[28,28], dtype=np.uint8)).convert("RGBA"))
 
     plt.show()
 
@@ -297,13 +291,13 @@ def showIndividualImages(images):
     for i in range(num_images):
         row_index = i // num_cols
         col_index = i % num_cols
-        axs[row_index, col_index].imshow(xp.array(Image.open(io.BytesIO(images[i][0]))))
+        axs[row_index, col_index].imshow(np.array(Image.open(io.BytesIO(images[i][0]))))
         axs[row_index, col_index].set_title(images[i][1], fontweight='bold')
         axs[row_index, col_index].axis('off')
 
     #Fill up with empty images if necessary
     for i in range(num_images % num_cols):
-        image = Image.fromarray(xp.ones(shape=[28,28], dtype=xp.uint8)).convert("RGBA")
+        image = Image.fromarray(np.ones(shape=[28,28], dtype=np.uint8)).convert("RGBA")
         row_index = (num_images-1 + i) // num_cols
         col_index = (num_images-1 + i) % num_cols
         axs[row_index, col_index].imshow(image)
@@ -316,7 +310,7 @@ def showIndividualImages(images):
 import plotly.graph_objects as go
 import plotly.subplots as sp
 
-def showIndividualImagesPlotly(images, layer, mode):
+def showIndividualImagesPlotly(images, layer, mode, showClosestMostUsedSources, closestSources):
     num_images = len(images)
     num_cols = 5  # Number of columns
     if num_images == 10:
@@ -347,33 +341,33 @@ import io
 
 def createComparison(hsv_sample, rgb_predicted, blendedHSV, blendedRGB, weighting):
     global vectorsToShow
-    
+
     fig, axs = plt.subplots(5, 1, figsize=(6, 6))
     rgb_predicted = rgb_predicted.cpu().detach().numpy()[0]
 
     original_rgb = colorsys.hsv_to_rgb(hsv_sample[0], hsv_sample[1], hsv_sample[2])
 
     # Original color patch (HSV to RGB)
-    axs[0].add_patch(patches.Rectangle((0, 0), 1, 1, color=xp.array(hsv_sample)))
+    axs[0].add_patch(patches.Rectangle((0, 0), 1, 1, color=np.array(hsv_sample)))
     axs[0].axis('off')
     axs[0].set_title(f'HSV - Original: {tuple([int(x * 255) for x in hsv_sample])}')
 
     blended_hsv = tuple(float("{:.2f}".format(x * 255)) for x in blendedHSV[0])
     blendedHSV_difference = tuple(float("{:.2f}".format((x*255) - y)) for x, y in zip(hsv_sample, blended_hsv))
-    axs[1].add_patch(patches.Rectangle((0, 0), 1, 1, color=xp.array(blendedHSV[0])))
+    axs[1].add_patch(patches.Rectangle((0, 0), 1, 1, color=np.array(blendedHSV[0])))
     axs[1].axis('off')
     axs[1].set_title(f"HSV-Blended : {blended_hsv}\nDifference: {blendedHSV_difference}")
 
     # Original color patch (HSV to RGB)
     vectorsToShow.append([tuple([int(x * 255) for x in original_rgb]), 1, [255/255, 165/255, 0/255], "RGB-Reference"])
-    axs[2].add_patch(patches.Rectangle((0, 0), 1, 1, color=xp.array(original_rgb)))
+    axs[2].add_patch(patches.Rectangle((0, 0), 1, 1, color=np.array(original_rgb)))
     axs[2].axis('off')
     axs[2].set_title(f'RGB - Original: {tuple([int(x * 255) for x in original_rgb])}')
 
     # Predicted color patch
     vectorsToShow.append([tuple([int(x * 255) for x in rgb_predicted]), 1, [0/255, 128/255, 128/255], "RGB-Predicted"])
     difference = tuple(float("{:.2f}".format((x - y) * 255)) for x, y in zip(original_rgb, rgb_predicted))
-    axs[3].add_patch(patches.Rectangle((0, 0), 1, 1, color=xp.array(rgb_predicted)))
+    axs[3].add_patch(patches.Rectangle((0, 0), 1, 1, color=np.array(rgb_predicted)))
     axs[3].axis('off')
     axs[3].set_title(f'RGB - Predicted: {tuple([int(x * 255) for x in rgb_predicted])}\nDifference: {difference}')
 
@@ -385,7 +379,7 @@ def createComparison(hsv_sample, rgb_predicted, blendedHSV, blendedRGB, weightin
     blendedRGBOriginal_difference = tuple(float("{:.2f}".format((x*255) - y)) for x, y in zip(original_rgb, blended_rgb))
     blendedRGBPredicted_difference = tuple(float("{:.2f}".format((x*255) - y)) for x, y in zip(rgb_predicted, blended_rgb))
     vectorsToShow.append([blended_rgb, 1, [0,0,0], f"RGB-Weighted"])
-    axs[4].add_patch(patches.Rectangle((0, 0), 1, 1, color=xp.array(blendedRGB)))
+    axs[4].add_patch(patches.Rectangle((0, 0), 1, 1, color=np.array(blendedRGB)))
     axs[4].axis('off')
     axs[4].set_title(f"RGB - Blended: {blended_rgb}\nOriginal->Blended: {blendedRGBOriginal_difference}\nPredicted->Blended: {blendedRGBPredicted_difference}")
     plt.tight_layout()
@@ -411,7 +405,7 @@ def getMostUsedPerLayer(sources):
         sourceCounter += 1
     return sourceCounter, mostUsed
 
-def getClosestSourcesPerNeuronAndLayer(sources, layersToCheck, mode=""):
+def getClosestSourcesPerNeuronAndLayer(sources, layersToCheck, closestSources, visualizationChoice, visualizeCustom, mode=""):
     for cLayer, layer in enumerate(sources):
         weightedSourcesPerLayer = []
         totalDifferencePerLayer = 0
@@ -432,7 +426,7 @@ def getClosestSourcesPerNeuronAndLayer(sources, layersToCheck, mode=""):
 
         if not(visualizationChoice.value == "Per Layer Only"):
             if not(mode == "Activation" and visualizationChoice.value == "Custom" and visualizeCustom[cLayer][1] == False):
-                showIndividualImagesPlotly(imagesPerLayer, int(layersToCheck[cLayer]/2), mode)
+                showIndividualImagesPlotly(imagesPerLayer, int(layersToCheck[cLayer]/2), mode, closestSources, visualizationChoice)
 
         if not(visualizationChoice.value == "Per Neuron Only"):
             if not(mode == "Activation" and visualizationChoice.value == "Custom" and visualizeCustom[cLayer][1] == False):
@@ -448,9 +442,9 @@ def getClosestSourcesPerNeuronAndLayer(sources, layersToCheck, mode=""):
 
 def blendIndividualImagesTogether(mostUsedSources, closestSources, layer=False):
     global trainSet
-    
-    hsv = xp.zeros(shape=[1, 3], dtype=float)
-    rgb = xp.zeros(shape=[1, 3], dtype=float)
+
+    hsv = np.zeros(shape=[1, 3], dtype=float)
+    rgb = np.zeros(shape=[1, 3], dtype=float)
     weighting = []
 
     total = 0
@@ -474,13 +468,13 @@ def blendIndividualImagesTogether(mostUsedSources, closestSources, layer=False):
                     weighting = [[wSource.source, 1]]
             else:
                 if(layer):
-                    hsv += xp.concatenate((trainSet[wSource[0]][0],)) * (wSource[1] / total)
-                    rgb += xp.concatenate((trainSet[wSource[0]][1],)) * (wSource[1] / total)
+                    hsv += np.concatenate((trainSet[wSource[0]][0],)) * (wSource[1] / total)
+                    rgb += np.concatenate((trainSet[wSource[0]][1],)) * (wSource[1] / total)
                     weighting.append([wSource[0], wSource[1] / total])
                 else:
                     #print(f"Diff: {wSource.difference}, Total: {total}, Calculation: {(1 - (wSource.difference / total)) / closestSources}")
-                    hsv += xp.concatenate((trainSet[wSource.source][0],)) * ((1 - (wSource.difference / total)) / closestSources)
-                    rgb += xp.concatenate((trainSet[wSource.source][1],)) * ((1 - (wSource.difference / total)) / closestSources)
+                    hsv += np.concatenate((trainSet[wSource.source][0],)) * ((1 - (wSource.difference / total)) / closestSources)
+                    rgb += np.concatenate((trainSet[wSource.source][1],)) * ((1 - (wSource.difference / total)) / closestSources)
                     weighting.append([wSource.source, (1 - (wSource.difference / total)) / closestSources])
 
     return hsv, rgb, weighting
@@ -522,7 +516,7 @@ def getClosestSourcesPerNeuronAndLayer(hsvSample, prediction, sources, closestSo
                 image = createComparison(hsvSample[0], prediction[0], hsv, rgb, weighting)
 
                 plt.figure(figsize=(28,28))
-                plt.imshow(xp.array(Image.open(io.BytesIO(image))))
+                plt.imshow(np.array(Image.open(io.BytesIO(image))))
                 plt.title(f"{mode} - Layer: {cLayer}, {closestSources} most used Sources")
                 plt.show()
 
@@ -542,15 +536,15 @@ def createImageWithPrediction(sample, true, prediction):
     return [sample, f"pred: {prediction}, prob: {probability:.2f}, true: {true_class}"]
 
 def normalizePredictions(array):
-    min = xp.min(array)
-    max = xp.max(array)
+    min = np.min(array)
+    max = np.max(array)
     return (array - min) / (max - min)
 
 def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
     global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
-        
+
     dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource = RENN.initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model)
-    
+
     for pos, (sample, true) in enumerate(eval_dataloader):
         sample = sample.float()
         prediction = predict(sample)

@@ -2,25 +2,19 @@ import torch
 from torch.utils.data import Dataset
 from torch.utils.data import Subset
 import torch.optim as optim
+import numpy as np
 import Customizable_RENN as RENN
 
-mnist, xp, to_categorical, nn, DataLoader, device = "", "", "", "", "", ""
+mnist, to_categorical, nn, DataLoader, device = "", "", "", "", ""
 train_dataloader, test_dataloader, eval_dataloader, trainDataSet, testDataSet, trainSubset, testSubset, x_train, y_train, x_test, y_test, x_eval, y_eval = "", "", "", "", "", "", "", "", "", "", "", "", ""
 model, criterion_class, chosen_optimizer, layers = "", "", "", ""
 train_samples, eval_samples, test_samples = 1, 1, 1
 dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource = [], []
 
 def initializePackages(mnistPackage, to_categoricalPackage, nnPackage, DataLoaderPackage, devicePackage):
-    global mnist, to_categorical, nn, DataLoader, device, xp
+    global mnist, to_categorical, nn, DataLoader, device
+    
     mnist, to_categorical, nn, DataLoader, device = mnistPackage, to_categoricalPackage, nnPackage, DataLoaderPackage, devicePackage
-
-    try:
-        import cupy as cp
-        cp.cuda.Device(0).use()  # Try to initialize the GPU
-        xp = cp  # Use CuPy if the GPU is available
-    except (ImportError, cp.cuda.runtime.CUDARuntimeError):
-        import numpy as np
-        xp = np  # Fallback to NumPy for CPU operations
 
 def createTrainAndTestSet():
     global trainDataSet, testDataSet, x_train, y_train
@@ -60,7 +54,7 @@ def initializeDatasets(train_samplesParameter, test_samplesParameter, eval_sampl
     if(seed != ""):
         print("Setting seed number to ", seed)
         torch.manual_seed(seed)
-        xp.random.seed(seed)
+        np.random.seed(seed)
     else: print("Setting random seed")
 
     trainSubset = Subset(trainDataSet, range(train_samples))
@@ -78,7 +72,7 @@ def initializeTraining(hidden_sizes, loss_function, optimizer, learning_rate):
     
     model = RENN.CustomizableRENN(input_size, hidden_sizes, output_size)
     model.to(device)
-    layers = xp.array(RENN.layers)
+    layers = np.array(RENN.layers)
     
     if(loss_function == "MSE"):
         criterion_class = nn.MSELoss()  # For regression
@@ -189,11 +183,11 @@ def showImagesUnweighted(originalImage, blendedSourceImageActivation, blendedSou
 
     # Display weightedSourceImageActivation
     axes[3].set_title(f"WA=WeightedActivation - Closest Sources/Neuron (Weighted)")
-    axes[3].imshow(Image.fromarray(xp.zeros(shape=[28,28], dtype=xp.uint8)).convert("RGBA"))
+    axes[3].imshow(Image.fromarray(np.zeros(shape=[28,28], dtype=np.uint8)).convert("RGBA"))
 
     # Display weightedSourceImageSum
     axes[4].set_title(f"WS=WeigthedSum - Closest Sources/Neuron (Weighted)")
-    axes[4].imshow(Image.fromarray(xp.zeros(shape=[28,28], dtype=xp.uint8)).convert("RGBA"))
+    axes[4].imshow(Image.fromarray(np.zeros(shape=[28,28], dtype=np.uint8)).convert("RGBA"))
 
     plt.show()
 
@@ -274,7 +268,7 @@ def getClosestSourcesPerNeuronAndLayer(sources, layersToCheck, closestSources, s
 """# Evaluation: Visual Blending"""
 
 def blendImagesTogether(mostUsedSources, mode):
-    image = Image.fromarray(xp.zeros(shape=[28,28], dtype=xp.uint8)).convert("RGBA")
+    image = Image.fromarray(np.zeros(shape=[28,28], dtype=np.uint8)).convert("RGBA")
     weights = []
     total = 0
 
@@ -289,7 +283,7 @@ def blendImagesTogether(mostUsedSources, mode):
     return (image, weights)
 
 def blendIndividualImagesTogether(mostUsedSources, closestSources, layer=False):
-    image = Image.fromarray(xp.zeros(shape=[28,28], dtype=xp.uint8)).convert("RGBA")
+    image = Image.fromarray(np.zeros(shape=[28,28], dtype=np.uint8)).convert("RGBA")
 
     total = 0
     for source in mostUsedSources:
@@ -323,7 +317,7 @@ def predict(sample):
         model.eval()
         output = model(torch.flatten(sample))
     normalizedPredictions = normalizePredictions(output.cpu().numpy())
-    return xp.argmax(normalizedPredictions), normalizedPredictions[xp.argmax(normalizedPredictions)]
+    return np.argmax(normalizedPredictions), normalizedPredictions[np.argmax(normalizedPredictions)]
 
 def createImageWithPrediction(sample, true, prediction):
     sample = sample.to(device)
@@ -333,9 +327,9 @@ def createImageWithPrediction(sample, true, prediction):
     return [sample, f"pred: {prediction}, prob: {probability:.2f}, true: {true_class}"]
 
 def normalizePredictions(array):
-    min = xp.min(array)
-    max = xp.max(array)
-    return ((array - min) / (max - min)) if (max-min) > 0.0 else xp.zeros_like(array)
+    min = np.min(array)
+    max = np.max(array)
+    return ((array - min) / (max - min)) if (max-min) > 0.0 else np.zeros_like(array)
 
 """# Evaluation: Code"""
 
@@ -348,7 +342,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
     for pos, (sample, true) in enumerate(eval_dataloader):
         sample = sample.float()
         prediction = predict(sample)
-        mostUsedSourcesWithSum = "";
+        mostUsedSourcesWithSum = ""
     
         if(visualizationChoice == "Weighted"):
             sourcesSum, outputsSum, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], "Sum")

@@ -4,7 +4,7 @@ import torch.optim as optim
 from torch.utils.data import Dataset
 import Customizable_RENN as RENN
 
-random, lorem, xp, device, tiktoken, DataLoader = "", "", "", "", "", ""
+random, lorem, device, tiktoken, DataLoader = "", "", "", "", ""
 train_samples, test_samples, eval_samples = "", "", ""
 GPT_CONFIG_124M, settings = "", ""
 train_loader, val_loader, eval_loader, tokenizer  = "", "", "", ""
@@ -12,16 +12,9 @@ dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource = [], []
 small1x1 = []
 
 def initializePackages(randomPackage, loremPackage, devicePackage, tiktokenPackage, DataLoaderPackage):
-    global random, lorem, device, tiktoken, DataLoader, xp
-    random, lorem, device, tiktoken, DataLoader = randomPackage, loremPackage, devicePackage, tiktokenPackage, DataLoaderPackage
+    global random, lorem, device, tiktoken, DataLoader
 
-    try:
-        import cupy as cp
-        cp.cuda.Device(0).use()  # Try to initialize the GPU
-        xp = cp  # Use CuPy if the GPU is available
-    except (ImportError, cp.cuda.runtime.CUDARuntimeError):
-        import numpy as np
-        xp = np  # Fallback to NumPy for CPU operations
+    random, lorem, device, tiktoken, DataLoader = randomPackage, loremPackage, devicePackage, tiktokenPackage, DataLoaderPackage
 
 def createUniqueCalculation(createdCalculations, xMin = 0, xMax = 9, yMin = 0, yMax = 9):
     x = random.randint(xMin, xMax)
@@ -45,7 +38,7 @@ def createTrainAndTestSet(samples):
 
 def setGPTSettings(layerAmount, learningRate, epochs):
     global GPT_CONFIG_124M, settings, tokenizer
-    
+
     GPT_CONFIG_124M = {
         "vocab_size": 50257,   # Vocabulary size
         "context_length": 20, # Shortened context length (orig: 1024)
@@ -85,7 +78,7 @@ def setGPTSettings(layerAmount, learningRate, epochs):
          #('Dropout', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["drop_rate"]]
          ('TransformerBlock', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"])
          ]
-    
+
     return LLM_Layers, TransformerBlockLayer
 
 """#Data Initialization"""
@@ -117,14 +110,13 @@ def create_dataloader_v1(txt, batch_size=4, max_length=256,
     dataset = GPTDatasetV1(txt, tokenizer, max_length, stride)
 
     # Create dataloader
-    dataloader = DataLoader(
-        dataset, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last)
 
     return dataloader
 
 def createLLMLoader(samples, context_length, shuffle=False, drop_last=True):
     global tokenizer
-    
+
     tokenized_samples = tokenizer.encode(samples)
 
     # Get the total number of tokens available
@@ -435,7 +427,7 @@ def plot_losses(epochs_seen, tokens_seen, train_losses, val_losses):
 
 def main():
     global tokenizer
-    
+
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=settings["learning_rate"], weight_decay=settings["weight_decay"]
     )
@@ -450,7 +442,7 @@ def main():
 
 def trainModel(hidden_sizes, loss_function, optimizer, learning_rate, epochs):
     global train_loader, eval_loader, tokenizer
-    
+
     initializeTraining(hidden_sizes, loss_function, optimizer, learning_rate)
     print("Model initialized, Starting training")
     _, _, _, train_dataloader, eval_dataloader = main()
@@ -462,7 +454,7 @@ def initializeHook(hidden_sizes, train_samples):
     actualSamples = [sample[-1] for sample in small1x1]
     samples = "\n".join(actualSamples[:train_samples])
     train_loader = createLLMLoader(samples, 1)
-    
+
     RENN.runHooks(train_loader, model, hidden_sizes, True)
 
 def generate(model, idx, max_new_tokens, context_size, temperature, top_k=None):
@@ -502,7 +494,7 @@ def generate(model, idx, max_new_tokens, context_size, temperature, top_k=None):
 
 def getLLMPrediction(sample):
     global tokenizer
-    
+
     x, y, solution, _ = sample
     index = text_to_token_ids(f"{x}*{y}=", tokenizer)
     maxNewTokens = len(str(x*y))
@@ -514,9 +506,9 @@ def getLLMPrediction(sample):
 
 def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
     global train_samples, test_samples, eval_samples, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
-    
+
     dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource = RENN.initializeEvaluationHook(hidden_sizes, eval_loader, eval_samples, model)
-    
+
     for sampleNumber in range(eval_samples):
         #TODO: Save calculations to file and hook in evaluation mode onto the model!
         sources, outputs, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[sampleNumber])
@@ -533,5 +525,5 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
 
         if(analyze):
             RENN.analyzeData(closestSources, dictionaryForSourceLayerNeuron[sampleNumber])
-    
+
     #print(f"Time passed since start: {time_since_start(startTime)}")

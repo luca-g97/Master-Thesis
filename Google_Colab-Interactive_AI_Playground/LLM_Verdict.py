@@ -17,6 +17,7 @@ dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource = [], []
 
 def initializePackages(randomPackage, loremPackage, devicePackage, tiktokenPackage, DataLoaderPackage, nlpPackage, GPT2TokenizerPackage):
     global random, lorem, device, tiktoken, DataLoader, nlp, GPT2Tokenizer
+
     random, lorem, device, tiktoken, DataLoader, nlp, GPT2Tokenizer = randomPackage, loremPackage, devicePackage, tiktokenPackage, DataLoaderPackage, nlpPackage, GPT2TokenizerPackage
 
 def createTrainSet():
@@ -110,7 +111,7 @@ def createWikiTrainSet(category):
 
 def createEnglishWikiTrainSet(filePath):
     global sentences, sentencesStructure
-    
+
     # Load the specific Parquet file using pandas
     df = pd.read_parquet(filePath)
 
@@ -148,7 +149,7 @@ def getSourceAndSentenceIndex(flat_index):
 
 def setGPTSettings(layerAmount, learningRate, epochs):
     global GPT_CONFIG_124M, settings, tokenizer
-    
+
     GPT_CONFIG_124M = {
         "vocab_size": 50257,   # Vocabulary size
         "context_length": 256, # Shortened context length (orig: 1024)
@@ -172,7 +173,7 @@ def setGPTSettings(layerAmount, learningRate, epochs):
          ], [('Sequential', GPT_CONFIG_124M["emb_dim"], 4 * GPT_CONFIG_124M["emb_dim"]),
          ('LayerNorm', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
          ('Linear', GPT_CONFIG_124M["vocab_size"], GPT_CONFIG_124M["emb_dim"])]]
-    
+
     TransformerBlockLayer = [('LayerNorm', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
     ('Linear', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
     ('Linear', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
@@ -190,8 +191,7 @@ def setGPTSettings(layerAmount, learningRate, epochs):
     ('Dropout', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["drop_rate"]),
     ('TransformerBlock', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"])
     ]
-     
-    
+
     return LLM_Layers, TransformerBlockLayer
 
 """#Data Initialization"""
@@ -204,7 +204,7 @@ class GPTDatasetV1(Dataset):
         for sentence in sentences:
             # Tokenize the sentence using GPT2Tokenizer
             token_ids = tokenizer.encode(sentence, add_special_tokens=True)  # add_special_tokens=True adds the EOS token by default
-            
+
             if(max_length > 1):
                 # Manually truncate or pad if necessary
                 if len(token_ids) > max_length:
@@ -428,8 +428,9 @@ def initializeDatasets(train_samples, test_samples, eval_samples, batch_size_tra
     if(seed != ""):
         print("Setting seed number to ", seed)
         torch.manual_seed(seed)
-    else: print("Setting random seed")
-    
+    else:
+        print("Setting random seed")
+
     createLLMLoaders(train_samples, test_samples, eval_samples)
     print("Created all dataloaders")
 
@@ -562,7 +563,7 @@ def main():
 
 def trainModel(hidden_sizes, loss_function, optimizer, learning_rate, epochs):
     global train_loader, eval_loader, tokenizer
-    
+
     initializeTraining(hidden_sizes, loss_function, optimizer, learning_rate)
     print("Model initialized, Starting training")
     _, _, _, train_dataloader, eval_dataloader = main()
