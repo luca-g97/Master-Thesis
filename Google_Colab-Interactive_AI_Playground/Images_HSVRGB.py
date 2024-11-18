@@ -164,7 +164,7 @@ def initializeTraining(hidden_sizes, loss_function, optimizer, learning_rate):
 
     model = RENN.CustomizableRENN(input_size, hidden_sizes, output_size)
     model.to(device)
-    layers = xp.array(RENN.layers)
+    layers = RENN.layers
 
     if(loss_function == "MSE"):
         criterion_class = nn.MSELoss()  # For regression
