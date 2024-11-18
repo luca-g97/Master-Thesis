@@ -274,7 +274,7 @@ def getClosestSourcesPerNeuronAndLayer(sources, layersToCheck, closestSources, s
 """# Evaluation: Visual Blending"""
 
 def blendImagesTogether(mostUsedSources, mode):
-    image = Image.fromarray(xp.zeros(shape=[28,28], dtype=xp.uint8)).convert("RGBA")
+    image = Image.fromarray(xp.asarray(xp.zeros(shape=[28,28], dtype=xp.uint8))).convert("RGBA")
     weights = []
     total = 0
 
