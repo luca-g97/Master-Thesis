@@ -47,26 +47,20 @@ def generate_equidistant_color_samples(n_samples):
 
     # Create a grid of RGB values
     rgb_array = xp.array(xp.meshgrid(r_values, g_values, b_values)).T.reshape(-1,3)
-    array = xp.zeros([len(rgb_array), 2, 3])
     colorArray = xp.zeros([len(rgb_array), 1, 3])
 
+    array = []
     for x in range(len(rgb_array)): # merge the rgb and hsv values
         hsv = colorsys.rgb_to_hsv(rgb_array[x][0],rgb_array[x][1],rgb_array[x][2])
         hsv = [float(color) for color in hsv]
         rgb = [float(color) for color in rgb_array[x]]
-        def generate_equidistant_color_samples(n_samples):
-    array = []
-    for x in range(n_samples):
-        hsv = ...  # Your HSV value generation
-        rgb = ...  # Your RGB value generation
-        hsv = [float(color) for color in hsv]
-        rgb = [float(color) for color in rgb]
         array.append((hsv, rgb))  # Store as a tuple in a Python list
 
     return [(torch.from_numpy(xp.array(x[0])), torch.from_numpy(xp.array(x[1]))) for x in array]
 
 def generate_random_color_samples(n_samples):
     array = []
+
     for x in range(n_samples):
         hsv = xp.random.random(3) # instance hsv values 0 - 1
         hsv = [float(color) for color in hsv]
