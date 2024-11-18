@@ -78,7 +78,7 @@ def initializeTraining(hidden_sizes, loss_function, optimizer, learning_rate):
     
     model = RENN.CustomizableRENN(input_size, hidden_sizes, output_size)
     model.to(device)
-    layers = RENN.layers
+    layers = xp.array(RENN.layers)
     
     if(loss_function == "MSE"):
         criterion_class = nn.MSELoss()  # For regression
@@ -189,11 +189,11 @@ def showImagesUnweighted(originalImage, blendedSourceImageActivation, blendedSou
 
     # Display weightedSourceImageActivation
     axes[3].set_title(f"WA=WeightedActivation - Closest Sources/Neuron (Weighted)")
-    axes[3].imshow(Image.fromarray(xp.asnumpy(xp.asarray(xp.zeros(shape=[28,28], dtype=xp.uint8)))).convert("RGBA"))
+    axes[3].imshow(Image.fromarray(xp.zeros(shape=[28,28], dtype=xp.uint8)).convert("RGBA"))
 
     # Display weightedSourceImageSum
     axes[4].set_title(f"WS=WeigthedSum - Closest Sources/Neuron (Weighted)")
-    axes[4].imshow(Image.fromarray(xp.asnumpy(xp.asarray(xp.zeros(shape=[28,28], dtype=xp.uint8)))).convert("RGBA"))
+    axes[4].imshow(Image.fromarray(xp.zeros(shape=[28,28], dtype=xp.uint8)).convert("RGBA"))
 
     plt.show()
 
@@ -274,7 +274,7 @@ def getClosestSourcesPerNeuronAndLayer(sources, layersToCheck, closestSources, s
 """# Evaluation: Visual Blending"""
 
 def blendImagesTogether(mostUsedSources, mode):
-    image = Image.fromarray(xp.asnumpy(xp.asarray(xp.zeros(shape=[28,28], dtype=xp.uint8)))).convert("RGBA")
+    image = Image.fromarray(xp.zeros(shape=[28,28], dtype=xp.uint8)).convert("RGBA")
     weights = []
     total = 0
 
@@ -289,7 +289,7 @@ def blendImagesTogether(mostUsedSources, mode):
     return (image, weights)
 
 def blendIndividualImagesTogether(mostUsedSources, closestSources, layer=False):
-    image = Image.fromarray(xp.asnumpy(xp.asarray(xp.zeros(shape=[28,28], dtype=xp.uint8)))).convert("RGBA")
+    image = Image.fromarray(xp.zeros(shape=[28,28], dtype=xp.uint8)).convert("RGBA")
 
     total = 0
     for source in mostUsedSources:
@@ -323,7 +323,6 @@ def predict(sample):
         model.eval()
         output = model(torch.flatten(sample))
     normalizedPredictions = normalizePredictions(output.cpu().numpy())
-    normalizedPredictions = xp.asarray(normalizedPredictions)
     return xp.argmax(normalizedPredictions), normalizedPredictions[xp.argmax(normalizedPredictions)]
 
 def createImageWithPrediction(sample, true, prediction):
@@ -336,7 +335,7 @@ def createImageWithPrediction(sample, true, prediction):
 def normalizePredictions(array):
     min = xp.min(array)
     max = xp.max(array)
-    return ((array - min) / (max - min)) if (max-min) > 0.0 else xp.asarray(xp.zeros_like(array))
+    return ((array - min) / (max - min)) if (max-min) > 0.0 else xp.zeros_like(array)
 
 """# Evaluation: Code"""
 

@@ -47,28 +47,28 @@ def generate_equidistant_color_samples(n_samples):
 
     # Create a grid of RGB values
     rgb_array = xp.array(xp.meshgrid(r_values, g_values, b_values)).T.reshape(-1,3)
+    array = xp.zeros([len(rgb_array), 2, 3])
     colorArray = xp.zeros([len(rgb_array), 1, 3])
 
-    array = []
     for x in range(len(rgb_array)): # merge the rgb and hsv values
         hsv = colorsys.rgb_to_hsv(rgb_array[x][0],rgb_array[x][1],rgb_array[x][2])
         hsv = [float(color) for color in hsv]
         rgb = [float(color) for color in rgb_array[x]]
-        array.append((hsv, rgb))  # Store as a tuple in a Python list
+        array[x] = (hsv, rgb)
 
-    return [(torch.as_tensor(xp.array(x[0])), torch.as_tensor(xp.array(x[1]))) for x in array]
+    return [(torch.from_numpy(x[0]), torch.from_numpy(x[1])) for x in array]
 
 def generate_random_color_samples(n_samples):
-    array = []
+    data = xp.empty([n_samples, 2, 3])
 
     for x in range(n_samples):
         hsv = xp.random.random(3) # instance hsv values 0 - 1
         hsv = [float(color) for color in hsv]
         rgb = colorsys.hsv_to_rgb(hsv[0],hsv[1],hsv[2])
         rgb = [float(color) for color in rgb]
-        array.append((hsv, rgb))  # Store as a tuple in a Python list
+        data[x] = (hsv, rgb)
 
-    return [(torch.as_tensor(xp.array(x[0])), torch.as_tensor(xp.array(x[1]))) for x in array]
+    return [(torch.from_numpy(x[0]), torch.from_numpy(x[1])) for x in data]
 
 def visualizeTrainAndTestSet():
     train = [(hsv, rgb) for hsv, rgb in trainSet]
@@ -164,7 +164,7 @@ def initializeTraining(hidden_sizes, loss_function, optimizer, learning_rate):
 
     model = RENN.CustomizableRENN(input_size, hidden_sizes, output_size)
     model.to(device)
-    layers = RENN.layers
+    layers = xp.array(RENN.layers)
 
     if(loss_function == "MSE"):
         criterion_class = nn.MSELoss()  # For regression
