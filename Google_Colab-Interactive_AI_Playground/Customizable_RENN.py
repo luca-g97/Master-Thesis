@@ -517,19 +517,18 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
                 if(len(toCheck) > 0):
                     for (currentData, currentNeurons, max_rows, max_cols, pathToRemove) in toCheck:
                         # Create sparse matrices with the maximum shape
-                        alignedTrain = sp.coo_matrix((normalizedTrainNeurons.data,
-                                                      (normalizedTrainNeurons.row, normalizedTrainNeurons.col)),
+                        # Use CSR for faster matrix operations
+                        alignedTrain = sp.csr_matrix((normalizedTrainNeurons.data, (normalizedTrainNeurons.row, normalizedTrainNeurons.col)),
                                                      shape=(max_rows, max_cols))
-                        alignedEval = sp.coo_matrix((currentNeurons.data,
-                                                     (currentNeurons.row, currentNeurons.col)),
+                        alignedEval = sp.csr_matrix((currentNeurons.data, (currentNeurons.row, currentNeurons.col)),
                                                     shape=(max_rows, max_cols))
 
-                        # Element-wise multiplication and compute absolute differences
+                        # Perform element-wise multiplication and absolute differences using CSR
                         common_mask = alignedTrain.multiply(alignedEval)
-                        differencesBetweenSources = sp.coo_matrix(np.abs(alignedTrain - alignedEval).multiply(common_mask))
+                        differencesBetweenSources = sp.csr_matrix(np.abs(alignedTrain - alignedEval).multiply(common_mask))
 
                         # Process differences
-                        for neuron_idx, difference in zip(differencesBetweenSources.col, differencesBetweenSources.data):
+                        for neuron_idx, difference in zip(differencesBetweenSources.indices, differencesBetweenSources.data):
                             sparse_col = normalizedTrainNeurons.getcol(neuron_idx)
 
                             if sparse_col.nnz > 0:
