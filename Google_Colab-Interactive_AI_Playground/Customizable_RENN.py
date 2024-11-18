@@ -335,9 +335,12 @@ def getMostUsed(sources, mode=""):
             maxNeurons = layers[currentLayer][1] if mode == "" else layers[currentLayer][1].out_features
             if not isinstance(maxNeurons, int):  # Ensure maxNeurons is an integer
                 maxNeurons = maxNeurons.out_features
-            if(currentNeuron < maxNeurons):
+            if currentNeuron < maxNeurons:
                 for sourceNumber, value, difference in neuron:
-                    if(sourceNumber.item() != 'None'):
+                    # Convert sourceNumber to a hashable type if it's an ndarray
+                    if isinstance(sourceNumber, xp.ndarray):
+                        sourceNumber = int(sourceNumber.item())
+                    if sourceNumber != 'None':  # Ensure correct comparison
                         mostUsed.append(sourceNumber)
                         sourceCounter += 1
     return sourceCounter, mostUsed
