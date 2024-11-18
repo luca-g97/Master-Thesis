@@ -247,8 +247,8 @@ def createDictionaries(hidden_sizes, totalLayersParameter, train_samples, llmTyp
             activationsBySources = xp.zeros((train_samples, totalLayers, max(layerSizes)), dtype=int)
             activationsByLayers = xp.zeros((totalLayers, max(layerSizes), train_samples), dtype=int)
         else:
-            activationsBySources = xp.zeros((train_samples, totalLayers, max(layerSizes)), dtype=xp.float128)
-            activationsByLayers = xp.zeros((totalLayers, max(layerSizes), train_samples), dtype=xp.float128)
+            activationsBySources = xp.zeros((train_samples, totalLayers, max(layerSizes)), dtype=xp.float64)
+            activationsByLayers = xp.zeros((totalLayers, max(layerSizes), train_samples), dtype=xp.float64)
     print("Hook-Dictionaries created")
 
 def runHooks(train_dataloader, model, layersParameter=layers, llmType=False, context_length=1):
@@ -282,8 +282,8 @@ def initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model,
     global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
 
     if not llm:
-        dictionaryForSourceLayerNeuron = xp.zeros((eval_samples, totalLayers, xp.max(layerSizes)), dtype=xp.float128)
-        dictionaryForLayerNeuronSource = xp.zeros((totalLayers, xp.max(layerSizes), eval_samples), dtype=xp.float128)
+        dictionaryForSourceLayerNeuron = xp.zeros((eval_samples, totalLayers, xp.max(layerSizes)), dtype=xp.float64)
+        dictionaryForLayerNeuronSource = xp.zeros((totalLayers, xp.max(layerSizes), eval_samples), dtype=xp.float64)
 
     with torch.no_grad():
         model.eval()  # Set the model to evaluation mode
@@ -663,7 +663,6 @@ def find_differing_position(val1, val2):
 def getMinimumPrecision(unique_values):
     # Define the valid float precisions and their approximate decimal places
     float_precisions = {
-        xp.float128: 33,  # 33 to 34 decimal places (reference for float128 comparison)
         xp.float64: 15,   # Reference precision (original)
         xp.float32: 7,    # 7 to 8 decimal places
         xp.float16: 3     # 3 to 4 decimal places
@@ -681,18 +680,18 @@ def getMinimumPrecision(unique_values):
     mse_results = {}
     loss_results = {}
 
-    # Step 1: Compare each precision with xp.float128 (highest precision reference)
-    print("Comparing float128 (highest precision) with other float types:")
+    # Step 1: Compare each precision with xp.float64 (highest precision reference)
+    print("Comparing float64 (highest precision) with other float types:")
     for float_type, precision in float_precisions.items():
         if isinstance(float_type, str):  # Custom precision (float_1 to float_8)
             rounded_values = xp.round(unique_values, decimals=precision)
-            mse = calculate_mse(unique_values.astype(xp.float128), rounded_values)
-        else:  # Standard float types (float128, float64, etc.)
+            mse = calculate_mse(unique_values.astype(xp.float64), rounded_values)
+        else:  # Standard float types (float64, float64, etc.)
             rounded_values = xp.round(unique_values.astype(float_type), decimals=precision)
-            mse = calculate_mse(unique_values.astype(xp.float128), rounded_values)
+            mse = calculate_mse(unique_values.astype(xp.float64), rounded_values)
 
         mse_results[float_type] = mse
-        loss_percentage = mse / xp.mean(unique_values.astype(xp.float128)**2) * 100
+        loss_percentage = mse / xp.mean(unique_values.astype(xp.float64)**2) * 100
         loss_results[float_type] = loss_percentage
 
         precision_name = float_type if isinstance(float_type, str) else float_type.__name__
@@ -708,7 +707,6 @@ def mse(true_values, predicted_values):
 def compare_precision_results(closestSources, outputs):
     # Define the precision levels
     float_precisions = {
-        xp.float128: 33,  # 33 to 34 decimal places (reference for float128 comparison)
         xp.float64: 15,   # Reference precision (original)
         xp.float32: 7,    # 7 to 8 decimal places
         xp.float16: 3     # 3 to 4 decimal places
@@ -718,8 +716,8 @@ def compare_precision_results(closestSources, outputs):
     for i in range(1, 9):
         float_precisions[f'float_{9-i}'] = 9 - i
 
-    # Use the highest precision (xp.float128) as the base reference
-    base_results, _, _ = identifyClosestSources(closestSources, outputs)  # Using xp.float128
+    # Use the highest precision (xp.float64) as the base reference
+    base_results, _, _ = identifyClosestSources(closestSources, outputs)  # Using xp.float64
 
     # Run the RENN.getMostUsedSources method with base precision
     mostUsedBase = getMostUsedSources(base_results, closestSources)
@@ -751,7 +749,7 @@ def compare_precision_results(closestSources, outputs):
     if precision_results:
         best_precision = min(precision_results, key=precision_results.get)
     else:
-        best_precision = xp.float128  # Fallback to xp.float128 if no match was found
+        best_precision = xp.float64  # Fallback to xp.float64 if no match was found
 
     print(f"Best Precision with least decimals: {best_precision}")
     return best_precision, precision_results
