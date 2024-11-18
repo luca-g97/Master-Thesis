@@ -177,7 +177,7 @@ def forward_hook(module, input, output):
                 layerNeurons = relevantOutput.shape[1]
                 #layers[actualLayer] = (layers[actualLayer][0], relevantOutput.shape[1], layers[layer][2:])
         if(correctTypes):
-            dictionaryForSourceLayerNeuron[source][layer,:layerNeurons] = relevantOutput
+            dictionaryForSourceLayerNeuron[source][layer, :layerNeurons] = relevantOutput.reshape(-1)
         # if(source == 0):
         #   print(relevantOutput, dictionaryForSourceLayerNeuron[source][layer,:layerNeurons])
 
