@@ -267,8 +267,8 @@ def createLLMLoaders(train_samplesParameter, test_samplesParameter, eval_samples
     eval_sentences = sentences[train_samples + test_samples:train_samples + test_samples + eval_samples]
 
     # Create loaders with sentences and context length
-    train_loader = createLLMLoader(train_sentences, 32 if train_samples >= 32 else train_samples, 32, True)
-    val_loader = createLLMLoader(test_sentences, 8 if test_samples >= 8 else test_samples, 32, True)
+    train_loader = createLLMLoader(train_sentences, 32 if train_samples >= 32 else train_samples, 5000, True)
+    val_loader = createLLMLoader(test_sentences, 8 if test_samples >= 8 else test_samples, 5000, True)
     eval_loader = createLLMLoader(eval_sentences, 1, context_length=1)
 
     return train_loader, val_loader, eval_loader
