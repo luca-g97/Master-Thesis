@@ -41,7 +41,7 @@ def setGPTSettings(layerAmount, learningRate, epochs):
 
     GPT_CONFIG_124M = {
         "vocab_size": 50257,   # Vocabulary size
-        "context_length": 20, # Shortened context length (orig: 1024)
+        "context_length": 256, # Shortened context length (orig: 1024)
         "emb_dim": 768,        # Embedding dimension
         "n_heads": layerAmount,         # Number of attention heads
         "n_layers": layerAmount,        # Number of layers
