@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 import numpy as np
+import concurrent.futures
 from collections import Counter
 import LLM_Small1x1 as Small1x1
 import LLM_Verdict as Verdict
@@ -468,10 +469,80 @@ def getNormalizedValues(full_path):
 
     return reconstruct_from_normalized(neurons, min, max).tocoo(), copy_path
 
+
+def process_sample(evalSample, evalOffset, trainPath, evalPath, generatedEvalPath, eval_data, generated_eval_data):
+    evalSource, eval_sentenceNumber = Verdict.getSourceAndSentenceIndex(evalOffset + evalSample)
+    print(f"Starting Evaluation for Evaluation-Sample {evalSample} (Actual Source: {evalSource}:{eval_sentenceNumber})")
+
+    for (train_dirpath, _, train_filenames) in os.walk(trainPath):
+        for train_filename in train_filenames:
+            # Check if the file exists
+            train_full_path = os.path.join(train_dirpath, train_filename)
+            if not os.path.exists(train_full_path):
+                print(f"File does not exist: {train_full_path}")
+                continue  # Skip to the next file
+
+            layerNumber, sourceNumber, train_sentenceNumber = getInformationFromFileName(train_full_path)
+            eval_full_path = os.path.join(evalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-0.parquet")
+            generated_eval_full_path = os.path.join(generatedEvalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-0.parquet")
+
+            evalPathExists, generatedEvalPathExists = os.path.exists(eval_full_path), os.path.exists(generated_eval_full_path)
+
+            toCheck = []
+            # Reconstruct neuron data
+            normalizedTrainNeurons, train_copy_path = getNormalizedValues(train_full_path)
+
+            if evalPathExists:
+                normalizedEvalNeurons, eval_copy_path = getNormalizedValues(eval_full_path)
+                # Broadcast to maximum shape
+                max_eval_rows = max(normalizedTrainNeurons.shape[0], normalizedEvalNeurons.shape[0])
+                max_eval_cols = max(normalizedTrainNeurons.shape[1], normalizedEvalNeurons.shape[1])
+                toCheck.append((eval_data, normalizedEvalNeurons, max_eval_rows, max_eval_cols, eval_copy_path))
+
+            if generatedEvalPathExists:
+                normalizedGeneratedEvalNeurons, generated_eval_copy_path = getNormalizedValues(generated_eval_full_path)
+                max_generated_eval_rows = max(normalizedTrainNeurons.shape[0], normalizedGeneratedEvalNeurons.shape[0])
+                max_generated_eval_cols = max(normalizedTrainNeurons.shape[1], normalizedGeneratedEvalNeurons.shape[1])
+                toCheck.append((generated_eval_data, normalizedGeneratedEvalNeurons, max_generated_eval_rows, max_generated_eval_cols, generated_eval_copy_path))
+
+            if len(toCheck) > 0:
+                for (currentData, currentNeurons, max_rows, max_cols, pathToRemove) in toCheck:
+                    # Create sparse matrices with the maximum shape
+                    alignedTrain = sp.coo_matrix((normalizedTrainNeurons.data,
+                                                  (normalizedTrainNeurons.row, normalizedTrainNeurons.col)),
+                                                 shape=(max_rows, max_cols))
+                    alignedEval = sp.coo_matrix((currentNeurons.data,
+                                                 (currentNeurons.row, currentNeurons.col)),
+                                                shape=(max_rows, max_cols))
+
+                    # Element-wise multiplication and compute absolute differences
+                    common_mask = alignedTrain.multiply(alignedEval)
+                    differencesBetweenSources = sp.coo_matrix(np.abs(alignedTrain - alignedEval).multiply(common_mask))
+
+                    # Process differences
+                    for neuron_idx, difference in zip(differencesBetweenSources.col, differencesBetweenSources.data):
+                        sparse_col = normalizedTrainNeurons.getcol(neuron_idx)
+
+                        if sparse_col.nnz > 0:
+                            neuron_value = sparse_col.data[0]
+                            current_source = f"{sourceNumber}:{train_sentenceNumber}"
+
+                            # Append data to list for DataFrame
+                            currentData.append({'evalSample': evalSample, 'layer': layerNumber, 'neuron': neuron_idx,
+                                                'source': current_source, 'neuron_value': neuron_value, 'difference': difference})
+
+                    # Clean up
+                    os.remove(pathToRemove)
+
+            # Clean up
+            os.remove(train_copy_path)
+
+    return eval_data, generated_eval_data
+
 def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
     global layers, layerSizes, fileName
 
-    # Initialize list to store rows for the sparse DataFrame
+    # Initialize lists to store rows for the sparse DataFrame
     eval_data = []
     generated_eval_data = []
 
@@ -479,71 +550,14 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
     evalPath = os.path.join(baseDirectory, "Evaluation", "Sample")
     generatedEvalPath = os.path.join(baseDirectory, "Evaluation", "Generated")
 
-    for sampleNumber in range(evalSamples):
-        evalSource, eval_sentenceNumber = Verdict.getSourceAndSentenceIndex(evalOffset + sampleNumber)
-        print(f"Starting Evaluation for Evaluation-Sample {sampleNumber} (Actual Source: {evalSource}:{eval_sentenceNumber})")
+    # Use a thread pool to parallelize the work
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = []
+        for sampleNumber in range(evalSamples):
+            futures.append(executor.submit(process_sample, sampleNumber, evalOffset, trainPath, evalPath, generatedEvalPath, eval_data, generated_eval_data))
 
-        for (train_dirpath, _, train_filenames) in os.walk(trainPath):
-            for train_filename in train_filenames:
-                # Check if the file exists
-                train_full_path = os.path.join(train_dirpath, train_filename)
-                if not os.path.exists(train_full_path):
-                    print(f"File does not exist: {train_full_path}")
-                    continue  # Skip to the next file
-
-                layerNumber, sourceNumber, train_sentenceNumber = getInformationFromFileName(train_full_path)
-                eval_full_path = os.path.join(evalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-0.parquet")
-                generated_eval_full_path = os.path.join(generatedEvalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-0.parquet")
-
-                evalPathExists, generatedEvalPathExists = os.path.exists(eval_full_path), os.path.exists(generated_eval_full_path)
-
-                toCheck = []
-                # Reconstruct neuron data
-                normalizedTrainNeurons, train_copy_path = getNormalizedValues(train_full_path)
-
-                if(evalPathExists):
-                    normalizedEvalNeurons, eval_copy_path = getNormalizedValues(eval_full_path)
-                    # Broadcast to maximum shape
-                    max_eval_rows = max(normalizedTrainNeurons.shape[0], normalizedEvalNeurons.shape[0])
-                    max_eval_cols = max(normalizedTrainNeurons.shape[1], normalizedEvalNeurons.shape[1])
-                    toCheck.append((eval_data, normalizedEvalNeurons, max_eval_rows, max_eval_cols, eval_copy_path))
-
-                if(generatedEvalPathExists):
-                    normalizedGeneratedEvalNeurons, generated_eval_copy_path = getNormalizedValues(generated_eval_full_path)
-                    max_generated_eval_rows = max(normalizedTrainNeurons.shape[0], normalizedGeneratedEvalNeurons.shape[0])
-                    max_generated_eval_cols = max(normalizedTrainNeurons.shape[1], normalizedGeneratedEvalNeurons.shape[1])
-                    toCheck.append((generated_eval_data, normalizedGeneratedEvalNeurons, max_generated_eval_rows, max_generated_eval_cols, generated_eval_copy_path))
-
-                if(len(toCheck) > 0):
-                    for (currentData, currentNeurons, max_rows, max_cols, pathToRemove) in toCheck:
-                        # Create sparse matrices with the maximum shape
-                        alignedTrain = sp.coo_matrix((normalizedTrainNeurons.data,
-                                                      (normalizedTrainNeurons.row, normalizedTrainNeurons.col)),
-                                                     shape=(max_rows, max_cols))
-                        alignedEval = sp.coo_matrix((currentNeurons.data,
-                                                     (currentNeurons.row, currentNeurons.col)),
-                                                    shape=(max_rows, max_cols))
-
-                        # Element-wise multiplication and compute absolute differences
-                        common_mask = alignedTrain.multiply(alignedEval)
-                        differencesBetweenSources = sp.coo_matrix(np.abs(alignedTrain - alignedEval).multiply(common_mask))
-
-                        # Process differences
-                        for neuron_idx, difference in zip(differencesBetweenSources.col, differencesBetweenSources.data):
-                            sparse_col = normalizedTrainNeurons.getcol(neuron_idx)
-
-                            if sparse_col.nnz > 0:
-                                neuron_value = sparse_col.data[0]
-                                current_source = f"{sourceNumber}:{train_sentenceNumber}"
-
-                                # Append data to list for DataFrame
-                                currentData.append({'evalSample': sampleNumber, 'layer': layerNumber, 'neuron': neuron_idx,
-                                    'source': current_source, 'neuron_value': neuron_value, 'difference': difference})
-
-                        os.remove(pathToRemove)
-
-                # Clean up
-                os.remove(train_copy_path)
+        # Wait for all futures to finish
+        concurrent.futures.wait(futures)
 
     # Create the DataFrame from the collected data
     eval_df = pd.DataFrame(eval_data)

@@ -224,12 +224,14 @@ closestSourceTestLink = widgets.jslink((testSamplesChoice, 'value'), (evalSample
 closestSourcesChoice = createIntSlider(42, min=1, max=10000, description="Closest Sources")
 closestSourceTrainingLink = widgets.jslink((trainSamplesChoice, 'value'), (closestSourcesChoice, 'max'))
 showClosestMostUsedSourcesChoice = createIntSlider(3, min=1, max=20, description="Show Closest Sources")
+showClosestMostUsedSourcesLink = widgets.jslink((trainSamplesChoice, 'value'), (showClosestMostUsedSourcesChoice, 'max'))
 
 def updateVisualizationTab():
-    global normalLayerChoice, normalLayerSizeChoice, activationLayerChoice, neuronChoice, activationLayerTypeChoice, outputLayerSizeChoice, outputLayerActivationChoiceType, closestSourcesChoice, trainSamplesChoice,testSamplesChoice, evalSamplesChoice
+    global normalLayerChoice, normalLayerSizeChoice, activationLayerChoice, neuronChoice, activationLayerTypeChoice, outputLayerSizeChoice, outputLayerActivationChoiceType, closestSourcesChoice, trainSamplesChoice,testSamplesChoice, evalSamplesChoice, showClosestMostUsedSourcesChoice, closestSourceTrainingLink
 
     outputLayerSizeChoice = createRangeSliderChoice(max=10, description=f"Output Layer")
     outputLayerActivationChoiceType = createBoolButtonChoice(description=f"Activation layer ({outputActivationLayerChoice.value})", tooltip="Include activation layer", disabled = True if outputActivationLayerChoice.value == "None" else False)
+    showClosestMostUsedSourcesLink = widgets.jslink((trainSamplesChoice, 'value'), (showClosestMostUsedSourcesChoice, 'max'))
     if(datasetChoice.value == "Small 1x1" or datasetChoice.value == "The Verdict"):
         maxEvalSamples = (1.25*trainSamplesChoice.value) - trainSamplesChoice.value - testSamplesChoice.value
         evalSamplesChoice = createIntSlider(1, min=1, max=maxEvalSamples if maxEvalSamples >= 1 else 1, description="Evaluations")
