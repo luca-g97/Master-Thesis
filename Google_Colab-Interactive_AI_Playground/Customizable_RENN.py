@@ -563,8 +563,8 @@ def process_sample(evalSample, evalOffset, trainPath, evalPath, generatedEvalPat
                             currentData.append({'evalSample': evalSample, 'layer': layerNumber, 'neuron': neuron_idx,
                                                 'source': current_source, 'neuron_value': neuron_value, 'difference': difference})
 
-                    os.remove(pathToRemove)
-            os.remove(train_copy_path)
+                    safe_remove(pathToRemove)
+            safe_remove(train_copy_path)
 
     return local_eval_data, local_generated_eval_data
 
