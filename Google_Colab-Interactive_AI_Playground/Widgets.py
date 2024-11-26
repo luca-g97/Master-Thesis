@@ -86,7 +86,7 @@ def updateDatasetTab():
 
 num_layers = 2
 layerAmountChoice = createIntSlider(num_layers, min=1, max=16, description="Layer")
-seeds = ["Random"] + [i for i in range(100000)]
+seeds = ["Random"] + [i for i in range(100)]
 seedChoice = createSelectionSlider(value="Random", options=seeds, description="Seed")
 useBitLinearChoice = createBoolButtonChoice(description="Activate BitLinear", tooltip="Use BitLinear instead of nn.Linear")
 normalLayerSizeChoice = [createIntSlider(value=128, min=1, max=1024, description="Size", step=1)
@@ -174,7 +174,7 @@ def initializeTrainSet(trainSetMNIST, testSetMNIST):
     batchSizeTest = createIntSlider(64, min=1, max=maxTest, description="Batchsize Test")
     trainingsLink = widgets.jslink((trainSamplesChoice, 'value'), (batchSizeTraining, 'max'))
     testLink = widgets.jslink((testSamplesChoice, 'value'), (batchSizeTest, 'max'))
-    
+
 epochsChoice = createIntSlider(10, min=1, max=1000, description="Epochs")
 learningRateChoice = widgets.BoundedFloatText(value=0.001, min=0.0000001, max=10.0, step=0.0000001, description='Learning Rate', style = {'description_width': 'initial'}, disabled=False)
 
@@ -191,7 +191,7 @@ def updateTrainingTab():
     #if(datasetChoice.value == "Small 1x1" or datasetChoice.value == "The Verdict"):
     #    maxTrain = 80
     #    maxTest = 10
-    
+
     learningRate = 0.001  
     if(datasetChoice.value == "The Verdict"):
         learningRate = 0.0004
@@ -325,7 +325,7 @@ def initialize(trainSetMNIST, testSetMNIST, datasetsParameter):
     observeTabChange()
     # Display the initial widgets
     updateChoiceTabs(0)
-    
+
     # Observe all necessary values
     layerAmountChoice.observe(changeNetworkTab, names='value')
     visualizationChoice.observe(changeVisualizationTab, names='value')

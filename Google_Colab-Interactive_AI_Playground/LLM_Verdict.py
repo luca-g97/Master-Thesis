@@ -652,8 +652,11 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
     closestSourcesEvaluation, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(eval_samples, train_samples+test_samples, closestSources)
 
     for sampleNumber in range(eval_samples):
-        mostUsedEvalSources = RENN.getMostUsedSources(closestSourcesEvaluation, closestSources, sampleNumber)
-        mostUsedGeneratedEvalSources = RENN.getMostUsedSources(closestSourcesGeneratedEvaluation, closestSources, sampleNumber)
+        mostUsedEvalSources = RENN.getMostUsedSources(closestSourcesEvaluation, closestSources, sampleNumber, "Mean")
+        _ = RENN.getMostUsedSources(closestSourcesEvaluation, closestSources, sampleNumber, "Sum")
+        mostUsedGeneratedEvalSources = RENN.getMostUsedSources(closestSourcesGeneratedEvaluation, closestSources, sampleNumber, "Mean")
+        _ = RENN.getMostUsedSources(closestSourcesGeneratedEvaluation, closestSources, sampleNumber, "Sum")
+
         sample, prediction = getLLMPrediction(sentences[train_samples+test_samples+sampleNumber])
         print("Evaluation Sample ", sampleNumber, ": ", sample.replace('\n', '').replace('<|endoftext|>', ''))
         print("Follow up: ", prediction.replace('\n', '').replace('<|endoftext|>', ''))

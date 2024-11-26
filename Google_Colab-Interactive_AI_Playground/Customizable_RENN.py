@@ -2,6 +2,8 @@ import torch
 from torch import nn
 import numpy as np
 import concurrent.futures
+import threading
+import uuid
 from collections import Counter
 import LLM_Small1x1 as Small1x1
 import LLM_Verdict as Verdict
@@ -334,25 +336,53 @@ def getMostUsed(sources, mode=""):
                         sourceCounter += 1
     return sourceCounter, mostUsed
 
-def getMostUsedFromDataFrame(df, evalSample, closestSources):
+def getMostUsedFromDataFrame(df, evalSample, closestSources, weightedMode=""):
+    # Filter entries for the specific evalSample
     relevant_entries = df[df.index.get_level_values('evalSample') == evalSample]
 
     # Use value_counts to count occurrences of each source directly
     sources = relevant_entries['source']
 
     # Filter out invalid sources ('None')
-    valid_sources = sources[sources.index != 'None']
+    valid_entries = relevant_entries[sources != 'None']
 
-    sourceCounter = valid_sources.value_counts().sum()  # Total count of valid sources
-    mostUsed = valid_sources.tolist()  # Convert the series directly to a list
+    if weightedMode == "Sum":
+        # Group by 'source' and sum the 'difference' column as weights
+        weighted_counts = valid_entries.groupby('source')['difference'].sum()
+        ascending_order = True  # Sort by ascending for lowest total weights
+    elif weightedMode == "Mean":
+        # Group by 'source' and calculate the average of 'difference'
+        weighted_counts = valid_entries.groupby('source')['difference'].mean()
+        ascending_order = True  # Sort by ascending for lowest average weights
+    else:
+        # Default behavior: Count occurrences
+        weighted_counts = valid_entries['source'].value_counts()
+        ascending_order = False  # Sort by descending for highest counts
+
+    # Sort weighted sources by the determined order
+    sorted_sources = weighted_counts.sort_values(ascending=ascending_order).head(closestSources)
+    # Total weight (sum or mean) or total count for closest sources
+    total_weight = sorted_sources.sum()
+
+    # Print the total weight (sum, mean, or total count depending on the mode)
+    print(f"Total Weight for Weighted Mode={weightedMode}: {total_weight}")
+
+    # Convert to a Counter-like output (sorted already by the determined order)
+    counter = [(source, weight) for source, weight in sorted_sources.items()]
+
+    print(f"Total closest Sources (Weighted Mode={weightedMode}):", total_weight,
+          "|", closestSources, "closest Sources in format [SourceNumber, Weight]:", counter)
+
+    # Fix: Convert the 'source' column of valid_entries to a list
+    sourceCounter = valid_entries['source'].value_counts().sum()  # Total count of valid sources
+    mostUsed = valid_entries['source'].tolist()  # Extract 'source' as a list
 
     return sourceCounter, mostUsed
 
 def getMostUsedSources(sources, closestSources, evalSample=0, weightedMode=""):
     weightedSources = []
-
     if llm:
-        sourceCounter, mostUsed = getMostUsedFromDataFrame(sources, evalSample, closestSources)
+        sourceCounter, mostUsed = getMostUsedFromDataFrame(sources, evalSample, closestSources, weightedMode="")
     else:
         sourceCounter, mostUsed = getMostUsed(sources, weightedMode)
     counter = Counter(mostUsed)
@@ -454,9 +484,10 @@ def reconstruct_from_normalized(sparse_array, min_val, max_val):
     # Return the updated sparse matrix with normalized data
     return normalized_data
 
-def getNormalizedValues(full_path):
+def getNormalizedValues(full_path, evalSample):
     # Duplicate files to preserve the originals
-    copy_path = full_path.replace(".parquet", "_copy.parquet")
+    copy_path = full_path.replace(".parquet", f"-E{evalSample}.parquet")
+    # Duplicate files to preserve the originals
     shutil.copy(full_path, copy_path)
     # Read sparse arrays directly from the duplicated parquet files
     sentenceDf = pq.read_table(copy_path).to_pandas(safe=False)
@@ -469,95 +500,98 @@ def getNormalizedValues(full_path):
 
     return reconstruct_from_normalized(neurons, min, max).tocoo(), copy_path
 
+# Global lock for thread-safe access to shared data
+file_lock = threading.Lock()
+def safe_remove(file_path):
+    with file_lock:
+        if os.path.exists(file_path):  # Check if the file exists before attempting to delete
+            try:
+                os.remove(file_path)
+            except OSError as e:
+                print(f"Error removing file {file_path}: {e}")
 
-def process_sample(evalSample, evalOffset, trainPath, evalPath, generatedEvalPath, eval_data, generated_eval_data):
+def process_sample(evalSample, evalOffset, trainPath, evalPath, generatedEvalPath):
+    # Local data for this thread
+    local_eval_data = []
+    local_generated_eval_data = []
+
     evalSource, eval_sentenceNumber = Verdict.getSourceAndSentenceIndex(evalOffset + evalSample)
     print(f"Starting Evaluation for Evaluation-Sample {evalSample} (Actual Source: {evalSource}:{eval_sentenceNumber})")
 
     for (train_dirpath, _, train_filenames) in os.walk(trainPath):
         for train_filename in train_filenames:
-            # Check if the file exists
             train_full_path = os.path.join(train_dirpath, train_filename)
             if not os.path.exists(train_full_path):
-                print(f"File does not exist: {train_full_path}")
-                continue  # Skip to the next file
+                continue
 
             layerNumber, sourceNumber, train_sentenceNumber = getInformationFromFileName(train_full_path)
             eval_full_path = os.path.join(evalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-0.parquet")
             generated_eval_full_path = os.path.join(generatedEvalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-0.parquet")
 
             evalPathExists, generatedEvalPathExists = os.path.exists(eval_full_path), os.path.exists(generated_eval_full_path)
-
             toCheck = []
-            # Reconstruct neuron data
-            normalizedTrainNeurons, train_copy_path = getNormalizedValues(train_full_path)
+            normalizedTrainNeurons, train_copy_path = getNormalizedValues(train_full_path, evalSample)
 
             if evalPathExists:
-                normalizedEvalNeurons, eval_copy_path = getNormalizedValues(eval_full_path)
-                # Broadcast to maximum shape
+                normalizedEvalNeurons, eval_copy_path = getNormalizedValues(eval_full_path, evalSample)
                 max_eval_rows = max(normalizedTrainNeurons.shape[0], normalizedEvalNeurons.shape[0])
                 max_eval_cols = max(normalizedTrainNeurons.shape[1], normalizedEvalNeurons.shape[1])
-                toCheck.append((eval_data, normalizedEvalNeurons, max_eval_rows, max_eval_cols, eval_copy_path))
+                toCheck.append((local_eval_data, normalizedEvalNeurons, max_eval_rows, max_eval_cols, eval_copy_path))
 
             if generatedEvalPathExists:
-                normalizedGeneratedEvalNeurons, generated_eval_copy_path = getNormalizedValues(generated_eval_full_path)
+                normalizedGeneratedEvalNeurons, generated_eval_copy_path = getNormalizedValues(generated_eval_full_path, evalSample)
                 max_generated_eval_rows = max(normalizedTrainNeurons.shape[0], normalizedGeneratedEvalNeurons.shape[0])
                 max_generated_eval_cols = max(normalizedTrainNeurons.shape[1], normalizedGeneratedEvalNeurons.shape[1])
-                toCheck.append((generated_eval_data, normalizedGeneratedEvalNeurons, max_generated_eval_rows, max_generated_eval_cols, generated_eval_copy_path))
+                toCheck.append((local_generated_eval_data, normalizedGeneratedEvalNeurons, max_generated_eval_rows, max_generated_eval_cols, generated_eval_copy_path))
 
             if len(toCheck) > 0:
                 for (currentData, currentNeurons, max_rows, max_cols, pathToRemove) in toCheck:
-                    # Create sparse matrices with the maximum shape
                     alignedTrain = sp.coo_matrix((normalizedTrainNeurons.data,
                                                   (normalizedTrainNeurons.row, normalizedTrainNeurons.col)),
                                                  shape=(max_rows, max_cols))
                     alignedEval = sp.coo_matrix((currentNeurons.data,
                                                  (currentNeurons.row, currentNeurons.col)),
                                                 shape=(max_rows, max_cols))
-
-                    # Element-wise multiplication and compute absolute differences
                     common_mask = alignedTrain.multiply(alignedEval)
                     differencesBetweenSources = sp.coo_matrix(np.abs(alignedTrain - alignedEval).multiply(common_mask))
 
-                    # Process differences
                     for neuron_idx, difference in zip(differencesBetweenSources.col, differencesBetweenSources.data):
                         sparse_col = normalizedTrainNeurons.getcol(neuron_idx)
-
                         if sparse_col.nnz > 0:
                             neuron_value = sparse_col.data[0]
                             current_source = f"{sourceNumber}:{train_sentenceNumber}"
-
-                            # Append data to list for DataFrame
                             currentData.append({'evalSample': evalSample, 'layer': layerNumber, 'neuron': neuron_idx,
                                                 'source': current_source, 'neuron_value': neuron_value, 'difference': difference})
 
-                    # Clean up
                     os.remove(pathToRemove)
-
-            # Clean up
             os.remove(train_copy_path)
 
-    return eval_data, generated_eval_data
+    return local_eval_data, local_generated_eval_data
 
 def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
     global layers, layerSizes, fileName
-
-    # Initialize lists to store rows for the sparse DataFrame
-    eval_data = []
-    generated_eval_data = []
 
     trainPath = os.path.join(baseDirectory, "Training")
     evalPath = os.path.join(baseDirectory, "Evaluation", "Sample")
     generatedEvalPath = os.path.join(baseDirectory, "Evaluation", "Generated")
 
-    # Use a thread pool to parallelize the work
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        futures = []
-        for sampleNumber in range(evalSamples):
-            futures.append(executor.submit(process_sample, sampleNumber, evalOffset, trainPath, evalPath, generatedEvalPath, eval_data, generated_eval_data))
+    eval_data = []
+    generated_eval_data = []
 
-        # Wait for all futures to finish
-        concurrent.futures.wait(futures)
+    # Use ThreadPoolExecutor for parallel processing
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = [
+            executor.submit(process_sample, sampleNumber, evalOffset, trainPath, evalPath, generatedEvalPath)
+            for sampleNumber in range(evalSamples)
+        ]
+
+        for future in concurrent.futures.as_completed(futures):
+            local_eval_data, local_generated_eval_data = future.result()
+
+            # Thread-safe addition to shared data
+            with file_lock:
+                eval_data.extend(local_eval_data)
+                generated_eval_data.extend(local_generated_eval_data)
 
     # Create the DataFrame from the collected data
     eval_df = pd.DataFrame(eval_data)
@@ -567,11 +601,9 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
     eval_df.set_index(['evalSample'], inplace=True)
     generated_eval_df.set_index(['evalSample'], inplace=True)
 
-    # Save the DataFrame as Parquet (without sparse dtype conversion)
+    # Save the DataFrame as Parquet
     eval_df.to_parquet('identifiedClosestEvalSources.parquet', compression='zstd')
     generated_eval_df.to_parquet('identifiedClosestGeneratedEvalSources.parquet', compression='zstd')
-
-    print("")
 
     return eval_df, generated_eval_df
 
