@@ -3,7 +3,6 @@ from torch import nn
 import numpy as np
 import concurrent.futures
 import threading
-import uuid
 from collections import Counter
 import LLM_Small1x1 as Small1x1
 import LLM_Verdict as Verdict
@@ -382,7 +381,7 @@ def getMostUsedFromDataFrame(df, evalSample, closestSources, weightedMode=""):
 def getMostUsedSources(sources, closestSources, evalSample=0, weightedMode=""):
     weightedSources = []
     if llm:
-        sourceCounter, mostUsed = getMostUsedFromDataFrame(sources, evalSample, closestSources, weightedMode="")
+        sourceCounter, mostUsed = getMostUsedFromDataFrame(sources, evalSample, closestSources, weightedMode)
     else:
         sourceCounter, mostUsed = getMostUsed(sources, weightedMode)
     counter = Counter(mostUsed)
