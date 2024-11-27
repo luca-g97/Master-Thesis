@@ -423,6 +423,8 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
         if(analyze):
             sourceCounter, mostUsed = RENN.getMostUsed(sourcesSum, "Sum")
             mostUsedList.append(mostUsed)
+            mostUsedArray = np.array(mostUsedList)
+            print(mostUsedArray.shape)
 
             RENN.analyzeData(closestSources, dictionaryForSourceLayerNeuron[pos])
 
