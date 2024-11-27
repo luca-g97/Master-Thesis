@@ -343,19 +343,8 @@ def compute_cosine_similarity(image1, image2):
     vec2 = image2.flatten().reshape(1, -1)
     return cosine_similarity(vec1, vec2)[0][0]
 
-def evaluate_closest_sources(trainDataSet, mostUsed, closestSources, eval_dataloader, metric_weights=None):
+def evaluate_closest_sources(trainDataSet, mostUsed, closestSources, eval_dataloader, metric_weights):
     results_per_eval_sample = []
-
-    # Default metric weights (equal if none provided)
-    if metric_weights is None:
-        metric_weights = {
-            'cosine_similarity': 1,
-            'mse': 1,
-            'accuracy': 1,
-            'variance': 1,
-            'spearman_corr': 1,
-            'kendall_corr': 1
-        }
 
     for eval_idx, (evaluationSample, true) in enumerate(eval_dataloader):
         # Get mostUsed for this evaluation sample
@@ -376,16 +365,28 @@ def evaluate_closest_sources(trainDataSet, mostUsed, closestSources, eval_datalo
         # Create a results dictionary for each source
         sample_results = []
         for rank, (sourceNumber, similarity) in enumerate(similarity_scores):
+            # Ensure both arrays are flattened and of the same shape
+            train_sample = trainDataSet[sourceNumber][0].flatten()
+            eval_sample = evaluationSample.flatten()
+
+            # Check if evaluationSample is a batch and extract one sample if necessary
+            if eval_sample.ndim > 1:
+                eval_sample = eval_sample[0]  # Get the first sample from the batch
+
+            # Ensure both arrays have the same length
+            if len(train_sample) != len(eval_sample):
+                raise ValueError(f"Shape mismatch: train sample length {len(train_sample)} vs eval sample length {len(eval_sample)}")
+
             # Calculate Mean Squared Error (MSE) for each source
-            mse_score = mean_squared_error(trainDataSet[sourceNumber][0], evaluationSample)
+            mse_score = mean_squared_error(train_sample, eval_sample)
 
             # Calculate Variance for each source
-            variance_score = np.var(trainDataSet[sourceNumber][0] - evaluationSample)
+            variance_score = np.var(train_sample - eval_sample)
 
             # Assuming accuracy is only for classification tasks
             accuracy_score_result = None
             if isinstance(true, np.ndarray) and true.ndim == 1:  # Assuming categorical data
-                mostUsed_labels = np.argmax(trainDataSet[sourceNumber][0], axis=1)
+                mostUsed_labels = np.argmax(train_sample, axis=1)
                 true_labels = np.argmax(true, axis=1)
                 accuracy_score_result = accuracy_score(true_labels, mostUsed_labels)
 
