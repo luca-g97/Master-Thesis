@@ -344,15 +344,14 @@ def getMostUsedFromDataFrame(df, evalSample, closestSources, weightedMode=""):
 
     # Filter out invalid sources ('None')
     valid_entries = relevant_entries[sources != 'None']
+    ascending_order = True  # Sort by ascending for lowest total weights
 
     if weightedMode == "Sum":
         # Group by 'source' and sum the 'difference' column as weights
         weighted_counts = valid_entries.groupby('source')['difference'].sum()
-        ascending_order = True  # Sort by ascending for lowest total weights
     elif weightedMode == "Mean":
         # Group by 'source' and calculate the average of 'difference'
         weighted_counts = valid_entries.groupby('source')['difference'].mean()
-        ascending_order = True  # Sort by ascending for lowest average weights
     else:
         # Default behavior: Count occurrences
         weighted_counts = valid_entries['source'].value_counts()
@@ -567,6 +566,15 @@ def process_sample(evalSample, evalOffset, trainPath, evalPath, generatedEvalPat
 
     return local_eval_data, local_generated_eval_data
 
+def getClosestSourcesFromDf(df, closestSources):
+    # Sort by evalSample, layer, neuron, and difference
+    closest_sources = (
+        df.sort_values(by=['evalSample', 'layer', 'neuron', 'difference'])  # Sort by evalSample, layer, neuron, then difference
+        .groupby(['evalSample', 'layer', 'neuron'], group_keys=False)  # Group by evalSample, layer, and neuron
+        .head(closestSources)  # Select top N rows per group
+    )
+    return closest_sources
+
 def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
     global layers, layerSizes, fileName
 
@@ -595,6 +603,10 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
     # Create the DataFrame from the collected data
     eval_df = pd.DataFrame(eval_data)
     generated_eval_df = pd.DataFrame(generated_eval_data)
+
+    # Extract closest sources from DataFrame
+    eval_df = getClosestSourcesFromDf(eval_df, closestSources)
+    generated_eval_df = getClosestSourcesFromDf(generated_eval_df, closestSources)
 
     # Set index for easier retrieval
     eval_df.set_index(['evalSample'], inplace=True)
