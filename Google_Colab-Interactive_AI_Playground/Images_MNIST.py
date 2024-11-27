@@ -350,68 +350,51 @@ def evaluate_closest_sources(trainDataSet, mostUsed, closestSources, eval_datalo
         'cosine_similarity': 1,
         'mse': 1,
         'accuracy': 1,
-        #'variance': 1,
         'spearman_corr': 1,
         'kendall_corr': 1
     }
 
     for eval_idx, (evaluationSample, true) in enumerate(eval_dataloader):
-        # Get mostUsed for this evaluation sample
         current_mostUsed = mostUsed[eval_idx]
-
-        # Compute similarity for all sources in mostUsed
         similarity_scores = []
         for sourceNumber, _ in current_mostUsed[:closestSources]:
             similarity = compute_cosine_similarity(trainDataSet[sourceNumber][0], evaluationSample)
             similarity_scores.append((sourceNumber, similarity))
 
-        # Sort by similarity
         similarity_scores.sort(key=lambda x: x[1], reverse=True)
-
-        # Map mostUsed to ranks
         mostUsed_ranks = {source: rank for rank, (source, _) in enumerate(current_mostUsed[:closestSources])}
 
-        # Create a results dictionary for each source
         sample_results = []
         for rank, (sourceNumber, similarity) in enumerate(similarity_scores):
-            # Ensure both arrays are flattened and of the same shape
             train_sample = trainDataSet[sourceNumber][0].flatten()
             eval_sample = evaluationSample.flatten()
 
-            # Check if evaluationSample is a batch and extract one sample if necessary
             if eval_sample.ndim > 1:
-                eval_sample = eval_sample[0]  # Get the first sample from the batch
+                eval_sample = eval_sample[0]
 
-            # Ensure both arrays have the same length
             if len(train_sample) != len(eval_sample):
                 raise ValueError(f"Shape mismatch: train sample length {len(train_sample)} vs eval sample length {len(eval_sample)}")
 
-            # Calculate Mean Squared Error (MSE) for each source
             mse_score = mean_squared_error(train_sample, eval_sample)
-
-            # Calculate Variance for each source
-            #variance_score = np.var(train_sample - eval_sample)
-
-            # Assuming accuracy is only for classification tasks
             accuracy_score_result = None
-            if isinstance(true, np.ndarray) and true.ndim == 1:  # Assuming categorical data
+            if isinstance(true, np.ndarray) and true.ndim == 1:
                 mostUsed_labels = np.argmax(train_sample, axis=1)
                 true_labels = np.argmax(true, axis=1)
                 accuracy_score_result = accuracy_score(true_labels, mostUsed_labels)
 
-            # Calculate Kendall correlation for this source
             kendall_corr, _ = kendalltau([similarity], [mostUsed_ranks.get(sourceNumber, len(current_mostUsed))])
 
-            # Normalize each metric (rescale to [0, 1] for comparison)
+            # Optionally compute variance
+            variance_score = np.var(train_sample - eval_sample)
+
             metrics = {
                 'cosine_similarity': similarity,
                 'mse': mse_score,
                 'accuracy': accuracy_score_result if accuracy_score_result is not None else 0,
-                #'variance': variance_score,
-                'kendall_corr': kendall_corr
+                'kendall_corr': kendall_corr,
+                'variance': variance_score  # Add variance here if desired
             }
 
-            # Store the results for this source
             sample_results.append({
                 'SourceNumber': sourceNumber,
                 'Similarity': similarity,
@@ -419,20 +402,17 @@ def evaluate_closest_sources(trainDataSet, mostUsed, closestSources, eval_datalo
                 'Metrics': metrics
             })
 
-        # Calculate Spearman rank correlation
         similarity_ranks = [result['Similarity'] for result in sample_results]
         mostUsed_ranks_list = [result['MostUsedRank'] if result['MostUsedRank'] is not None else len(sample_results)
                                for result in sample_results]
         spearman_corr, _ = spearmanr(similarity_ranks, mostUsed_ranks_list)
 
-        # Store the overall evaluation results
         results_per_eval_sample.append({
             'EvaluationSample': eval_idx,
             'SampleResults': sample_results,
             'SpearmanCorrelation': spearman_corr
         })
 
-    # Calculate the final metrics for the whole evaluation
     final_results = []
     for eval_res in results_per_eval_sample:
         sample_results = eval_res['SampleResults']
@@ -440,12 +420,11 @@ def evaluate_closest_sources(trainDataSet, mostUsed, closestSources, eval_datalo
             'cosine_similarity': np.mean([result['Metrics']['cosine_similarity'] for result in sample_results]),
             'mse': np.mean([result['Metrics']['mse'] for result in sample_results]),
             'accuracy': np.mean([result['Metrics']['accuracy'] for result in sample_results]),
-            #'variance': np.mean([result['Metrics']['variance'] for result in sample_results]),
+            'variance': np.mean([result['Metrics']['variance'] for result in sample_results]),  # Include variance if computed
             'kendall_corr': np.mean([result['Metrics']['kendall_corr'] for result in sample_results]),
             'spearman_corr': eval_res['SpearmanCorrelation']
         }
 
-        # Combine with weights
         weighted_result = np.dot(list(combined_metrics.values()), list(metric_weights.values())) / sum(metric_weights.values())
 
         final_results.append({
@@ -454,9 +433,10 @@ def evaluate_closest_sources(trainDataSet, mostUsed, closestSources, eval_datalo
             'WeightedScore': weighted_result
         })
 
-    # Print out the final results
     overall_final_score = np.mean([res['WeightedScore'] for res in final_results])
     print(f"Overall Final Evaluation Score: {overall_final_score:.4f}")
+
+    return final_results, overall_final_score
 
 def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
     global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
