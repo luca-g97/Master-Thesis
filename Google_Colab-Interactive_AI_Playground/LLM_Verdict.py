@@ -85,22 +85,27 @@ def fetch_and_parse_content(title):
 
 def clean_wikipedia_content(content):
     # Remove references, citations, and template placeholders
-    content = re.sub(r'\[\[.*?\]\]', '', content)  # Remove internal links (e.g., [[Link]])
-    content = re.sub(r'\{.*?\}', '', content)      # Remove templates (e.g., {{Citation needed}})
-    content = re.sub(r'\<.*?\>', '', content)      # Remove any HTML tags (just in case)
+    content = re.sub(r'\[\[File:.*?\]\]', '', content)  # Remove file/image links (e.g., [[File:Image.jpg]])
+    content = re.sub(r'\[\[.*?\|.*?\]\]', '', content)  # Remove internal links with aliases (e.g., [[Link|Alias]])
+    content = re.sub(r'\[\[.*?\]\]', '', content)      # Remove internal links (e.g., [[Link]])
+
+    content = re.sub(r'\{.*?\}', '', content)      # Remove templates (e.g., {{Citation needed}} or any template)
     content = re.sub(r'==+.*?==+', '', content)    # Remove headings (e.g., == Heading ==)
     content = re.sub(r'===+.*?===+', '', content)  # Remove subheadings (e.g., === Subheading ===)
-    content = re.sub(r'\[\[File:.*?\]\]', '', content)  # Remove file/image links (e.g., [[File:Image.jpg]])
     content = re.sub(r'<!--.*?-->', '', content, flags=re.DOTALL)  # Remove comments
+    content = re.sub(r'\<.*?\>', '', content)      # Remove any HTML tags (just in case)
 
     # Remove short sentences or fragments (less than 3 words)
-    content = re.sub(r'\b\w{1,2}\b', '', content)
+    content = ' '.join([sentence.strip() for sentence in content.split('.') if len(sentence.split()) > 2])
 
-    # Remove irrelevant sections like "See also", "External Links", "References"
-    content = re.sub(r'\n(See also|External links|References|Further reading)\n.*\n', '', content)
+    # Remove irrelevant sections like "See also", "External Links", "References", "Further reading"
+    content = re.sub(r'\n(See also|External links|References|Further reading)\n.*?(\n|$)', '', content, flags=re.DOTALL)
 
     # Remove anything inside curly brackets (often for templates or references)
     content = re.sub(r'\{.*?\}', '', content)
+
+    # Clean up extra spaces
+    content = re.sub(r'\s+', ' ', content).strip()
 
     return content
 
