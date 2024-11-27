@@ -343,8 +343,17 @@ def compute_cosine_similarity(image1, image2):
     vec2 = image2.flatten().reshape(1, -1)
     return cosine_similarity(vec1, vec2)[0][0]
 
-def evaluate_closest_sources(trainDataSet, mostUsed, closestSources, eval_dataloader, metric_weights):
+def evaluate_closest_sources(trainDataSet, mostUsed, closestSources, eval_dataloader):
     results_per_eval_sample = []
+
+    metric_weights = {
+        'cosine_similarity': 1,
+        'mse': 1,
+        'accuracy': 1,
+        'variance': 1,
+        'spearman_corr': 1,
+        'kendall_corr': 1
+    }
 
     for eval_idx, (evaluationSample, true) in enumerate(eval_dataloader):
         # Get mostUsed for this evaluation sample
