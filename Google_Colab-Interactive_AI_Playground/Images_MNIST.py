@@ -390,7 +390,7 @@ def evaluate_closest_sources(trainDataSet, mostUsed, closestSources, eval_datalo
             mse_score = mean_squared_error(train_sample, eval_sample)
 
             # Calculate Variance for each source
-            variance_score = np.var(train_sample - eval_sample)
+            #variance_score = np.var(train_sample - eval_sample)
 
             # Assuming accuracy is only for classification tasks
             accuracy_score_result = None
@@ -407,7 +407,7 @@ def evaluate_closest_sources(trainDataSet, mostUsed, closestSources, eval_datalo
                 'cosine_similarity': similarity,
                 'mse': mse_score,
                 'accuracy': accuracy_score_result if accuracy_score_result is not None else 0,
-                'variance': variance_score,
+                #'variance': variance_score,
                 'kendall_corr': kendall_corr
             }
 
@@ -440,7 +440,7 @@ def evaluate_closest_sources(trainDataSet, mostUsed, closestSources, eval_datalo
             'cosine_similarity': np.mean([result['Metrics']['cosine_similarity'] for result in sample_results]),
             'mse': np.mean([result['Metrics']['mse'] for result in sample_results]),
             'accuracy': np.mean([result['Metrics']['accuracy'] for result in sample_results]),
-            'variance': np.mean([result['Metrics']['variance'] for result in sample_results]),
+            #'variance': np.mean([result['Metrics']['variance'] for result in sample_results]),
             'kendall_corr': np.mean([result['Metrics']['kendall_corr'] for result in sample_results]),
             'spearman_corr': eval_res['SpearmanCorrelation']
         }
