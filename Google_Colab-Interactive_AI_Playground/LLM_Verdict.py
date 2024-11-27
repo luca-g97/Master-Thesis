@@ -86,8 +86,28 @@ def split_sentences(content, nlp):
     # Process the content with Stanza NLP pipeline
     doc = nlp(content)
 
-    # Extract sentences as a list of sentence texts
-    return [sentence.text for sentence in doc.sentences]
+    # List to store sentences after filtering
+    filtered_sentences = []
+
+    for sentence in doc.sentences:
+        text = sentence.text
+
+        # Skip sentences that are just headers or metadata
+        if "==" in text or "===" in text:
+            continue
+
+        # Ignore sections like References, External links, or "See also"
+        if any(header in text.lower() for header in ["references", "external links", "see also"]):
+            continue
+
+        # Skip very short sentences (e.g., single words, fragments)
+        if len(text.split()) < 3:
+            continue
+
+        # Append the cleaned sentence to the list
+        filtered_sentences.append(text.replace("==", "").replace("===", ""))
+
+    return filtered_sentences
 
 def createWikiTrainSet(category):
     global sentences, sentencesStructure
