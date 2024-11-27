@@ -385,14 +385,14 @@ def evaluate_closest_sources(trainDataSet, mostUsed, closestSources, eval_datalo
             kendall_corr, _ = kendalltau([similarity], [mostUsed_ranks.get(sourceNumber, len(current_mostUsed))])
 
             # Optionally compute variance
-            variance_score = np.var(train_sample - eval_sample)
+            #variance_score = np.var(train_sample - eval_sample)
 
             metrics = {
                 'cosine_similarity': similarity,
                 'mse': mse_score,
                 'accuracy': accuracy_score_result if accuracy_score_result is not None else 0,
                 'kendall_corr': kendall_corr,
-                'variance': variance_score  # Add variance here if desired
+                #'variance': variance_score  # Add variance here if desired
             }
 
             sample_results.append({
@@ -420,7 +420,7 @@ def evaluate_closest_sources(trainDataSet, mostUsed, closestSources, eval_datalo
             'cosine_similarity': np.mean([result['Metrics']['cosine_similarity'] for result in sample_results]),
             'mse': np.mean([result['Metrics']['mse'] for result in sample_results]),
             'accuracy': np.mean([result['Metrics']['accuracy'] for result in sample_results]),
-            'variance': np.mean([result['Metrics']['variance'] for result in sample_results]),  # Include variance if computed
+            #'variance': np.mean([result['Metrics']['variance'] for result in sample_results]),  # Include variance if computed
             'kendall_corr': np.mean([result['Metrics']['kendall_corr'] for result in sample_results]),
             'spearman_corr': eval_res['SpearmanCorrelation']
         }
