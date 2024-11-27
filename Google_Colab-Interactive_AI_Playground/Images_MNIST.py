@@ -351,7 +351,7 @@ def evaluate_closest_sources(trainDataSet, mostUsed, closestSources):
         # Compute similarity for all sources in mostUsed
         similarity_scores = []
         for sourceNumber, _ in current_mostUsed[:closestSources]:
-            similarity = compute_cosine_similarity(trainDataSet[sourceNumber], evaluationSample)
+            similarity = compute_cosine_similarity(trainDataSet[sourceNumber][0], evaluationSample)
             similarity_scores.append((sourceNumber, similarity))
 
         # Sort by similarity
