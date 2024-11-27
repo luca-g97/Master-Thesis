@@ -83,9 +83,11 @@ def fetch_and_parse_content(title):
     return content
 
 def split_sentences(content, nlp):
-    """Split the content into sentences using nlp."""
+    # Process the content with Stanza NLP pipeline
     doc = nlp(content)
-    return [sent.text for sent in doc.sents]
+
+    # Extract sentences as a list of sentence texts
+    return [sentence.text for sentence in doc.sentences]
 
 def createWikiTrainSet(category):
     global sentences, sentencesStructure
