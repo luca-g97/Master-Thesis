@@ -391,41 +391,41 @@ def evaluate_closest_sources(trainDataSet, mostUsed, closestSources):
 
 def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
     global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
-    
+
     #Make sure to set new dictionarys for the hooks to fill - they are global!
     dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource = RENN.initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model)
-    
+
     mostUsedList = []
     for pos, (sample, true) in enumerate(eval_dataloader):
         sample = sample.float()
         prediction = predict(sample)
         mostUsedSourcesWithSum = ""
-    
+
         if(visualizationChoice == "Weighted"):
             sourcesSum, outputsSum, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], "Sum")
             mostUsedSourcesWithSum = RENN.getMostUsedSources(sourcesSum, closestSources, "Sum")
             #20 because otherwise the blending might not be visible anymore. Should be closestSources instead to be correct!
             blendedSourceImageSum = blendImagesTogether(mostUsedSourcesWithSum[:20], "Not Weighted")
-    
+
             sourcesActivation, outputsActivation, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], "Activation")
             mostUsedSourcesWithActivation = RENN.getMostUsedSources(sourcesActivation, closestSources, "Activation")
             #20 because otherwise the blending might not be visible anymore. Should be closestSources instead to be correct!
             blendedSourceImageActivation = blendImagesTogether(mostUsedSourcesWithActivation[:20], "Not Weighted")
-    
+
             showImagesUnweighted(createImageWithPrediction(sample.reshape(28, 28), true, prediction), blendedSourceImageActivation, blendedSourceImageSum, mostUsedSourcesWithActivation[:showClosestMostUsedSources], mostUsedSourcesWithSum[:showClosestMostUsedSources])
         else:
             sourcesSum, outputsSum, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], "Sum")
             mostUsedSourcesWithSum = getClosestSourcesPerNeuronAndLayer(sourcesSum, layerNumbersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, "Sum")
-            
+
             sourcesActivation, outputsActivation, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], "Activation")
             mostUsedSourcesWithActivation = getClosestSourcesPerNeuronAndLayer(sourcesActivation, layerNumbersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, "Activation")
 
         if(analyze):
             sourceCounter, mostUsed = RENN.getMostUsed(sourcesSum, "Sum")
             mostUsedList.append(mostUsed)
-            
+
             RENN.analyzeData(closestSources, dictionaryForSourceLayerNeuron[pos])
-        
+
     if(analyze):
         # Evaluate closest sources
         results, overall_corr = evaluate_closest_sources(trainDataSet, mostUsedList, closestSources)
@@ -436,5 +436,5 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             print(f"Evaluation Sample {res['EvaluationSample']} - Spearman Correlation: {res['SpearmanCorrelation']:.4f}")
             for item in res['SampleResults']:
                 print(f"  Source: {item['SourceNumber']}, Similarity: {item['Similarity']:.4f}, MostUsedRank: {item['MostUsedRank']}")
-    
+
     #print(f"Time passed since start: {time_since_start(startTime)}")
