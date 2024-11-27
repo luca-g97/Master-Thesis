@@ -489,7 +489,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
 
     if(analyze):
         # Evaluate closest sources
-        results, overall_corr = evaluate_closest_sources(trainDataSet, mostUsedList, closestSources)
+        results, overall_corr = evaluate_closest_sources(trainDataSet, mostUsedList, closestSources, eval_dataloader)
 
         # Print results
         print(f"Overall Spearman Correlation: {overall_corr:.4f}")
