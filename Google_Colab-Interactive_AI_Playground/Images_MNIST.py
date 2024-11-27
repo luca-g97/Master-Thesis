@@ -485,10 +485,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
         # Iterate through each evaluation sample in the results
         for res in results:
             eval_sample = res['EvaluationSample']
-            spearman_corr = res['SpearmanCorrelation']
-        
             print(f"Evaluation Sample {eval_sample}:")
-            print(f"  Spearman Correlation: {spearman_corr:.4f}")
         
             # Print combined metrics for the evaluation sample
             combined_metrics = res['CombinedMetrics']
