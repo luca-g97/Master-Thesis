@@ -334,7 +334,6 @@ def normalizePredictions(array):
 """# Evaluation: Code"""
 
 from sklearn.metrics.pairwise import cosine_similarity
-
 from sklearn.metrics import mean_squared_error, accuracy_score
 from scipy.stats import spearmanr, kendalltau
 
@@ -358,7 +357,6 @@ def evaluate_closest_sources(trainDataSet, mostUsed, closestSources, eval_datalo
             'kendall_corr': 1
         }
 
-    # Iterate over each evaluation sample
     for eval_idx, (evaluationSample, true) in enumerate(eval_dataloader):
         # Get mostUsed for this evaluation sample
         current_mostUsed = mostUsed[eval_idx]
@@ -375,13 +373,40 @@ def evaluate_closest_sources(trainDataSet, mostUsed, closestSources, eval_datalo
         # Map mostUsed to ranks
         mostUsed_ranks = {source: rank for rank, (source, _) in enumerate(current_mostUsed[:closestSources])}
 
-        # Create a results dictionary
+        # Create a results dictionary for each source
         sample_results = []
         for rank, (sourceNumber, similarity) in enumerate(similarity_scores):
+            # Calculate Mean Squared Error (MSE) for each source
+            mse_score = mean_squared_error(trainDataSet[sourceNumber][0], evaluationSample)
+
+            # Calculate Variance for each source
+            variance_score = np.var(trainDataSet[sourceNumber][0] - evaluationSample)
+
+            # Assuming accuracy is only for classification tasks
+            accuracy_score_result = None
+            if isinstance(true, np.ndarray) and true.ndim == 1:  # Assuming categorical data
+                mostUsed_labels = np.argmax(trainDataSet[sourceNumber][0], axis=1)
+                true_labels = np.argmax(true, axis=1)
+                accuracy_score_result = accuracy_score(true_labels, mostUsed_labels)
+
+            # Calculate Kendall correlation for this source
+            kendall_corr, _ = kendalltau([similarity], [mostUsed_ranks.get(sourceNumber, len(current_mostUsed))])
+
+            # Normalize each metric (rescale to [0, 1] for comparison)
+            metrics = {
+                'cosine_similarity': similarity,
+                'mse': mse_score,
+                'accuracy': accuracy_score_result if accuracy_score_result is not None else 0,
+                'variance': variance_score,
+                'kendall_corr': kendall_corr
+            }
+
+            # Store the results for this source
             sample_results.append({
                 'SourceNumber': sourceNumber,
                 'Similarity': similarity,
-                'MostUsedRank': mostUsed_ranks.get(sourceNumber, None)
+                'MostUsedRank': mostUsed_ranks.get(sourceNumber, None),
+                'Metrics': metrics
             })
 
         # Calculate Spearman rank correlation
@@ -390,65 +415,38 @@ def evaluate_closest_sources(trainDataSet, mostUsed, closestSources, eval_datalo
                                for result in sample_results]
         spearman_corr, _ = spearmanr(similarity_ranks, mostUsed_ranks_list)
 
-        # Calculate Mean Squared Error (MSE)
-        mse_score = mean_squared_error(trainDataSet[mostUsed[eval_idx]][0], evaluationSample)
-
-        # Calculate Variance
-        variance_score = np.var(trainDataSet[mostUsed[eval_idx]][0] - evaluationSample)
-
-        # Assuming accuracy is only for classification tasks, otherwise it's skipped
-        accuracy_score_result = None
-        if isinstance(true, np.ndarray) and true.ndim == 1:  # Assuming categorical data
-            mostUsed_labels = np.argmax(trainDataSet[mostUsed[eval_idx]][0], axis=1)
-            true_labels = np.argmax(true, axis=1)
-            accuracy_score_result = accuracy_score(true_labels, mostUsed_labels)
-
-        # Calculate Kendall correlation
-        kendall_corr, _ = kendalltau(similarity_ranks, mostUsed_ranks_list)
-
-        # Normalize each metric (rescale to [0, 1] for comparison)
-        metrics = {
-            'cosine_similarity': np.mean([score[1] for score in similarity_scores]),
-            'mse': mse_score,
-            'accuracy': accuracy_score_result if accuracy_score_result is not None else 0,
-            'variance': variance_score,
-            'spearman_corr': spearman_corr,
-            'kendall_corr': kendall_corr
-        }
-
-        # Normalize the metrics (inverting MSE and variance since lower is better)
-        normalized_scores = {}
-        for metric, score in metrics.items():
-            if metric in ['mse', 'variance']:  # Lower is better
-                normalized_scores[metric] = 1 / (1 + score)  # Inverse scale (larger scores are worse)
-            else:  # Higher is better
-                normalized_scores[metric] = score / np.max(score)  # Normalize to [0, 1]
-
-        # Combine metrics using weighted average
-        weighted_sum = sum(metric_weights[metric] * normalized_scores[metric] for metric in normalized_scores)
-        total_weight = sum(metric_weights.values())
-        final_score = weighted_sum / total_weight
-
-        # Append results for this eval sample
+        # Store the overall evaluation results
         results_per_eval_sample.append({
             'EvaluationSample': eval_idx,
             'SampleResults': sample_results,
-            'SpearmanCorrelation': spearman_corr,
-            'MSE': mse_score,
-            'Variance': variance_score,
-            'Accuracy': accuracy_score_result if accuracy_score_result is not None else 0,
-            'KendallCorrelation': kendall_corr,
-            'FinalScore': final_score
+            'SpearmanCorrelation': spearman_corr
         })
 
-        # Print final score for this evaluation sample
-        print(f"Evaluation Sample {eval_idx}: Final Evaluation Score: {final_score}")
+    # Calculate the final metrics for the whole evaluation
+    final_results = []
+    for eval_res in results_per_eval_sample:
+        sample_results = eval_res['SampleResults']
+        combined_metrics = {
+            'cosine_similarity': np.mean([result['Metrics']['cosine_similarity'] for result in sample_results]),
+            'mse': np.mean([result['Metrics']['mse'] for result in sample_results]),
+            'accuracy': np.mean([result['Metrics']['accuracy'] for result in sample_results]),
+            'variance': np.mean([result['Metrics']['variance'] for result in sample_results]),
+            'kendall_corr': np.mean([result['Metrics']['kendall_corr'] for result in sample_results]),
+            'spearman_corr': eval_res['SpearmanCorrelation']
+        }
 
-    # Compute average final score across all evaluation samples
-    overall_final_score = np.mean([res['FinalScore'] for res in results_per_eval_sample])
+        # Combine with weights
+        weighted_result = np.dot(list(combined_metrics.values()), list(metric_weights.values())) / sum(metric_weights.values())
 
-    # Print the overall final evaluation score
-    print(f"Overall Final Evaluation Score: {overall_final_score}")
+        final_results.append({
+            'EvaluationSample': eval_res['EvaluationSample'],
+            'CombinedMetrics': combined_metrics,
+            'WeightedScore': weighted_result
+        })
+
+    # Print out the final results
+    overall_final_score = np.mean([res['WeightedScore'] for res in final_results])
+    print(f"Overall Final Evaluation Score: {overall_final_score:.4f}")
 
 def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
     global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
