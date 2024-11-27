@@ -333,12 +333,69 @@ def normalizePredictions(array):
 
 """# Evaluation: Code"""
 
+from sklearn.metrics.pairwise import cosine_similarity
+from scipy.stats import spearmanr
+
+def compute_cosine_similarity(image1, image2):
+    vec1 = image1.flatten().reshape(1, -1)
+    vec2 = image2.flatten().reshape(1, -1)
+    return cosine_similarity(vec1, vec2)[0][0]
+
+def evaluate_closest_sources(trainDataSet, mostUsed, closestSources):
+    results_per_eval_sample = []
+
+    for eval_idx, (evaluationSample, true) in enumerate(eval_dataloader):
+        # Get mostUsed for this evaluation sample
+        current_mostUsed = mostUsed[eval_idx]
+
+        # Compute similarity for all sources in mostUsed
+        similarity_scores = []
+        for sourceNumber, _ in current_mostUsed[:closestSources]:
+            similarity = compute_cosine_similarity(trainDataSet[sourceNumber], evaluationSample)
+            similarity_scores.append((sourceNumber, similarity))
+
+        # Sort by similarity
+        similarity_scores.sort(key=lambda x: x[1], reverse=True)
+
+        # Map mostUsed to ranks
+        mostUsed_ranks = {source: rank for rank, (source, _) in enumerate(current_mostUsed[:closestSources])}
+
+        # Create a results dictionary
+        sample_results = []
+        for rank, (sourceNumber, similarity) in enumerate(similarity_scores):
+            sample_results.append({
+                'SourceNumber': sourceNumber,
+                'Similarity': similarity,
+                'MostUsedRank': mostUsed_ranks.get(sourceNumber, None)
+            })
+
+        # Calculate Spearman rank correlation
+        similarity_ranks = [result['Similarity'] for result in sample_results]
+        mostUsed_ranks_list = [result['MostUsedRank'] if result['MostUsedRank'] is not None else len(sample_results)
+                               for result in sample_results]
+        spearman_corr, _ = spearmanr(similarity_ranks, mostUsed_ranks_list)
+
+        # Append results
+        results_per_eval_sample.append({
+            'EvaluationSample': eval_idx,
+            'SampleResults': sample_results,
+            'SpearmanCorrelation': spearman_corr
+        })
+
+    # Compute average Spearman correlation across all evaluation samples
+    overall_correlation = np.mean([
+        res['SpearmanCorrelation'] for res in results_per_eval_sample if not np.isnan(res['SpearmanCorrelation'])
+    ])
+
+    return results_per_eval_sample, overall_correlation
+
 def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
     global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
     
     #Make sure to set new dictionarys for the hooks to fill - they are global!
     dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource = RENN.initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model)
-        
+    
+    mostUsedList = []
     for pos, (sample, true) in enumerate(eval_dataloader):
         sample = sample.float()
         prediction = predict(sample)
@@ -359,11 +416,25 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
         else:
             sourcesSum, outputsSum, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], "Sum")
             mostUsedSourcesWithSum = getClosestSourcesPerNeuronAndLayer(sourcesSum, layerNumbersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, "Sum")
-
+            
             sourcesActivation, outputsActivation, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], "Activation")
             mostUsedSourcesWithActivation = getClosestSourcesPerNeuronAndLayer(sourcesActivation, layerNumbersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, "Activation")
 
         if(analyze):
+            sourceCounter, mostUsed = RENN.getMostUsed(sourcesSum, "Sum")
+            mostUsedList.append(mostUsed)
+            
             RENN.analyzeData(closestSources, dictionaryForSourceLayerNeuron[pos])
+        
+    if(analyze):
+        # Evaluate closest sources
+        results, overall_corr = evaluate_closest_sources(trainDataSet, mostUsedList, closestSources)
+
+        # Print results
+        print(f"Overall Spearman Correlation: {overall_corr:.4f}")
+        for res in results:
+            print(f"Evaluation Sample {res['EvaluationSample']} - Spearman Correlation: {res['SpearmanCorrelation']:.4f}")
+            for item in res['SampleResults']:
+                print(f"  Source: {item['SourceNumber']}, Similarity: {item['Similarity']:.4f}, MostUsedRank: {item['MostUsedRank']}")
     
     #print(f"Time passed since start: {time_since_start(startTime)}")
