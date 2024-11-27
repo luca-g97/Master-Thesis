@@ -350,7 +350,7 @@ def evaluate_closest_sources(trainDataSet, mostUsed, closestSources, eval_datalo
         'cosine_similarity': 1,
         'mse': 1,
         'accuracy': 1,
-        'variance': 1,
+        #'variance': 1,
         'spearman_corr': 1,
         'kendall_corr': 1
     }
