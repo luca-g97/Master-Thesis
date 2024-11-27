@@ -430,7 +430,8 @@ def evaluate_closest_sources(trainDataSet, mostUsed, closestSources, eval_datalo
         final_results.append({
             'EvaluationSample': eval_res['EvaluationSample'],
             'CombinedMetrics': combined_metrics,
-            'WeightedScore': weighted_result
+            'WeightedScore': weighted_result,
+            'SampleResults': sample_results
         })
 
     overall_final_score = np.mean([res['WeightedScore'] for res in final_results])
