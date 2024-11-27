@@ -479,11 +479,38 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
         # Evaluate closest sources
         results, overall_corr = evaluate_closest_sources(trainDataSet, mostUsedList, closestSources, eval_dataloader)
 
-        # Print results
+        # Print overall evaluation scores
         print(f"Overall Spearman Correlation: {overall_corr:.4f}")
+        
+        # Iterate through each evaluation sample in the results
         for res in results:
-            print(f"Evaluation Sample {res['EvaluationSample']} - Spearman Correlation: {res['SpearmanCorrelation']:.4f}")
+            eval_sample = res['EvaluationSample']
+            spearman_corr = res['SpearmanCorrelation']
+        
+            print(f"Evaluation Sample {eval_sample}:")
+            print(f"  Spearman Correlation: {spearman_corr:.4f}")
+        
+            # Print combined metrics for the evaluation sample
+            combined_metrics = res['CombinedMetrics']
+            print("  Combined Metrics:")
+            for metric_name, metric_value in combined_metrics.items():
+                print(f"    {metric_name}: {metric_value:.4f}")
+        
+            # Print details for each source in the evaluation sample
+            print("  Source Metrics:")
             for item in res['SampleResults']:
-                print(f"  Source: {item['SourceNumber']}, Similarity: {item['Similarity']:.4f}, MostUsedRank: {item['MostUsedRank']}")
+                source_number = item['SourceNumber']
+                similarity = item['Similarity']
+                most_used_rank = item.get('MostUsedRank', 'N/A')  # Handle cases where rank might not be available
+                metrics = item['Metrics']
+        
+                print(f"    Source {source_number}:")
+                print(f"      Similarity: {similarity:.4f}")
+                print(f"      MostUsedRank: {most_used_rank}")
+        
+                # Print all individual metrics for the source
+                for metric_name, metric_value in metrics.items():
+                    print(f"      {metric_name}: {metric_value:.4f}")
+            print()  # Add a blank line between samples for readability
 
     #print(f"Time passed since start: {time_since_start(startTime)}")
