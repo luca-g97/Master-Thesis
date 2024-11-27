@@ -351,7 +351,7 @@ def evaluate_closest_sources(trainDataSet, mostUsed, closestSources, eval_datalo
         'mse': 1,
         'accuracy': 1,
         'spearman_corr': 1,
-        'kendall_corr': 1
+        #'kendall_corr': 1
     }
 
     for eval_idx, (evaluationSample, true) in enumerate(eval_dataloader):
@@ -391,7 +391,7 @@ def evaluate_closest_sources(trainDataSet, mostUsed, closestSources, eval_datalo
                 'cosine_similarity': similarity,
                 'mse': mse_score,
                 'accuracy': accuracy_score_result if accuracy_score_result is not None else 0,
-                'kendall_corr': kendall_corr,
+                #'kendall_corr': kendall_corr,
                 #'variance': variance_score  # Add variance here if desired
             }
 
@@ -421,7 +421,7 @@ def evaluate_closest_sources(trainDataSet, mostUsed, closestSources, eval_datalo
             'mse': np.mean([result['Metrics']['mse'] for result in sample_results]),
             'accuracy': np.mean([result['Metrics']['accuracy'] for result in sample_results]),
             #'variance': np.mean([result['Metrics']['variance'] for result in sample_results]),  # Include variance if computed
-            'kendall_corr': np.mean([result['Metrics']['kendall_corr'] for result in sample_results]),
+            #'kendall_corr': np.mean([result['Metrics']['kendall_corr'] for result in sample_results]),
             'spearman_corr': eval_res['SpearmanCorrelation']
         }
 
