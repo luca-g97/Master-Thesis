@@ -4,6 +4,7 @@ from torch import nn
 import torch.optim as optim
 from torch.utils.data import Dataset
 import os
+import re
 import requests
 import urllib.request
 import Customizable_RENN as RENN
@@ -82,32 +83,34 @@ def fetch_and_parse_content(title):
 
     return content
 
+def clean_wikipedia_content(content):
+    # Remove references, citations, and template placeholders
+    content = re.sub(r'\[\[.*?\]\]', '', content)  # Remove internal links (e.g., [[Link]])
+    content = re.sub(r'\{.*?\}', '', content)      # Remove templates (e.g., {{Citation needed}})
+    content = re.sub(r'\<.*?\>', '', content)      # Remove any HTML tags (just in case)
+    content = re.sub(r'==+.*?==+', '', content)    # Remove headings (e.g., == Heading ==)
+    content = re.sub(r'===+.*?===+', '', content)  # Remove subheadings (e.g., === Subheading ===)
+    content = re.sub(r'\[\[File:.*?\]\]', '', content)  # Remove file/image links (e.g., [[File:Image.jpg]])
+    content = re.sub(r'<!--.*?-->', '', content, flags=re.DOTALL)  # Remove comments
+
+    # Remove short sentences or fragments (less than 3 words)
+    content = re.sub(r'\b\w{1,2}\b', '', content)
+
+    # Remove irrelevant sections like "See also", "External Links", "References"
+    content = re.sub(r'\n(See also|External links|References|Further reading)\n.*\n', '', content)
+
+    # Remove anything inside curly brackets (often for templates or references)
+    content = re.sub(r'\{.*?\}', '', content)
+
+    return content
+
+# Function to split cleaned content into sentences
 def split_sentences(content, nlp):
-    # Process the content with Stanza NLP pipeline
+    # Process the content with Stanza
     doc = nlp(content)
-
-    # List to store sentences after filtering
-    filtered_sentences = []
-
-    for sentence in doc.sentences:
-        text = sentence.text
-
-        # Skip sentences that are just headers or metadata
-        if "==" in text or "===" in text:
-            continue
-
-        # Ignore sections like References, External links, or "See also"
-        if any(header in text.lower() for header in ["references", "external links", "see also"]):
-            continue
-
-        # Skip very short sentences (e.g., single words, fragments)
-        if len(text.split()) < 3:
-            continue
-
-        # Append the cleaned sentence to the list
-        filtered_sentences.append(text.replace("==", "").replace("===", ""))
-
-    return filtered_sentences
+    # Remove non-informative sentences (those with just punctuation or short sentences)
+    sentences = [sentence.text for sentence in doc.sentences if len(sentence.text.split()) > 2]
+    return sentences
 
 def createWikiTrainSet(category):
     global sentences, sentencesStructure
@@ -121,8 +124,12 @@ def createWikiTrainSet(category):
     # Fetch content from each title and split into sentences
     for title in titles:
         content = fetch_and_parse_content(title)
+
+        # Clean the Wikipedia content
+        cleaned_content = clean_wikipedia_content(content)
+
         # Tokenize the paragraph into sentences
-        sentence_data = split_sentences(content, nlp)
+        sentence_data = split_sentences(cleaned_content, nlp)
 
         # Add the list of sentences for this paragraph
         sentencesStructure.append(sentence_data)
