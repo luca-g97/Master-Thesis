@@ -506,7 +506,7 @@ def evaluateActualMetrics(sample, mostUsed):
     # Weighted Accuracy
     total_weight = sum(count for _, count in mostUsed)
     weighted_matches = sum(
-        count for source, count in mostUsed.items() if source in topSources
+        count for source, count in mostUsed if source in topSources
     )
     weighted_accuracy = weighted_matches / total_weight if total_weight else 0
 
