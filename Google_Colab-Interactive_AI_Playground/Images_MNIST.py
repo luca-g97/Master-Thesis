@@ -6,7 +6,7 @@ import numpy as np
 import Customizable_RENN as RENN
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.metrics import mean_squared_error, accuracy_score
-from scipy.stats import spearmanr, kendalltau
+from scipy.stats import spearmanr, kendalltau, pearsonr
 
 mnist, to_categorical, nn, DataLoader, device = "", "", "", "", ""
 train_dataloader, test_dataloader, eval_dataloader, trainDataSet, testDataSet, trainSubset, testSubset, x_train, y_train, x_test, y_test, x_eval, y_eval = "", "", "", "", "", "", "", "", "", "", "", "", ""
@@ -475,16 +475,81 @@ def printMetricsForAllClosestSources(mostUsedList, closestSources):
 def evaluateActualMetrics(sample, mostUsed):
     similarityList = []
 
+    # Flatten and reshape the sample
+    sample = sample.flatten().reshape(1, -1)
+
+    # Initialize aggregates for overall metrics
+    aggregate_scores = {
+        "cosine": 0,
+        "euclidean": 0,
+        "manhattan": 0,
+        "jaccard": 0,
+        "hamming": 0,
+        "pearson": 0,
+    }
+    count_valid = {
+        "jaccard": 0,  # Count only valid Jaccard entries (non-zero denominator)
+        "pearson": 0,  # Count only valid Pearson correlations
+    }
+
     # Compute similarity for each training sample
     for pos, (train_sample, true) in enumerate(trainDataSet):
-        similarity = compute_cosine_similarity(sample, train_sample)
-        similarityList.append((pos, similarity))
+        train_sample = train_sample.flatten().reshape(1, -1)
 
-    # Sort similarityList by similarity in descending order
-    similarityList.sort(key=lambda x: x[1], reverse=True)
+        # Compute similarities
+        cosine_similarity = compute_cosine_similarity(sample, train_sample)
+        euclidean_distance = np.linalg.norm(sample - train_sample)  # Euclidean
+        manhattan_distance = np.sum(np.abs(sample - train_sample))  # Manhattan
+        jaccard_similarity = (
+            np.sum(np.minimum(sample, train_sample)) / np.sum(np.maximum(sample, train_sample))
+            if np.sum(np.maximum(sample, train_sample)) > 0 else None
+        )
+        hamming_distance = np.mean(sample != train_sample)  # Hamming
+        try:
+            pearson_correlation, _ = pearsonr(sample.flatten(), train_sample.flatten())  # Pearson
+        except ValueError:
+            pearson_correlation = None
+
+        # Accumulate aggregate scores
+        aggregate_scores["cosine"] += cosine_similarity
+        aggregate_scores["euclidean"] += euclidean_distance
+        aggregate_scores["manhattan"] += manhattan_distance
+        if jaccard_similarity is not None:
+            aggregate_scores["jaccard"] += jaccard_similarity
+            count_valid["jaccard"] += 1
+        aggregate_scores["hamming"] += hamming_distance
+        if pearson_correlation is not None:
+            aggregate_scores["pearson"] += pearson_correlation
+            count_valid["pearson"] += 1
+
+        similarityList.append({
+            "pos": pos,
+            "cosine": cosine_similarity,
+            "euclidean": euclidean_distance,
+            "manhattan": manhattan_distance,
+            "jaccard": jaccard_similarity,
+            "hamming": hamming_distance,
+            "pearson": pearson_correlation,
+        })
+
+    # Normalize aggregate scores
+    num_samples = len(trainDataSet)
+    for key in ["cosine", "euclidean", "manhattan", "hamming"]:
+        aggregate_scores[key] /= num_samples
+    if count_valid["jaccard"] > 0:
+        aggregate_scores["jaccard"] /= count_valid["jaccard"]
+    else:
+        aggregate_scores["jaccard"] = None
+    if count_valid["pearson"] > 0:
+        aggregate_scores["pearson"] /= count_valid["pearson"]
+    else:
+        aggregate_scores["pearson"] = None
+
+    # Sort similarityList by cosine similarity in descending order
+    similarityList.sort(key=lambda x: x["cosine"], reverse=True)
 
     # Extract top sources from similarity list
-    topSources = set(pos for pos, _ in similarityList[:len(mostUsed)])
+    topSources = set(item["pos"] for item in similarityList[:len(mostUsed)])
 
     # Extract most used sources
     mostUsedSources = set(source for source, _ in mostUsed)
@@ -511,17 +576,16 @@ def evaluateActualMetrics(sample, mostUsed):
     weighted_accuracy = weighted_matches / total_weight if total_weight else 0
 
     # Kendall's Tau and Spearman's Rho
-    topRanking = [pos for pos, _ in similarityList[:len(mostUsed)]]
+    topRanking = [item["pos"] for item in similarityList[:len(mostUsed)]]
     mostUsedRanking = [source for source, _ in mostUsed]
     kendall_tau, _ = kendalltau(topRanking, mostUsedRanking)
     spearman_rho, _ = spearmanr(topRanking, mostUsedRanking)
 
     # Top-k Intersection
-    topKSources = set(pos for pos, _ in similarityList[:len(mostUsed)])
-    mostUsedTopK = set(source for source, _ in mostUsed)
-    top_k_intersection = len(topKSources & mostUsedTopK)
+    top_k_intersection = len(topSources & mostUsedSources)
 
     # --- Print Results ---
+    print("\n--- Overall Metrics ---")
     print(f"Accuracy: {accuracy * 100:.2f}%")
     print(f"Precision: {precision * 100:.2f}%")
     print(f"Recall: {recall * 100:.2f}%")
@@ -530,6 +594,15 @@ def evaluateActualMetrics(sample, mostUsed):
     print(f"Kendall's Tau: {kendall_tau:.2f}")
     print(f"Spearman's Rho: {spearman_rho:.2f}")
     print(f"Top-{len(mostUsed)} Intersection: {top_k_intersection}/{len(mostUsed)}")
+
+    # --- Print Overall Similarity Scores ---
+    print("\n--- Overall Similarity Scores ---")
+    print(f"Cosine Similarity (Mean): {aggregate_scores['cosine']:.4f}")
+    print(f"Euclidean Distance (Mean): {aggregate_scores['euclidean']:.4f}")
+    print(f"Manhattan Distance (Mean): {aggregate_scores['manhattan']:.4f}")
+    print(f"Jaccard Similarity (Mean): {aggregate_scores['jaccard']:.4f}" if aggregate_scores["jaccard"] is not None else "Jaccard Similarity: N/A")
+    print(f"Hamming Distance (Mean): {aggregate_scores['hamming']:.4f}")
+    print(f"Pearson Correlation (Mean): {aggregate_scores['pearson']:.4f}" if aggregate_scores["pearson"] is not None else "Pearson Correlation: N/A")
 
 def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
     global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
