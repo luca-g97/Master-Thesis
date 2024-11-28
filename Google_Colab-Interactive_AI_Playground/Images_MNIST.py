@@ -516,8 +516,8 @@ def blendActivations(mostUsed, evaluationActivations, layerNumbersToCheck):
     blendedActivations = np.asarray(blendedActivations.flatten().reshape(1, -1), dtype=np.float64)
     cosine_similarity, euclidean_distance, manhattan_distance, jaccard_similarity, hamming_distance, pearson_correlation = computeSimilarity(evaluationActivations, blendedActivations)
 
-    kendall_tau, _ = kendalltau(evaluationActivations[layerNumbersToCheck], blendedActivations)
-    spearman_rho, _ = spearmanr(evaluationActivations[layerNumbersToCheck], blendedActivations)
+    kendall_tau, _ = kendalltau(evaluationActivations, blendedActivations)
+    spearman_rho, _ = spearmanr(evaluationActivations, blendedActivations)
 
     # --- Print Results ---
     print("\n--- Blended Activation Similarity Scores ---")
