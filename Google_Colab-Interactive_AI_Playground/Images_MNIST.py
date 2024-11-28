@@ -4,6 +4,9 @@ from torch.utils.data import Subset
 import torch.optim as optim
 import numpy as np
 import Customizable_RENN as RENN
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.metrics import mean_squared_error, accuracy_score
+from scipy.stats import spearmanr, kendalltau
 
 mnist, to_categorical, nn, DataLoader, device = "", "", "", "", ""
 train_dataloader, test_dataloader, eval_dataloader, trainDataSet, testDataSet, trainSubset, testSubset, x_train, y_train, x_test, y_test, x_eval, y_eval = "", "", "", "", "", "", "", "", "", "", "", "", ""
@@ -333,17 +336,13 @@ def normalizePredictions(array):
 
 """# Evaluation: Code"""
 
-from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.metrics import mean_squared_error, accuracy_score
-from scipy.stats import spearmanr, kendalltau
-
 def compute_cosine_similarity(image1, image2):
     """Compute cosine similarity between two images."""
     vec1 = image1.flatten().reshape(1, -1)
     vec2 = image2.flatten().reshape(1, -1)
     return cosine_similarity(vec1, vec2)[0][0]
 
-def evaluate_closest_sources(trainDataSet, mostUsed, closestSources, eval_dataloader):
+def evaluate_closest_sources(mostUsed, closestSources):
     results_per_eval_sample = []
 
     metric_weights = {
@@ -439,6 +438,99 @@ def evaluate_closest_sources(trainDataSet, mostUsed, closestSources, eval_datalo
 
     return final_results, overall_final_score
 
+def printMetricsForAllClosestSources(mostUsedList, closestSources):
+    results, overall_corr = evaluate_closest_sources(mostUsedList, closestSources)
+
+    # Print overall evaluation scores
+    print(f"Overall Spearman Correlation: {overall_corr:.4f}")
+
+    # Iterate through each evaluation sample in the results
+    for res in results:
+        eval_sample = res['EvaluationSample']
+        print(f"Evaluation Sample {eval_sample}:")
+
+        # Print combined metrics for the evaluation sample
+        combined_metrics = res['CombinedMetrics']
+        print("  Combined Metrics:")
+        for metric_name, metric_value in combined_metrics.items():
+            print(f"    {metric_name}: {metric_value:.4f}")
+
+        # Print details for each source in the evaluation sample
+        print("  Source Metrics:")
+        for item in res['SampleResults']:
+            source_number = item['SourceNumber']
+            similarity = item['Similarity']
+            most_used_rank = item.get('MostUsedRank', 'N/A')  # Handle cases where rank might not be available
+            metrics = item['Metrics']
+
+            print(f"    Source {source_number}:")
+            print(f"      Similarity: {similarity:.4f}")
+            print(f"      MostUsedRank: {most_used_rank}")
+
+            # Print all individual metrics for the source
+            for metric_name, metric_value in metrics.items():
+                print(f"      {metric_name}: {metric_value:.4f}")
+        print()  # Add a blank line between samples for readability
+
+def evaluateActualMetrics(sample, mostUsed):
+    similarityList = []
+
+    # Compute similarity for each training sample
+    for pos, (train_sample, true) in enumerate(train_dataloader):
+        similarity = compute_cosine_similarity(sample, train_sample)
+        similarityList.append((pos, similarity))
+
+    # Sort similarityList by similarity in descending order
+    similarityList.sort(key=lambda x: x[1], reverse=True)
+
+    # Extract top sources from similarity list
+    topSources = set(pos for pos, _ in similarityList[:len(mostUsed)])
+
+    # Extract most used sources
+    mostUsedSources = set(source for source, _ in mostUsed.most_common(len(topSources)))
+
+    # --- Metrics ---
+    # Matches
+    matches = len(topSources & mostUsedSources)
+
+    # Accuracy
+    accuracy = matches / len(topSources) if topSources else 0
+
+    # Precision and Recall
+    precision = matches / len(mostUsedSources) if mostUsedSources else 0
+    recall = matches / len(topSources) if topSources else 0
+
+    # F1-Score
+    f1_score = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+
+    # Weighted Accuracy
+    total_weight = sum(count for _, count in mostUsed.items())
+    weighted_matches = sum(
+        count for source, count in mostUsed.items() if source in topSources
+    )
+    weighted_accuracy = weighted_matches / total_weight if total_weight else 0
+
+    # Kendall's Tau and Spearman's Rho
+    topRanking = [pos for pos, _ in similarityList]
+    mostUsedRanking = [source for source, _ in mostUsed.most_common(len(topRanking))]
+    kendall_tau, _ = kendalltau(topRanking, mostUsedRanking)
+    spearman_rho, _ = spearmanr(topRanking, mostUsedRanking)
+
+    # Top-k Intersection
+    topKSources = set(pos for pos, _ in similarityList[:len(mostUsed)])
+    mostUsedTopK = set(source for source, _ in mostUsed.most_common(len(mostUsed)))
+    top_k_intersection = len(topKSources & mostUsedTopK)
+
+    # --- Print Results ---
+    print(f"Accuracy: {accuracy * 100:.2f}%")
+    print(f"Precision: {precision * 100:.2f}%")
+    print(f"Recall: {recall * 100:.2f}%")
+    print(f"F1-Score: {f1_score * 100:.2f}%")
+    print(f"Weighted Accuracy: {weighted_accuracy * 100:.2f}%")
+    print(f"Kendall's Tau: {kendall_tau:.2f}")
+    print(f"Spearman's Rho: {spearman_rho:.2f}")
+    print(f"Top-{len(mostUsed)} Intersection: {top_k_intersection}/{len(mostUsed)}")
+
 def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
     global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
 
@@ -474,41 +566,11 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             mostUsed = RENN.getMostUsedSources(sourcesSum, closestSources)
             mostUsedList.append(mostUsed)
 
-            RENN.analyzeData(closestSources, dictionaryForSourceLayerNeuron[pos])
+            evaluateActualMetrics(sample, mostUsed)
+            #RENN.analyzeData(closestSources, dictionaryForSourceLayerNeuron[pos])
 
-    if(analyze):
+    #if(analyze):
         # Evaluate closest sources
-        results, overall_corr = evaluate_closest_sources(trainDataSet, mostUsedList, closestSources, eval_dataloader)
-
-        # Print overall evaluation scores
-        print(f"Overall Spearman Correlation: {overall_corr:.4f}")
-        
-        # Iterate through each evaluation sample in the results
-        for res in results:
-            eval_sample = res['EvaluationSample']
-            print(f"Evaluation Sample {eval_sample}:")
-        
-            # Print combined metrics for the evaluation sample
-            combined_metrics = res['CombinedMetrics']
-            print("  Combined Metrics:")
-            for metric_name, metric_value in combined_metrics.items():
-                print(f"    {metric_name}: {metric_value:.4f}")
-        
-            # Print details for each source in the evaluation sample
-            print("  Source Metrics:")
-            for item in res['SampleResults']:
-                source_number = item['SourceNumber']
-                similarity = item['Similarity']
-                most_used_rank = item.get('MostUsedRank', 'N/A')  # Handle cases where rank might not be available
-                metrics = item['Metrics']
-        
-                print(f"    Source {source_number}:")
-                print(f"      Similarity: {similarity:.4f}")
-                print(f"      MostUsedRank: {most_used_rank}")
-        
-                # Print all individual metrics for the source
-                for metric_name, metric_value in metrics.items():
-                    print(f"      {metric_name}: {metric_value:.4f}")
-            print()  # Add a blank line between samples for readability
+        #printMetricsForAllClosestSources(mostUsedList, closestSources)
 
     #print(f"Time passed since start: {time_since_start(startTime)}")
