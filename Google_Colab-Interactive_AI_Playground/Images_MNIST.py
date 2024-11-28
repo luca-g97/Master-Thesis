@@ -561,7 +561,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
                 mostUsedList.append(mostUsed)
 
                 evaluateImageSimilarity(sample, mostUsed)
-                blendActivations(mostUsed, dictionaryForSourceLayerNeuron, layerNumbersToCheck)
+                blendActivations(mostUsed, dictionaryForSourceLayerNeuron[pos], layerNumbersToCheck)
 
             sourcesActivation, outputsActivation, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], "Activation")
             mostUsedSourcesWithActivation = getClosestSourcesPerNeuronAndLayer(sourcesActivation, layerNumbersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, "Activation")
