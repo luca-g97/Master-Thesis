@@ -487,7 +487,7 @@ def evaluateActualMetrics(sample, mostUsed):
     topSources = set(pos for pos, _ in similarityList[:len(mostUsed)])
 
     # Extract most used sources
-    mostUsedSources = set(source for source, _ in mostUsed.most_common(len(topSources)))
+    mostUsedSources = set(source for source, _ in mostUsed)
 
     # --- Metrics ---
     # Matches
