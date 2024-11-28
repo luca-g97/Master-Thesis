@@ -507,10 +507,10 @@ def blendActivations(mostUsed, evaluationActivations, layerNumbersToCheck):
 
     for source, count in mostUsed:
         activationsBySources = RENN.activationsBySources[source]
-        for layerNumber in layerNumbersToCheck:
+        for layerNumberToCheck, layerNumber in enumerate(layerNumbersToCheck):
             neurons = activationsBySources[layerNumber]
             for neuronNumber, neuronActivation in enumerate(neurons):
-                blendedActivations[layerNumber][neuronNumber] += neuronActivation * (count / totalSources)
+                blendedActivations[layerNumberToCheck][neuronNumber] += neuronActivation * (count / totalSources)
 
     cosine_similarity, euclidean_distance, manhattan_distance, jaccard_similarity, hamming_distance, pearson_correlation = computeSimilarity(evaluationActivations[layerNumbersToCheck], blendedActivations)
 
