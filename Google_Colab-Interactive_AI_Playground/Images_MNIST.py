@@ -494,7 +494,7 @@ def evaluateActualMetrics(sample, mostUsed):
 
     # Compute similarity for each training sample
     for pos, (train_sample, true) in enumerate(trainDataSet):
-        train_sample = train_sample.flatten().reshape(1, -1)
+        train_sample = np.asarray(train_sample).flatten().reshape(1, -1)
 
         # Compute similarities
         cosine_similarity = compute_cosine_similarity(sample, train_sample)
