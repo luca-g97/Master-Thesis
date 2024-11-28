@@ -558,7 +558,7 @@ def process_sample(evalSample, evalOffset, trainPath, evalPath, generatedEvalPat
                         sparse_evalcol = currentNeurons.getcol(neuron_idx)
                         if sparse_traincol.nnz > 0:
                             neuron_value = sparse_traincol.data[0]
-                            eval_neuron_value = sparse_evalcol[0] if sparse_evalcol.nnz > 0 else 0
+                            eval_neuron_value = sparse_evalcol.data[0] if sparse_evalcol.nnz > 0 else 0
                             current_source = f"{sourceNumber}:{train_sentenceNumber}"
                             currentData.append({'evalSample': evalSample, 'layer': layerNumber, 'neuron': neuron_idx,
                                                 'source': current_source, 'eval_neuron_value': eval_neuron_value, 'neuron_value': neuron_value, 'difference': difference})
