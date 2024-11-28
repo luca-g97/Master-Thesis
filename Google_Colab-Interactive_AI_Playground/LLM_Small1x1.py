@@ -147,10 +147,10 @@ def createLLMLoaders(train_samplesParameter, test_samplesParameter, eval_samples
     samples = "\n".join(actualSamples[:train_samples])
     train_loader = createLLMLoader(samples, GPT_CONFIG_124M["context_length"])
 
-    samples = "\n".join(actualSamples[train_samples:train_samples+test_samples])
+    samples = "\n".join(actualSamples[train_samples:])
     val_loader = createLLMLoader(samples, GPT_CONFIG_124M["context_length"])
 
-    samples = "\n".join(actualSamples[train_samples+test_samples:train_samples+test_samples+eval_samples])
+    samples = "\n".join(actualSamples[train_samples:])
     eval_loader = createLLMLoader(samples, GPT_CONFIG_124M["context_length"])
 
 """# Setup Customizable Network"""
