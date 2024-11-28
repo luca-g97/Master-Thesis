@@ -16,36 +16,36 @@ dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource = [], []
 
 def initializePackages(mnistPackage, to_categoricalPackage, nnPackage, DataLoaderPackage, devicePackage):
     global mnist, to_categorical, nn, DataLoader, device
-    
+
     mnist, to_categorical, nn, DataLoader, device = mnistPackage, to_categoricalPackage, nnPackage, DataLoaderPackage, devicePackage
 
 def createTrainAndTestSet():
     global trainDataSet, testDataSet, x_train, y_train
     # Load the MNIST dataset
     (x_train, y_train), (x_test, y_test) = mnist.load_data()
-    
+
     # Preprocess the training data
     x_train = x_train.astype('float32') / 255.0
     y_train = to_categorical(y_train)
-    
+
     x_train = torch.from_numpy(x_train)
     y_train = torch.from_numpy(y_train)
-    
+
     # Preprocess the testing data
     x_test = x_test.astype('float32') / 255.0
     y_test = to_categorical(y_test)
-    
+
     x_eval = x_test
     y_eval = y_test
     x_eval = torch.from_numpy(x_eval)
     y_eval = torch.from_numpy(y_eval)
-    
+
     x_test = torch.from_numpy(x_test)
     y_test = torch.from_numpy(y_test)
-    
+
     trainDataSet = [(torch.flatten(x), torch.flatten(y)) for x, y in zip(x_train, y_train)]
     testDataSet = [(torch.flatten(x), torch.flatten(y)) for x, y in zip(x_test, y_test)]
-    
+
     print(f"Created {len(trainDataSet)} Trainsamples & {len(testDataSet)} Testsamples")
     return trainDataSet, testDataSet
 
@@ -53,7 +53,7 @@ def initializeDatasets(train_samplesParameter, test_samplesParameter, eval_sampl
     global train_samples, test_samples, eval_samples, np, torch
     global train_dataloader, test_dataloader, eval_dataloader, trainSubset, testSubset
     train_samples, test_samples, eval_samples = train_samplesParameter, test_samplesParameter, eval_samplesParameter
-    
+
     if(seed != ""):
         print("Setting seed number to ", seed)
         torch.manual_seed(seed)
@@ -72,16 +72,16 @@ def initializeTraining(hidden_sizes, loss_function, optimizer, learning_rate):
     global model, criterion_class, chosen_optimizer, layers
     input_size = torch.flatten(train_dataloader.dataset[0][0]).numel()
     output_size = torch.flatten(train_dataloader.dataset[0][1]).numel()
-    
+
     model = RENN.CustomizableRENN(input_size, hidden_sizes, output_size)
     model.to(device)
     layers = np.array(RENN.layers)
-    
+
     if(loss_function == "MSE"):
         criterion_class = nn.MSELoss()  # For regression
     elif(loss_function == "Cross-Entropy"):
         criterion_class = nn.CrossEntropyLoss()  # For multi-class classification
-    
+
     if(optimizer == "Adam"):
         chosen_optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     elif(optimizer == "SGD"):
