@@ -504,7 +504,7 @@ def evaluateActualMetrics(sample, mostUsed):
     f1_score = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
 
     # Weighted Accuracy
-    total_weight = sum(count for _, count in mostUsed.items())
+    total_weight = sum(count for _, count in mostUsed)
     weighted_matches = sum(
         count for source, count in mostUsed.items() if source in topSources
     )
