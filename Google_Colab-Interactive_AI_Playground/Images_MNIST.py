@@ -367,7 +367,8 @@ def evaluateActualMetrics(sample, mostUsed):
 
     blended_image = blendIndividualImagesTogether(mostUsed, len(mostUsed), layer=True)
     # Compute similarity for the blended image with sample
-    blended_image_flat = np.asarray(blended_image.convert('L')).flatten().reshape(1, -1)
+    blended_image_flat = np.asarray(blended_image.convert('L')).flatten() / 255.0
+    blended_image_flat = blended_image_flat.reshape(1, -1)
 
     cosine_similarity, euclidean_distance, manhattan_distance, jaccard_similarity, hamming_distance, pearson_correlation = computeSimilarity(sample, blended_image_flat)
 
