@@ -539,12 +539,14 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
         sample = sample.float()
         prediction = predict(sample)
         mostUsedSourcesWithSum = ""
+        layersToCheck = []
 
         if(visualizationChoice == "Weighted"):
             sourcesSum, outputsSum, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], "Sum")
             mostUsedSourcesWithSum = RENN.getMostUsedSources(sourcesSum, closestSources, "Sum")
             #20 because otherwise the blending might not be visible anymore. Should be closestSources instead to be correct!
             blendedSourceImageSum = blendImagesTogether(mostUsedSourcesWithSum[:20], "Not Weighted")
+            layersToCheck = layerNumbersToCheck
 
             sourcesActivation, outputsActivation, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], "Activation")
             mostUsedSourcesWithActivation = RENN.getMostUsedSources(sourcesActivation, closestSources, "Activation")
@@ -556,15 +558,15 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             sourcesSum, outputsSum, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], "Sum")
             mostUsedSourcesWithSum = getClosestSourcesPerNeuronAndLayer(sourcesSum, layerNumbersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, "Sum")
 
-            if(analyze):
-                mostUsed = RENN.getMostUsedSources(sourcesSum, closestSources)
-                mostUsedList.append(mostUsed)
-
-                evaluateImageSimilarity(sample, mostUsed)
-                blendActivations(mostUsed, dictionaryForSourceLayerNeuron[pos], layerNumbersToCheck)
-
             sourcesActivation, outputsActivation, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], "Activation")
             mostUsedSourcesWithActivation = getClosestSourcesPerNeuronAndLayer(sourcesActivation, layerNumbersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, "Activation")
             #RENN.analyzeData(closestSources, dictionaryForSourceLayerNeuron[pos])
+
+        if(analyze):
+            mostUsed = RENN.getMostUsedSources(sourcesSum, closestSources)
+            mostUsedList.append(mostUsed)
+
+            evaluateImageSimilarity(sample, mostUsed)
+            blendActivations(mostUsed, dictionaryForSourceLayerNeuron[pos], layersToCheck)
 
     #print(f"Time passed since start: {time_since_start(startTime)}")
