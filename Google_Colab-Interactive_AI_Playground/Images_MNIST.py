@@ -506,7 +506,7 @@ def blendActivations(mostUsed, evaluationActivations, layerNumbersToCheck):
     blendedActivations = np.zeros_like(evaluationActivations[layerNumbersToCheck])
 
     for source, count in mostUsed:
-        activationsBySources = RENN.dictionaryForSourceLayerNeuron[source]
+        activationsBySources = RENN.activationsBySources[source]
         for layerNumber in layerNumbersToCheck:
             neurons = activationsBySources[layerNumber]
             for neuronNumber, neuronActivation in enumerate(neurons):
