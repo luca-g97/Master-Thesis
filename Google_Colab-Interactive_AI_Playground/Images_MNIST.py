@@ -569,6 +569,6 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             mostUsedList.append(mostUsed)
 
             blendActivations(mostUsed, dictionaryForSourceLayerNeuron[pos], layersToCheck)
-            evaluateImageSimilarity(sample, mostUsed)
+            #evaluateImageSimilarity(sample, mostUsed)
 
     #print(f"Time passed since start: {time_since_start(startTime)}")

@@ -554,12 +554,14 @@ def process_sample(evalSample, evalOffset, trainPath, evalPath, generatedEvalPat
                     differencesBetweenSources = sp.coo_matrix(np.abs(alignedTrain - alignedEval).multiply(common_mask))
 
                     for neuron_idx, difference in zip(differencesBetweenSources.col, differencesBetweenSources.data):
-                        sparse_col = normalizedTrainNeurons.getcol(neuron_idx)
-                        if sparse_col.nnz > 0:
-                            neuron_value = sparse_col.data[0]
+                        sparse_traincol = normalizedTrainNeurons.getcol(neuron_idx)
+                        sparse_evalcol = currentNeurons.getcol(neuron_idx)
+                        if sparse_traincol.nnz > 0:
+                            neuron_value = sparse_traincol.data[0]
+                            eval_neuron_value = sparse_evalcol[0] if sparse_evalcol.nnz > 0 else 0
                             current_source = f"{sourceNumber}:{train_sentenceNumber}"
                             currentData.append({'evalSample': evalSample, 'layer': layerNumber, 'neuron': neuron_idx,
-                                                'source': current_source, 'neuron_value': neuron_value, 'difference': difference})
+                                                'source': current_source, 'eval_neuron_value': eval_neuron_value, 'neuron_value': neuron_value, 'difference': difference})
 
                     safe_remove(pathToRemove)
             safe_remove(train_copy_path)
