@@ -359,7 +359,7 @@ def computeSimilarity(sample, train_sample):
 
     return cosine_similarity, euclidean_distance, manhattan_distance, jaccard_similarity, hamming_distance, pearson_correlation
 
-def evaluateActualMetrics(sample, mostUsed):
+def evaluateImageSimilarity(sample, mostUsed):
     similarityList = []
 
     # Flatten and reshape the sample
@@ -500,6 +500,34 @@ def evaluateActualMetrics(sample, mostUsed):
     print(f"Hamming Distance (Mean): {aggregate_scores['hamming']:.4f}")
     print(f"Pearson Correlation (Mean): {aggregate_scores['pearson']:.4f}" if aggregate_scores["pearson"] is not None else "Pearson Correlation: N/A")
 
+def blendActivations(mostUsed, evaluationActivations, layerNumbersToCheck):
+    totalSources = sum(count for _, count in mostUsed)
+
+    blendedActivations = np.zeros_like(evaluationActivations[layerNumbersToCheck])
+
+    for source, count in mostUsed:
+        activationsBySources = RENN.dictionaryForSourceLayerNeuron[source]
+        for layerNumber in layerNumbersToCheck:
+            neurons = activationsBySources[layerNumber]
+            for neuronNumber, neuronActivation in enumerate(neurons):
+                blendedActivations[layerNumber][neuronNumber] += neuronActivation * (count / totalSources)
+
+    cosine_similarity, euclidean_distance, manhattan_distance, jaccard_similarity, hamming_distance, pearson_correlation = computeSimilarity(evaluationActivations[layerNumbersToCheck], blendedActivations)
+
+    kendall_tau, _ = kendalltau(evaluationActivations[layerNumbersToCheck], blendedActivations)
+    spearman_rho, _ = spearmanr(evaluationActivations[layerNumbersToCheck], blendedActivations)
+
+    # --- Print Results ---
+    print("\n--- Blended Activation Similarity Scores ---")
+    print(f"Kendall's Tau: {kendall_tau:.2f}")
+    print(f"Spearman's Rho: {spearman_rho:.2f}")
+    print(f"Cosine Similarity: {cosine_similarity:.4f}")
+    print(f"Euclidean Distance: {euclidean_distance:.4f}")
+    print(f"Manhattan Distance: {manhattan_distance:.4f}")
+    print(f"Jaccard Similarity: {jaccard_similarity:.4f}" if jaccard_similarity is not None else "Jaccard Similarity: N/A")
+    print(f"Hamming Distance: {hamming_distance:.4f}")
+    print(f"Pearson Correlation: {pearson_correlation:.4f}" if pearson_correlation is not None else "Pearson Correlation: N/A")
+
 def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
     global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
 
@@ -528,14 +556,15 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             sourcesSum, outputsSum, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], "Sum")
             mostUsedSourcesWithSum = getClosestSourcesPerNeuronAndLayer(sourcesSum, layerNumbersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, "Sum")
 
+            if(analyze):
+                mostUsed = RENN.getMostUsedSources(sourcesSum, closestSources)
+                mostUsedList.append(mostUsed)
+
+                evaluateImageSimilarity(sample, mostUsed)
+                RENN.blendActivations(mostUsed, dictionaryForSourceLayerNeuron, layerNumbersToCheck)
+
             sourcesActivation, outputsActivation, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], "Activation")
             mostUsedSourcesWithActivation = getClosestSourcesPerNeuronAndLayer(sourcesActivation, layerNumbersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, "Activation")
-
-        if(analyze):
-            mostUsed = RENN.getMostUsedSources(sourcesSum, closestSources)
-            mostUsedList.append(mostUsed)
-
-            evaluateActualMetrics(sample, mostUsed)
             #RENN.analyzeData(closestSources, dictionaryForSourceLayerNeuron[pos])
 
     #print(f"Time passed since start: {time_since_start(startTime)}")
