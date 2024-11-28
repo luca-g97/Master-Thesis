@@ -376,7 +376,7 @@ def evaluateImageSimilarity(sample, mostUsed):
     spearman_rho, _ = spearmanr(sample, blended_image_flat)
 
     # --- Print Results ---
-    print("\n--- Blended Similarity Scores ---")
+    print("\n--- Blended Image Similarity Scores ---")
     print(f"Kendall's Tau: {kendall_tau:.2f}")
     print(f"Spearman's Rho: {spearman_rho:.2f}")
     print(f"Cosine Similarity: {cosine_similarity:.4f}")
@@ -512,7 +512,9 @@ def blendActivations(mostUsed, evaluationActivations, layerNumbersToCheck):
             for neuronNumber, neuronActivation in enumerate(neurons):
                 blendedActivations[layerNumberToCheck][neuronNumber] += neuronActivation * (count / totalSources)
 
-    cosine_similarity, euclidean_distance, manhattan_distance, jaccard_similarity, hamming_distance, pearson_correlation = computeSimilarity(evaluationActivations[layerNumbersToCheck], blendedActivations)
+    evaluationActivations = np.asarray(evaluationActivations[layerNumbersToCheck].flatten().reshape(1, -1), dtype=np.float64)
+    blendedActivations = np.asarray(blendedActivations.flatten().reshape(1, -1), dtype=np.float64)
+    cosine_similarity, euclidean_distance, manhattan_distance, jaccard_similarity, hamming_distance, pearson_correlation = computeSimilarity(evaluationActivations, blendedActivations)
 
     kendall_tau, _ = kendalltau(evaluationActivations[layerNumbersToCheck], blendedActivations)
     spearman_rho, _ = spearmanr(evaluationActivations[layerNumbersToCheck], blendedActivations)
@@ -566,7 +568,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             mostUsed = RENN.getMostUsedSources(sourcesSum, closestSources)
             mostUsedList.append(mostUsed)
 
-            evaluateImageSimilarity(sample, mostUsed)
             blendActivations(mostUsed, dictionaryForSourceLayerNeuron[pos], layersToCheck)
+            evaluateImageSimilarity(sample, mostUsed)
 
     #print(f"Time passed since start: {time_since_start(startTime)}")
