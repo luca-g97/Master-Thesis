@@ -511,7 +511,7 @@ def evaluateActualMetrics(sample, mostUsed):
     weighted_accuracy = weighted_matches / total_weight if total_weight else 0
 
     # Kendall's Tau and Spearman's Rho
-    topRanking = [pos for pos, _ in similarityList]
+    topRanking = [pos for pos, _ in similarityList[:len(mostUsed)]]
     mostUsedRanking = [source for source, _ in mostUsed]
     kendall_tau, _ = kendalltau(topRanking, mostUsedRanking)
     spearman_rho, _ = spearmanr(topRanking, mostUsedRanking)
