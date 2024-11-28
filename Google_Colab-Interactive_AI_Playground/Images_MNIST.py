@@ -476,7 +476,7 @@ def evaluateActualMetrics(sample, mostUsed):
     similarityList = []
 
     # Compute similarity for each training sample
-    for pos, (train_sample, true) in enumerate(train_dataloader):
+    for pos, (train_sample, true) in enumerate(trainDataSet):
         similarity = compute_cosine_similarity(sample, train_sample)
         similarityList.append((pos, similarity))
 
