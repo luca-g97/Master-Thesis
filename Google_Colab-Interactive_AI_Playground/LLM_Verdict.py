@@ -297,8 +297,8 @@ def createLLMLoaders(train_samplesParameter, test_samplesParameter, eval_samples
     train_samples, test_samples, eval_samples = train_samplesParameter, test_samplesParameter, eval_samplesParameter
     # Split the sentences into train, test, and eval sets
     train_sentences = sentences[:train_samples]
-    test_sentences = sentences[train_samples:]
-    eval_sentences = sentences[train_samples:]
+    test_sentences = sentences[train_samples:train_samples+test_samples]
+    eval_sentences = sentences[train_samples:train_samples+eval_samples]
 
     # Create loaders with sentences and context length
     train_loader = createLLMLoader(train_sentences, 2 if train_samples >= 2 else train_samples, GPT_CONFIG_124M["context_length"], True)
