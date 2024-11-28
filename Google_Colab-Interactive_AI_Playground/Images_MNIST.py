@@ -342,141 +342,48 @@ def compute_cosine_similarity(image1, image2):
     vec2 = image2.flatten().reshape(1, -1)
     return cosine_similarity(vec1, vec2)[0][0]
 
-def evaluate_closest_sources(mostUsed, closestSources):
-    results_per_eval_sample = []
+def computeSimilarity(sample, train_sample):
+    # Compute similarities
+    cosine_similarity = compute_cosine_similarity(sample, train_sample)
+    euclidean_distance = np.linalg.norm(sample - train_sample)  # Euclidean
+    manhattan_distance = np.sum(np.abs(sample - train_sample))  # Manhattan
+    jaccard_similarity = (
+        np.sum(np.minimum(sample, train_sample)) / np.sum(np.maximum(sample, train_sample))
+        if np.sum(np.maximum(sample, train_sample)) > 0 else None
+    )
+    hamming_distance = np.mean(sample != train_sample)  # Hamming
+    try:
+        pearson_correlation, _ = pearsonr(sample.flatten(), train_sample.flatten())  # Pearson
+    except ValueError:
+        pearson_correlation = None
 
-    metric_weights = {
-        'cosine_similarity': 1,
-        'mse': 1,
-        'accuracy': 1,
-        'spearman_corr': 1,
-        #'kendall_corr': 1
-    }
-
-    for eval_idx, (evaluationSample, true) in enumerate(eval_dataloader):
-        current_mostUsed = mostUsed[eval_idx]
-        similarity_scores = []
-        for sourceNumber, _ in current_mostUsed[:closestSources]:
-            similarity = compute_cosine_similarity(trainDataSet[sourceNumber][0], evaluationSample)
-            similarity_scores.append((sourceNumber, similarity))
-
-        similarity_scores.sort(key=lambda x: x[1], reverse=True)
-        mostUsed_ranks = {source: rank for rank, (source, _) in enumerate(current_mostUsed[:closestSources])}
-
-        sample_results = []
-        for rank, (sourceNumber, similarity) in enumerate(similarity_scores):
-            train_sample = trainDataSet[sourceNumber][0].flatten()
-            eval_sample = evaluationSample.flatten()
-
-            if eval_sample.ndim > 1:
-                eval_sample = eval_sample[0]
-
-            if len(train_sample) != len(eval_sample):
-                raise ValueError(f"Shape mismatch: train sample length {len(train_sample)} vs eval sample length {len(eval_sample)}")
-
-            mse_score = mean_squared_error(train_sample, eval_sample)
-            accuracy_score_result = None
-            if isinstance(true, np.ndarray) and true.ndim == 1:
-                mostUsed_labels = np.argmax(train_sample, axis=1)
-                true_labels = np.argmax(true, axis=1)
-                accuracy_score_result = accuracy_score(true_labels, mostUsed_labels)
-
-            kendall_corr, _ = kendalltau([similarity], [mostUsed_ranks.get(sourceNumber, len(current_mostUsed))])
-
-            # Optionally compute variance
-            #variance_score = np.var(train_sample - eval_sample)
-
-            metrics = {
-                'cosine_similarity': similarity,
-                'mse': mse_score,
-                'accuracy': accuracy_score_result if accuracy_score_result is not None else 0,
-                #'kendall_corr': kendall_corr,
-                #'variance': variance_score  # Add variance here if desired
-            }
-
-            sample_results.append({
-                'SourceNumber': sourceNumber,
-                'Similarity': similarity,
-                'MostUsedRank': mostUsed_ranks.get(sourceNumber, None),
-                'Metrics': metrics
-            })
-
-        similarity_ranks = [result['Similarity'] for result in sample_results]
-        mostUsed_ranks_list = [result['MostUsedRank'] if result['MostUsedRank'] is not None else len(sample_results)
-                               for result in sample_results]
-        spearman_corr, _ = spearmanr(similarity_ranks, mostUsed_ranks_list)
-
-        results_per_eval_sample.append({
-            'EvaluationSample': eval_idx,
-            'SampleResults': sample_results,
-            'SpearmanCorrelation': spearman_corr
-        })
-
-    final_results = []
-    for eval_res in results_per_eval_sample:
-        sample_results = eval_res['SampleResults']
-        combined_metrics = {
-            'cosine_similarity': np.mean([result['Metrics']['cosine_similarity'] for result in sample_results]),
-            'mse': np.mean([result['Metrics']['mse'] for result in sample_results]),
-            'accuracy': np.mean([result['Metrics']['accuracy'] for result in sample_results]),
-            #'variance': np.mean([result['Metrics']['variance'] for result in sample_results]),  # Include variance if computed
-            #'kendall_corr': np.mean([result['Metrics']['kendall_corr'] for result in sample_results]),
-            'spearman_corr': eval_res['SpearmanCorrelation']
-        }
-
-        weighted_result = np.dot(list(combined_metrics.values()), list(metric_weights.values())) / sum(metric_weights.values())
-
-        final_results.append({
-            'EvaluationSample': eval_res['EvaluationSample'],
-            'CombinedMetrics': combined_metrics,
-            'WeightedScore': weighted_result,
-            'SampleResults': sample_results
-        })
-
-    overall_final_score = np.mean([res['WeightedScore'] for res in final_results])
-    print(f"Overall Final Evaluation Score: {overall_final_score:.4f}")
-
-    return final_results, overall_final_score
-
-def printMetricsForAllClosestSources(mostUsedList, closestSources):
-    results, overall_corr = evaluate_closest_sources(mostUsedList, closestSources)
-
-    # Print overall evaluation scores
-    print(f"Overall Spearman Correlation: {overall_corr:.4f}")
-
-    # Iterate through each evaluation sample in the results
-    for res in results:
-        eval_sample = res['EvaluationSample']
-        print(f"Evaluation Sample {eval_sample}:")
-
-        # Print combined metrics for the evaluation sample
-        combined_metrics = res['CombinedMetrics']
-        print("  Combined Metrics:")
-        for metric_name, metric_value in combined_metrics.items():
-            print(f"    {metric_name}: {metric_value:.4f}")
-
-        # Print details for each source in the evaluation sample
-        print("  Source Metrics:")
-        for item in res['SampleResults']:
-            source_number = item['SourceNumber']
-            similarity = item['Similarity']
-            most_used_rank = item.get('MostUsedRank', 'N/A')  # Handle cases where rank might not be available
-            metrics = item['Metrics']
-
-            print(f"    Source {source_number}:")
-            print(f"      Similarity: {similarity:.4f}")
-            print(f"      MostUsedRank: {most_used_rank}")
-
-            # Print all individual metrics for the source
-            for metric_name, metric_value in metrics.items():
-                print(f"      {metric_name}: {metric_value:.4f}")
-        print()  # Add a blank line between samples for readability
+    return cosine_similarity, euclidean_distance, manhattan_distance, jaccard_similarity, hamming_distance, pearson_correlation
 
 def evaluateActualMetrics(sample, mostUsed):
     similarityList = []
 
     # Flatten and reshape the sample
     sample = np.asarray(sample.flatten().reshape(1, -1))
+
+    blended_image = blendIndividualImagesTogether(mostUsed, len(mostUsed), layer=True)
+    # Compute similarity for the blended image with sample
+    blended_image_flat = np.asarray(blended_image.flatten().reshape(1, -1))
+
+    cosine_similarity, euclidean_distance, manhattan_distance, jaccard_similarity, hamming_distance, pearson_correlation = computeSimilarity(sample, blended_image_flat)
+
+    kendall_tau, _ = kendalltau(sample, blended_image_flat)
+    spearman_rho, _ = spearmanr(sample, blended_image_flat)
+
+    # --- Print Results ---
+    print("\n--- Blended Similarity Scores ---")
+    print(f"Kendall's Tau: {kendall_tau:.2f}")
+    print(f"Spearman's Rho: {spearman_rho:.2f}")
+    print(f"Cosine Similarity: {cosine_similarity:.4f}")
+    print(f"Euclidean Distance: {euclidean_distance:.4f}")
+    print(f"Manhattan Distance: {manhattan_distance:.4f}")
+    print(f"Jaccard Similarity: {jaccard_similarity:.4f}" if jaccard_similarity is not None else "Jaccard Similarity: N/A")
+    print(f"Hamming Distance: {hamming_distance:.4f}")
+    print(f"Pearson Correlation: {pearson_correlation:.4f}" if pearson_correlation is not None else "Pearson Correlation: N/A")
 
     # Initialize aggregates for overall metrics
     aggregate_scores = {
@@ -496,19 +403,7 @@ def evaluateActualMetrics(sample, mostUsed):
     for pos, (train_sample, true) in enumerate(trainDataSet):
         train_sample = np.asarray(train_sample.flatten().reshape(1, -1))
 
-        # Compute similarities
-        cosine_similarity = compute_cosine_similarity(sample, train_sample)
-        euclidean_distance = np.linalg.norm(sample - train_sample)  # Euclidean
-        manhattan_distance = np.sum(np.abs(sample - train_sample))  # Manhattan
-        jaccard_similarity = (
-            np.sum(np.minimum(sample, train_sample)) / np.sum(np.maximum(sample, train_sample))
-            if np.sum(np.maximum(sample, train_sample)) > 0 else None
-        )
-        hamming_distance = np.mean(sample != train_sample)  # Hamming
-        try:
-            pearson_correlation, _ = pearsonr(sample.flatten(), train_sample.flatten())  # Pearson
-        except ValueError:
-            pearson_correlation = None
+        cosine_similarity, euclidean_distance, manhattan_distance, jaccard_similarity, hamming_distance, pearson_correlation = computeSimilarity(sample, train_sample)
 
         # Accumulate aggregate scores
         aggregate_scores["cosine"] += cosine_similarity
@@ -641,9 +536,5 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
 
             evaluateActualMetrics(sample, mostUsed)
             #RENN.analyzeData(closestSources, dictionaryForSourceLayerNeuron[pos])
-
-    #if(analyze):
-        # Evaluate closest sources
-        #printMetricsForAllClosestSources(mostUsedList, closestSources)
 
     #print(f"Time passed since start: {time_since_start(startTime)}")
