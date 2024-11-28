@@ -476,7 +476,7 @@ def evaluateActualMetrics(sample, mostUsed):
     similarityList = []
 
     # Flatten and reshape the sample
-    sample = sample.flatten().reshape(1, -1)
+    sample = np.asarray(sample.flatten().reshape(1, -1))
 
     # Initialize aggregates for overall metrics
     aggregate_scores = {
@@ -494,7 +494,7 @@ def evaluateActualMetrics(sample, mostUsed):
 
     # Compute similarity for each training sample
     for pos, (train_sample, true) in enumerate(trainDataSet):
-        train_sample = np.asarray(train_sample).flatten().reshape(1, -1)
+        train_sample = np.asarray(train_sample.flatten().reshape(1, -1))
 
         # Compute similarities
         cosine_similarity = compute_cosine_similarity(sample, train_sample)
