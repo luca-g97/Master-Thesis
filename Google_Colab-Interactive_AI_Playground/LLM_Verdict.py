@@ -682,7 +682,8 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
 
     #Generate sentences and get their activation values
     generatedEvalSentences, generatedPrediction = zip(*[getLLMPrediction(sentences[train_samples + test_samples + evalSample], True) for evalSample in range(eval_samples)])
-    generatedEvalLoader = createLLMLoader(generatedPrediction, 1, context_length=256)
+    print(generatedEvalSentences)
+    generatedEvalLoader = createLLMLoader(generatedEvalSentences, 1, context_length=256)
     RENN.initializeEvaluationHook(hidden_sizes, generatedEvalLoader, eval_samples, model, os.path.join("Evaluation", "Generated"), True, train_samples+test_samples)
 
     RENN.initializeEvaluationHook(hidden_sizes, eval_loader, eval_samples, model, os.path.join("Evaluation", "Sample"), True, train_samples+test_samples)
