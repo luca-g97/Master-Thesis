@@ -576,7 +576,8 @@ def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEva
 def process_sample_io(evalSample, evalOffset, trainPath, evalPath, generatedEvalPath):
     # I/O-bound operations such as file copying and reading parquet files
     evalSource, eval_sentenceNumber = Verdict.getSourceAndSentenceIndex(evalOffset + evalSample)
-    print(f"Starting I/O-bound tasks for Evaluation-Sample {evalSample}")
+    thread_id = threading.get_ident()  # Get current thread ID
+    print(f"Starting I/O-bound tasks for Evaluation-Sample {evalSample} in Thread-{thread_id}")
 
     to_copy = []
     for (train_dirpath, _, train_filenames) in os.walk(trainPath):
