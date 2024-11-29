@@ -83,31 +83,31 @@ def fetch_and_parse_content(title):
 
     return content
 
-def clean_wikipedia_content(content):
-    # Remove references, citations, and template placeholders
-    content = re.sub(r'\[\[File:.*?\]\]', '', content)  # Remove file/image links (e.g., [[File:Image.jpg]])
-    content = re.sub(r'\[\[.*?\|.*?\]\]', '', content)  # Remove internal links with aliases (e.g., [[Link|Alias]])
-    content = re.sub(r'\[\[.*?\]\]', '', content)      # Remove internal links (e.g., [[Link]])
+def clean_wikipedia_content(sentences):
+    cleaned_sentences = []
+    for sentence in sentences:
+        # Remove references, citations, and template placeholders
+        sentence = re.sub(r'\[\[File:.*?\]\]', '', sentence)  # Remove file/image links (e.g., [[File:Image.jpg]])
+        sentence = re.sub(r'\[\[.*?\|.*?\]\]', '', sentence)  # Remove internal links with aliases (e.g., [[Link|Alias]])
+        sentence = re.sub(r'\[\[.*?\]\]', '', sentence)      # Remove internal links (e.g., [[Link]])
 
-    content = re.sub(r'\{.*?\}', '', content)      # Remove templates (e.g., {{Citation needed}} or any template)
-    content = re.sub(r'==+.*?==+', '', content)    # Remove headings (e.g., == Heading ==)
-    content = re.sub(r'===+.*?===+', '', content)  # Remove subheadings (e.g., === Subheading ===)
-    content = re.sub(r'<!--.*?-->', '', content, flags=re.DOTALL)  # Remove comments
-    content = re.sub(r'\<.*?\>', '', content)      # Remove any HTML tags (just in case)
+        sentence = re.sub(r'\{.*?\}', '', sentence)      # Remove templates (e.g., {{Citation needed}} or any template)
+        sentence = re.sub(r'==+.*?==+', '', sentence)    # Remove headings (e.g., == Heading ==)
+        sentence = re.sub(r'===+.*?===+', '', sentence)  # Remove subheadings (e.g., === Subheading ===)
+        sentence = re.sub(r'<!--.*?-->', '', sentence, flags=re.DOTALL)  # Remove comments
+        sentence = re.sub(r'\<.*?\>', '', sentence)      # Remove any HTML tags (just in case)
 
-    # Remove short sentences or fragments (less than 3 words)
-    content = ' '.join([sentence.strip() for sentence in content.split('.') if len(sentence.split()) > 2])
+        # Remove irrelevant sections like "See also", "External Links", "References", "Further reading"
+        sentence = re.sub(r'\n(See also|External links|References|Further reading)\n.*?(\n|$)', '', sentence, flags=re.DOTALL)
 
-    # Remove irrelevant sections like "See also", "External Links", "References", "Further reading"
-    content = re.sub(r'\n(See also|External links|References|Further reading)\n.*?(\n|$)', '', content, flags=re.DOTALL)
+        # Remove anything inside curly brackets (often for templates or references)
+        sentence = re.sub(r'\{.*?\}', '', sentence)
 
-    # Remove anything inside curly brackets (often for templates or references)
-    content = re.sub(r'\{.*?\}', '', content)
+        # Clean up extra spaces
+        sentence = re.sub(r'\s+', ' ', sentence).strip()
+        cleaned_sentences.append(sentence)
 
-    # Clean up extra spaces
-    content = re.sub(r'\s+', ' ', content).strip()
-
-    return content
+    return cleaned_sentences
 
 # Function to split cleaned content into sentences
 def split_sentences(content, nlp):
@@ -130,11 +130,11 @@ def createWikiTrainSet(category):
     for title in titles:
         content = fetch_and_parse_content(title)
 
-        # Clean the Wikipedia content
-        cleaned_content = clean_wikipedia_content(content)
-
         # Tokenize the paragraph into sentences
-        sentence_data = split_sentences(cleaned_content, nlp)
+        sentence_data = split_sentences(content, nlp)
+
+        # Clean the Wikipedia content
+        sentence_data = clean_wikipedia_content(sentence_data)
 
         # Add the list of sentences for this paragraph
         sentencesStructure.append(sentence_data)
