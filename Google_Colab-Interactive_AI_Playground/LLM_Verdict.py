@@ -658,8 +658,8 @@ def getLLMPrediction(sample, singleSentence=False):
         idx=text_to_token_ids(sample, tokenizer),
         max_new_tokens=150,
         context_size=GPT_CONFIG_124M["context_length"],
-        top_k=50,
-        temperature=1.0
+        top_k=1,
+        temperature=0.0
     )
 
     prediction = token_ids_to_text(token_ids, tokenizer)
