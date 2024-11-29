@@ -105,7 +105,10 @@ def clean_wikipedia_content(sentences):
 
         # Clean up extra spaces
         sentence = re.sub(r'\s+', ' ', sentence).strip()
-        cleaned_sentences.append(sentence)
+
+        # Remove short sentences or fragments (less than 3 words)
+        if len(sentence.split()) > 2:
+            cleaned_sentences.append(sentence.strip())
 
     return cleaned_sentences
 
