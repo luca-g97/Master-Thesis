@@ -500,6 +500,11 @@ def getNormalizedValues(full_path, evalSample):
 
 # Global lock for thread-safe access to shared data
 file_lock = threading.Lock()
+# Helper function for I/O-bound tasks (file copying)
+def safe_copy_file(src, dest):
+    with file_lock:
+        shutil.copy(src, dest)
+
 def safe_remove(file_path):
     with file_lock:
         if os.path.exists(file_path):  # Check if the file exists before attempting to delete
@@ -508,8 +513,8 @@ def safe_remove(file_path):
             except OSError as e:
                 print(f"Error removing file {file_path}: {e}")
 
-def process_sample(evalSample, evalOffset, trainPath, evalPath, generatedEvalPath):
-    # Local data for this thread
+# Helper function for CPU-bound tasks (matrix manipulations)
+def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEvalPath):
     local_eval_data = []
     local_generated_eval_data = []
 
@@ -568,6 +573,36 @@ def process_sample(evalSample, evalOffset, trainPath, evalPath, generatedEvalPat
 
     return local_eval_data, local_generated_eval_data
 
+def process_sample_io(evalSample, evalOffset, trainPath, evalPath, generatedEvalPath):
+    # I/O-bound operations such as file copying and reading parquet files
+    evalSource, eval_sentenceNumber = Verdict.getSourceAndSentenceIndex(evalOffset + evalSample)
+    print(f"Starting I/O-bound tasks for Evaluation-Sample {evalSample}")
+
+    to_copy = []
+    for (train_dirpath, _, train_filenames) in os.walk(trainPath):
+        for train_filename in train_filenames:
+            train_full_path = os.path.join(train_dirpath, train_filename)
+            if not os.path.exists(train_full_path):
+                continue
+
+            layerNumber, sourceNumber, train_sentenceNumber = getInformationFromFileName(train_full_path)
+            eval_full_path = os.path.join(evalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-0.parquet")
+            generated_eval_full_path = os.path.join(generatedEvalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-0.parquet")
+
+            # Queue up file copies (avoiding actual copying until all paths are gathered)
+            to_copy.append((train_full_path, eval_full_path, generated_eval_full_path))
+
+    # Perform file copying concurrently
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = [
+            executor.submit(safe_copy_file, src, dest) for (src, dest, _) in to_copy
+        ]
+        # Ensure all copying is done
+        for future in concurrent.futures.as_completed(futures):
+            future.result()
+
+    return to_copy  # Return file paths for CPU-bound processing
+
 def getClosestSourcesFromDf(df, closestSources):
     # Sort by evalSample, layer, neuron, and difference
     closest_sources = (
@@ -577,6 +612,7 @@ def getClosestSourcesFromDf(df, closestSources):
     )
     return closest_sources
 
+# Refactor the main function to split into I/O and CPU-bound operations
 def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
     global layers, layerSizes, fileName
 
@@ -587,13 +623,21 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
     eval_data = []
     generated_eval_data = []
 
-    # Use ThreadPoolExecutor for parallel processing
+    # Step 1: First handle I/O-bound tasks (file operations) with ThreadPoolExecutor
     with concurrent.futures.ThreadPoolExecutor() as executor:
         futures = [
-            executor.submit(process_sample, sampleNumber, evalOffset, trainPath, evalPath, generatedEvalPath)
+            executor.submit(process_sample_io, sampleNumber, evalOffset, trainPath, evalPath, generatedEvalPath)
             for sampleNumber in range(evalSamples)
         ]
+        for future in concurrent.futures.as_completed(futures):
+            to_copy = future.result()  # Files to copy
 
+    # Step 2: Now handle CPU-bound tasks (matrix manipulations) with ProcessPoolExecutor
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        futures = [
+            executor.submit(process_sample_cpu, sampleNumber, evalOffset, trainPath, evalPath, generatedEvalPath)
+            for sampleNumber in range(evalSamples)
+        ]
         for future in concurrent.futures.as_completed(futures):
             local_eval_data, local_generated_eval_data = future.result()
 
