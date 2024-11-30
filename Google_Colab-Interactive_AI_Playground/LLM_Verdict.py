@@ -681,13 +681,13 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
     global train_samples, test_samples, eval_samples, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
 
     #Generate sentences and get their activation values
-    generatedEvalSentences, generatedPrediction = zip(*[getLLMPrediction(sentences[train_samples + test_samples + evalSample], True) for evalSample in range(eval_samples)])
+    generatedEvalSentences, generatedPrediction = zip(*[getLLMPrediction(sentences[train_samples + evalSample], True) for evalSample in range(eval_samples)])
     print([generatedEvalSentence.replace('"', '\\"') for generatedEvalSentence in generatedEvalSentences])
     generatedEvalLoader = createLLMLoader(generatedEvalSentences, 1, context_length=256)
-    RENN.initializeEvaluationHook(hidden_sizes, generatedEvalLoader, eval_samples, model, os.path.join("Evaluation", "Generated"), True, train_samples+test_samples)
+    RENN.initializeEvaluationHook(hidden_sizes, generatedEvalLoader, eval_samples, model, os.path.join("Evaluation", "Generated"), True, train_samples)
 
-    RENN.initializeEvaluationHook(hidden_sizes, eval_loader, eval_samples, model, os.path.join("Evaluation", "Sample"), True, train_samples+test_samples)
-    closestSourcesEvaluation, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(eval_samples, train_samples+test_samples, closestSources)
+    RENN.initializeEvaluationHook(hidden_sizes, eval_loader, eval_samples, model, os.path.join("Evaluation", "Sample"), True, train_samples)
+    closestSourcesEvaluation, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(eval_samples, train_samples, closestSources)
 
     for sampleNumber in range(eval_samples):
         mostUsedEvalSources = RENN.getMostUsedSources(closestSourcesEvaluation, closestSources, sampleNumber, "Mean")
@@ -695,7 +695,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
         mostUsedGeneratedEvalSources = RENN.getMostUsedSources(closestSourcesGeneratedEvaluation, closestSources, sampleNumber, "Mean")
         _ = RENN.getMostUsedSources(closestSourcesGeneratedEvaluation, closestSources, sampleNumber, "Sum")
 
-        sample, prediction = getLLMPrediction(sentences[train_samples+test_samples+sampleNumber])
+        sample, prediction = getLLMPrediction(sentences[train_samples+sampleNumber])
         print("Evaluation Sample ", sampleNumber, ": ", sample.replace('\n', '').replace('<|endoftext|>', ''))
         print("Follow up: ", prediction.replace('\n', '').replace('<|endoftext|>', ''))
         print(f"Closest Sources for Evaluation-Sample {sampleNumber} in format [SourceNumber, Occurrences, Source]:")
