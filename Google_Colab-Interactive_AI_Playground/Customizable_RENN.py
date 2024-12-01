@@ -645,26 +645,36 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
 
     # Step 1: First handle I/O-bound tasks (file operations) with ThreadPoolExecutor
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        futures = [
+        io_futures = [
             executor.submit(process_sample_io, sampleNumber, evalOffset, trainPath, evalPath, generatedEvalPath)
             for sampleNumber in range(evalSamples)
         ]
-        for future in concurrent.futures.as_completed(futures):
-            to_copy = future.result()  # Files to copy
+        for future in concurrent.futures.as_completed(io_futures):
+            try:
+                to_copy = future.result()
+                # Optionally handle or log the copied files
+            except Exception as e:
+                print(f"I/O Task Exception for sample: {e}")
 
-    # Step 2: Now handle CPU-bound tasks (matrix manipulations) with ProcessPoolExecutor
+    # Step 2: Handle CPU-bound tasks with ProcessPoolExecutor
     with concurrent.futures.ProcessPoolExecutor() as executor:
-        futures = [
-            executor.submit(process_sample_cpu, sampleNumber, evalOffset, trainPath, evalPath, generatedEvalPath)
+        cpu_futures = [
+            executor.submit(
+                process_sample_cpu, sampleNumber, evalOffset, trainPath, evalPath, generatedEvalPath
+            )
             for sampleNumber in range(evalSamples)
         ]
-        for future in concurrent.futures.as_completed(futures):
-            local_eval_data, local_generated_eval_data = future.result()
 
-            # Thread-safe addition to shared data
-            with file_lock:
-                eval_data.extend(local_eval_data)
-                generated_eval_data.extend(local_generated_eval_data)
+        for future in concurrent.futures.as_completed(cpu_futures):
+            try:
+                local_eval_data, local_generated_eval_data = future.result()
+
+                # Thread-safe addition to shared lists
+                with file_lock:
+                    eval_data.extend(local_eval_data)
+                    generated_eval_data.extend(local_generated_eval_data)
+            except Exception as e:
+                print(f"CPU Task Exception for sample: {e}")
 
     # Create the DataFrame from the collected data
     eval_df = pd.DataFrame(eval_data)
