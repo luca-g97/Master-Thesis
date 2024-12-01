@@ -8,7 +8,6 @@ import LLM_Small1x1 as Small1x1
 import LLM_Verdict as Verdict
 import scipy.sparse as sp
 import shutil
-import sys
 import os
 
 layer, source, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, activationsBySources, activationsByLayers, totalLayers = "", "", "", "", "", "", ""
@@ -485,7 +484,7 @@ def reconstruct_from_normalized(sparse_array, min_val, max_val):
 
 def getNormalizedValues(full_path, evalSample):
     # Duplicate files to preserve the originals
-    copy_path = full_path.replace(".parquet", f"-E{evalSample}.parquet")
+    copy_path = get_safe_copy_path(full_path, evalSample)
     # Duplicate files to preserve the originals
     shutil.copy(full_path, copy_path)
     # Read sparse arrays directly from the duplicated parquet files
@@ -506,10 +505,23 @@ file_lock = threading.Lock()
 # Global lock for thread-safe access to print statements
 print_lock = threading.Lock()
 
+def get_safe_copy_path(full_path, eval_sample):
+    with file_lock:  # Ensure filename manipulation is thread-safe
+        # Split the file path into base and extension
+        file_base, file_ext = os.path.splitext(full_path)
+
+        # Parse the existing evaluation suffixes to prevent duplication
+        suffix = f"-E{eval_sample}"
+        if not file_base.endswith(suffix):  # Only append if not already there
+            file_base += suffix
+
+        # Construct the final path
+        copy_path = f"{file_base}{file_ext}"
+        return copy_path
+
 def thread_safe_print(message):
     with print_lock:
-        print(message)
-        sys.stdout.flush()
+        print(message, flush=True)
 
 # Helper function for I/O-bound tasks (file copying)
 def safe_copy_file(src, dest):
@@ -584,7 +596,6 @@ def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEva
 def process_sample_io(evalSample, evalOffset, trainPath, evalPath, generatedEvalPath):
     # I/O-bound operations such as file copying and reading parquet files
     evalSource, eval_sentenceNumber = Verdict.getSourceAndSentenceIndex(evalOffset + evalSample)
-    thread_id = threading.get_ident()  # Get current thread ID
     thread_safe_print(f"Starting I/O-bound tasks for Evaluation-Sample {evalSample}")
 
     to_copy = []
