@@ -504,6 +504,8 @@ def getNormalizedValues(full_path, evalSample):
 file_lock = threading.Lock()
 # Global lock for thread-safe access to print statements
 print_lock = threading.Lock()
+# Thread-safe lock for concurrent updates
+data_lock = threading.Lock()
 
 def get_safe_copy_path(full_path, eval_sample):
     with file_lock:  # Ensure filename manipulation is thread-safe
@@ -632,7 +634,29 @@ def getClosestSourcesFromDf(df, closestSources):
     )
     return closest_sources
 
-# Refactor the main function to split into I/O and CPU-bound operations
+def append_to_parquet_with_filter(file_path, df, closestSources):
+    """
+    Append a DataFrame to a Parquet file, filter it to retain only the top closestSources per group,
+    and overwrite the file.
+    """
+    # Read existing data if the file exists
+    if os.path.exists(file_path):
+        existing_data = pd.read_parquet(file_path)
+        combined_data = pd.concat([existing_data, df], ignore_index=True)
+    else:
+        combined_data = df
+
+    # Filter combined data immediately to ensure closestSources limit is respected
+    filtered_data = (
+        combined_data
+        .sort_values(by=['evalSample', 'layer', 'neuron', 'difference'])  # Sort by the desired criteria
+        .groupby(['evalSample', 'layer', 'neuron'], group_keys=False)  # Group by the same criteria
+        .head(closestSources)  # Retain only the top closestSources per group
+    )
+
+    # Overwrite the file with the filtered data
+    filtered_data.to_parquet(file_path, compression='zstd')
+
 def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
     global layers, layerSizes, fileName
 
@@ -640,10 +664,11 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
     evalPath = os.path.join(baseDirectory, "Evaluation", "Sample")
     generatedEvalPath = os.path.join(baseDirectory, "Evaluation", "Generated")
 
-    eval_data = []
-    generated_eval_data = []
+    # Initialize DataFrames for direct use
+    eval_df = pd.DataFrame(columns=['evalSample', 'layer', 'neuron', 'difference'])
+    generated_eval_df = pd.DataFrame(columns=['evalSample', 'layer', 'neuron', 'difference'])
 
-    # Step 1: First handle I/O-bound tasks (file operations) with ThreadPoolExecutor
+    # Step 1: Handle I/O-bound tasks
     with concurrent.futures.ThreadPoolExecutor() as executor:
         io_futures = [
             executor.submit(process_sample_io, sampleNumber, evalOffset, trainPath, evalPath, generatedEvalPath)
@@ -651,12 +676,11 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
         ]
         for future in concurrent.futures.as_completed(io_futures):
             try:
-                to_copy = future.result()
-                # Optionally handle or log the copied files
+                future.result()  # Ensure I/O tasks complete
             except Exception as e:
                 print(f"I/O Task Exception for sample: {e}")
 
-    # Step 2: Handle CPU-bound tasks with ProcessPoolExecutor
+    # Step 2: Handle CPU-bound tasks
     with concurrent.futures.ProcessPoolExecutor() as executor:
         cpu_futures = [
             executor.submit(
@@ -669,26 +693,34 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
             try:
                 local_eval_data, local_generated_eval_data = future.result()
 
-                # Thread-safe addition to shared lists
-                with file_lock:
-                    eval_data.extend(local_eval_data)
-                    generated_eval_data.extend(local_generated_eval_data)
+                # Convert to DataFrames
+                local_eval_df = pd.DataFrame(local_eval_data)
+                local_generated_eval_df = pd.DataFrame(local_generated_eval_data)
+
+                # Append and filter in a thread-safe manner
+                with data_lock:
+                    # Append and filter `eval_df`
+                    eval_df = pd.concat([eval_df, local_eval_df], ignore_index=True)
+                    eval_df = (
+                        eval_df
+                        .sort_values(by=['evalSample', 'layer', 'neuron', 'difference'])
+                        .groupby(['evalSample', 'layer', 'neuron'], group_keys=False)
+                        .head(closestSources)
+                    )
+
+                    # Append and filter `generated_eval_df`
+                    generated_eval_df = pd.concat([generated_eval_df, local_generated_eval_df], ignore_index=True)
+                    generated_eval_df = (
+                        generated_eval_df
+                        .sort_values(by=['evalSample', 'layer', 'neuron', 'difference'])
+                        .groupby(['evalSample', 'layer', 'neuron'], group_keys=False)
+                        .head(closestSources)
+                    )
+
             except Exception as e:
                 print(f"CPU Task Exception for sample: {e}")
 
-    # Create the DataFrame from the collected data
-    eval_df = pd.DataFrame(eval_data)
-    generated_eval_df = pd.DataFrame(generated_eval_data)
-
-    # Extract closest sources from DataFrame
-    eval_df = getClosestSourcesFromDf(eval_df, closestSources)
-    generated_eval_df = getClosestSourcesFromDf(generated_eval_df, closestSources)
-
-    # Set index for easier retrieval
-    eval_df.set_index(['evalSample'], inplace=True)
-    generated_eval_df.set_index(['evalSample'], inplace=True)
-
-    # Save the DataFrame as Parquet
+    # Save final results
     eval_df.to_parquet('identifiedClosestEvalSources.parquet', compression='zstd')
     generated_eval_df.to_parquet('identifiedClosestGeneratedEvalSources.parquet', compression='zstd')
 
