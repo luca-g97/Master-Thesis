@@ -484,24 +484,22 @@ def reconstruct_from_normalized(sparse_array, min_val, max_val):
     return normalized_data
 
 def getNormalizedValues(full_path, evalSample):
-    with tempfile.TemporaryDirectory() as temp_dir:
-        # Generate a unique copy path inside the temp directory
-        copy_path = os.path.join(
-            temp_dir,
-            os.path.basename(full_path).replace(".parquet", f"-E{evalSample}.parquet")
-        )
-        # Duplicate files to preserve the originals
-        shutil.copy(full_path, copy_path)
-        # Read sparse arrays directly from the duplicated parquet files
-        sentenceDf = pq.read_table(copy_path).to_pandas(safe=False)
-        # Extract scalar min and max values from the first row# Extract scalar min and max values from the first row
-        min, max = sentenceDf['Min'].iloc[0], sentenceDf['Max'].iloc[0]
-        # Drop non-neuron columns
-        sentenceDf = sentenceDf.drop(columns=['Source', 'Sentence', 'Min', 'Max'])
-        # Convert DataFrames to sparse COO matrices
-        neurons = sp.coo_matrix(np.asarray(sentenceDf.to_numpy()))
+    # Duplicate files to preserve the originals
+    copy_path = full_path.replace(".parquet", f"-E{evalSample}.parquet")
+    # Duplicate files to preserve the originals
+    safe_copy_file(full_path, copy_path)
+    # Read sparse arrays directly from the duplicated parquet files
+    sentenceDf = pq.read_table(copy_path).to_pandas(safe=False)
+    # Remove the copied file after reading
+    safe_remove(copy_path)
+    # Extract scalar min and max values from the first row# Extract scalar min and max values from the first row
+    min, max = sentenceDf['Min'].iloc[0], sentenceDf['Max'].iloc[0]
+    # Drop non-neuron columns
+    sentenceDf = sentenceDf.drop(columns=['Source', 'Sentence', 'Min', 'Max'])
+    # Convert DataFrames to sparse COO matrices
+    neurons = sp.coo_matrix(np.asarray(sentenceDf.to_numpy()))
 
-        return reconstruct_from_normalized(neurons, min, max).tocoo(), copy_path
+    return reconstruct_from_normalized(neurons, min, max).tocoo()
 
 # Global lock for thread-safe access to shared data
 file_lock = threading.Lock()
@@ -509,6 +507,14 @@ file_lock = threading.Lock()
 def safe_copy_file(src, dest):
     with file_lock:
         shutil.copy(src, dest)
+
+def safe_remove(file_path):
+    with file_lock:
+        if os.path.exists(file_path):  # Check if the file exists before attempting to delete
+            try:
+                os.remove(file_path)
+            except OSError as e:
+                print(f"Error removing file {file_path}: {e}")
 
 # Helper function for CPU-bound tasks (matrix manipulations)
 def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEvalPath):
@@ -533,19 +539,19 @@ def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEva
             normalizedTrainNeurons, train_copy_path = getNormalizedValues(train_full_path, evalSample)
 
             if evalPathExists:
-                normalizedEvalNeurons, eval_copy_path = getNormalizedValues(eval_full_path, evalSample)
+                normalizedEvalNeurons = getNormalizedValues(eval_full_path, evalSample)
                 max_eval_rows = max(normalizedTrainNeurons.shape[0], normalizedEvalNeurons.shape[0])
                 max_eval_cols = max(normalizedTrainNeurons.shape[1], normalizedEvalNeurons.shape[1])
-                toCheck.append((local_eval_data, normalizedEvalNeurons, max_eval_rows, max_eval_cols, eval_copy_path))
+                toCheck.append((local_eval_data, normalizedEvalNeurons, max_eval_rows, max_eval_cols))
 
             if generatedEvalPathExists:
-                normalizedGeneratedEvalNeurons, generated_eval_copy_path = getNormalizedValues(generated_eval_full_path, evalSample)
+                normalizedGeneratedEvalNeurons = getNormalizedValues(generated_eval_full_path, evalSample)
                 max_generated_eval_rows = max(normalizedTrainNeurons.shape[0], normalizedGeneratedEvalNeurons.shape[0])
                 max_generated_eval_cols = max(normalizedTrainNeurons.shape[1], normalizedGeneratedEvalNeurons.shape[1])
-                toCheck.append((local_generated_eval_data, normalizedGeneratedEvalNeurons, max_generated_eval_rows, max_generated_eval_cols, generated_eval_copy_path))
+                toCheck.append((local_generated_eval_data, normalizedGeneratedEvalNeurons, max_generated_eval_rows, max_generated_eval_cols))
 
             if len(toCheck) > 0:
-                for (currentData, currentNeurons, max_rows, max_cols, pathToRemove) in toCheck:
+                for (currentData, currentNeurons, max_rows, max_cols) in toCheck:
                     alignedTrain = sp.coo_matrix((normalizedTrainNeurons.data,
                                                   (normalizedTrainNeurons.row, normalizedTrainNeurons.col)),
                                                  shape=(max_rows, max_cols))
@@ -571,7 +577,7 @@ def process_sample_io(evalSample, evalOffset, trainPath, evalPath, generatedEval
     # I/O-bound operations such as file copying and reading parquet files
     evalSource, eval_sentenceNumber = Verdict.getSourceAndSentenceIndex(evalOffset + evalSample)
     thread_id = threading.get_ident()  # Get current thread ID
-    print(f"Starting I/O-bound tasks for Evaluation-Sample {evalSample} in Thread-{thread_id}")
+    print(f"Starting I/O-bound tasks for Evaluation-Sample {evalSample} in Thread-{thread_id}\n")
 
     to_copy = []
     for (train_dirpath, _, train_filenames) in os.walk(trainPath):
