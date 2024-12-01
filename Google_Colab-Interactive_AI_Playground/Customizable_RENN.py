@@ -8,6 +8,7 @@ import LLM_Small1x1 as Small1x1
 import LLM_Verdict as Verdict
 import scipy.sparse as sp
 import shutil
+import sys
 import os
 
 layer, source, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, activationsBySources, activationsByLayers, totalLayers = "", "", "", "", "", "", ""
@@ -508,7 +509,8 @@ print_lock = threading.Lock()
 def thread_safe_print(message):
     with print_lock:
         print(message)
-    
+        sys.stdout.flush()
+
 # Helper function for I/O-bound tasks (file copying)
 def safe_copy_file(src, dest):
     with file_lock:
