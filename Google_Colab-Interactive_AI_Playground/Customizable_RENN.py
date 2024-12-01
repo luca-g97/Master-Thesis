@@ -7,7 +7,6 @@ from collections import Counter
 import LLM_Small1x1 as Small1x1
 import LLM_Verdict as Verdict
 import scipy.sparse as sp
-import tempfile
 import shutil
 import os
 
@@ -487,10 +486,10 @@ def getNormalizedValues(full_path, evalSample):
     # Duplicate files to preserve the originals
     copy_path = full_path.replace(".parquet", f"-E{evalSample}.parquet")
     # Duplicate files to preserve the originals
-    safe_copy_file(full_path, copy_path)
+    shutil.copy(full_path, copy_path)
     # Read sparse arrays directly from the duplicated parquet files
     sentenceDf = pq.read_table(copy_path).to_pandas(safe=False)
-    # Remove the copied file after reading
+    # Remove copied file after reading
     safe_remove(copy_path)
     # Extract scalar min and max values from the first row# Extract scalar min and max values from the first row
     min, max = sentenceDf['Min'].iloc[0], sentenceDf['Max'].iloc[0]
@@ -536,7 +535,7 @@ def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEva
 
             evalPathExists, generatedEvalPathExists = os.path.exists(eval_full_path), os.path.exists(generated_eval_full_path)
             toCheck = []
-            normalizedTrainNeurons, train_copy_path = getNormalizedValues(train_full_path, evalSample)
+            normalizedTrainNeurons = getNormalizedValues(train_full_path, evalSample)
 
             if evalPathExists:
                 normalizedEvalNeurons = getNormalizedValues(eval_full_path, evalSample)
@@ -577,7 +576,7 @@ def process_sample_io(evalSample, evalOffset, trainPath, evalPath, generatedEval
     # I/O-bound operations such as file copying and reading parquet files
     evalSource, eval_sentenceNumber = Verdict.getSourceAndSentenceIndex(evalOffset + evalSample)
     thread_id = threading.get_ident()  # Get current thread ID
-    print(f"Starting I/O-bound tasks for Evaluation-Sample {evalSample} in Thread-{thread_id}\n")
+    print(f"Starting I/O-bound tasks for Evaluation-Sample {evalSample} in Thread-{thread_id}")
 
     to_copy = []
     for (train_dirpath, _, train_filenames) in os.walk(trainPath):
