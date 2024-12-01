@@ -502,6 +502,13 @@ def getNormalizedValues(full_path, evalSample):
 
 # Global lock for thread-safe access to shared data
 file_lock = threading.Lock()
+# Global lock for thread-safe access to print statements
+print_lock = threading.Lock()
+
+def thread_safe_print(message):
+    with print_lock:
+        print(message)
+    
 # Helper function for I/O-bound tasks (file copying)
 def safe_copy_file(src, dest):
     with file_lock:
@@ -521,7 +528,7 @@ def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEva
     local_generated_eval_data = []
 
     evalSource, eval_sentenceNumber = Verdict.getSourceAndSentenceIndex(evalOffset + evalSample)
-    print(f"Starting Evaluation for Evaluation-Sample {evalSample} (Actual Source: {evalSource}:{eval_sentenceNumber})\n")
+    thread_safe_print(f"Starting Evaluation for Evaluation-Sample {evalSample} (Actual Source: {evalSource}:{eval_sentenceNumber})")
 
     for (train_dirpath, _, train_filenames) in os.walk(trainPath):
         for train_filename in train_filenames:
@@ -576,7 +583,7 @@ def process_sample_io(evalSample, evalOffset, trainPath, evalPath, generatedEval
     # I/O-bound operations such as file copying and reading parquet files
     evalSource, eval_sentenceNumber = Verdict.getSourceAndSentenceIndex(evalOffset + evalSample)
     thread_id = threading.get_ident()  # Get current thread ID
-    print(f"Starting I/O-bound tasks for Evaluation-Sample {evalSample} in Thread-{thread_id}")
+    thread_safe_print(f"Starting I/O-bound tasks for Evaluation-Sample {evalSample}")
 
     to_copy = []
     for (train_dirpath, _, train_filenames) in os.walk(trainPath):
