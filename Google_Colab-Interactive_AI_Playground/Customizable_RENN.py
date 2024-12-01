@@ -7,6 +7,7 @@ from collections import Counter
 import LLM_Small1x1 as Small1x1
 import LLM_Verdict as Verdict
 import scipy.sparse as sp
+import tempfile
 import shutil
 import os
 
@@ -483,20 +484,24 @@ def reconstruct_from_normalized(sparse_array, min_val, max_val):
     return normalized_data
 
 def getNormalizedValues(full_path, evalSample):
-    # Duplicate files to preserve the originals
-    copy_path = full_path.replace(".parquet", f"-E{evalSample}.parquet")
-    # Duplicate files to preserve the originals
-    shutil.copy(full_path, copy_path)
-    # Read sparse arrays directly from the duplicated parquet files
-    sentenceDf = pq.read_table(copy_path).to_pandas(safe=False)
-    # Extract scalar min and max values from the first row# Extract scalar min and max values from the first row
-    min, max = sentenceDf['Min'].iloc[0], sentenceDf['Max'].iloc[0]
-    # Drop non-neuron columns
-    sentenceDf = sentenceDf.drop(columns=['Source', 'Sentence', 'Min', 'Max'])
-    # Convert DataFrames to sparse COO matrices
-    neurons = sp.coo_matrix(np.asarray(sentenceDf.to_numpy()))
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Generate a unique copy path inside the temp directory
+        copy_path = os.path.join(
+            temp_dir,
+            os.path.basename(full_path).replace(".parquet", f"-E{evalSample}.parquet")
+        )
+        # Duplicate files to preserve the originals
+        shutil.copy(full_path, copy_path)
+        # Read sparse arrays directly from the duplicated parquet files
+        sentenceDf = pq.read_table(copy_path).to_pandas(safe=False)
+        # Extract scalar min and max values from the first row# Extract scalar min and max values from the first row
+        min, max = sentenceDf['Min'].iloc[0], sentenceDf['Max'].iloc[0]
+        # Drop non-neuron columns
+        sentenceDf = sentenceDf.drop(columns=['Source', 'Sentence', 'Min', 'Max'])
+        # Convert DataFrames to sparse COO matrices
+        neurons = sp.coo_matrix(np.asarray(sentenceDf.to_numpy()))
 
-    return reconstruct_from_normalized(neurons, min, max).tocoo(), copy_path
+        return reconstruct_from_normalized(neurons, min, max).tocoo(), copy_path
 
 # Global lock for thread-safe access to shared data
 file_lock = threading.Lock()
@@ -505,21 +510,13 @@ def safe_copy_file(src, dest):
     with file_lock:
         shutil.copy(src, dest)
 
-def safe_remove(file_path):
-    with file_lock:
-        if os.path.exists(file_path):  # Check if the file exists before attempting to delete
-            try:
-                os.remove(file_path)
-            except OSError as e:
-                print(f"Error removing file {file_path}: {e}")
-
 # Helper function for CPU-bound tasks (matrix manipulations)
 def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEvalPath):
     local_eval_data = []
     local_generated_eval_data = []
 
     evalSource, eval_sentenceNumber = Verdict.getSourceAndSentenceIndex(evalOffset + evalSample)
-    print(f"Starting Evaluation for Evaluation-Sample {evalSample} (Actual Source: {evalSource}:{eval_sentenceNumber})")
+    print(f"Starting Evaluation for Evaluation-Sample {evalSample} (Actual Source: {evalSource}:{eval_sentenceNumber})\n")
 
     for (train_dirpath, _, train_filenames) in os.walk(trainPath):
         for train_filename in train_filenames:
@@ -567,9 +564,6 @@ def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEva
                             current_source = f"{sourceNumber}:{train_sentenceNumber}"
                             currentData.append({'evalSample': evalSample, 'layer': layerNumber, 'neuron': neuron_idx,
                                                 'source': current_source, 'eval_neuron_value': eval_neuron_value, 'neuron_value': neuron_value, 'difference': difference})
-
-                    safe_remove(pathToRemove)
-            safe_remove(train_copy_path)
 
     return local_eval_data, local_generated_eval_data
 
