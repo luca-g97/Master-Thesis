@@ -635,11 +635,6 @@ def getClosestSourcesFromDf(df, closestSources):
     return closest_sources
 
 def append_to_parquet_with_filter(file_path, df, closestSources):
-    """
-    Append a DataFrame to a Parquet file, filter it to retain only the top closestSources per group,
-    and overwrite the file.
-    """
-    # Read existing data if the file exists
     if os.path.exists(file_path):
         existing_data = pd.read_parquet(file_path)
         combined_data = pd.concat([existing_data, df], ignore_index=True)
@@ -665,8 +660,8 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
     generatedEvalPath = os.path.join(baseDirectory, "Evaluation", "Generated")
 
     # Initialize DataFrames for direct use
-    eval_df = pd.DataFrame(columns=['evalSample', 'layer', 'neuron', 'difference'])
-    generated_eval_df = pd.DataFrame(columns=['evalSample', 'layer', 'neuron', 'difference'])
+    eval_df = pd.DataFrame(columns=['evalSample', 'layer', 'neuron', 'source', 'difference', 'eval_neuron_value', 'neuron_value'])
+    generated_eval_df = pd.DataFrame(columns=['evalSample', 'layer', 'neuron', 'source', 'difference', 'eval_neuron_value', 'neuron_value'])
 
     # Step 1: Handle I/O-bound tasks
     with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -720,6 +715,9 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
             except Exception as e:
                 print(f"CPU Task Exception for sample: {e}")
 
+    # Set index for easier retrieval
+    eval_df.set_index(['evalSample'], inplace=True)
+    generated_eval_df.set_index(['evalSample'], inplace=True)
     # Save final results
     eval_df.to_parquet('identifiedClosestEvalSources.parquet', compression='zstd')
     generated_eval_df.to_parquet('identifiedClosestGeneratedEvalSources.parquet', compression='zstd')
