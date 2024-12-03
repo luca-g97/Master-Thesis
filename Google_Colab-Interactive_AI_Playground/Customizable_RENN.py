@@ -676,7 +676,7 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
                 print(f"I/O Task Exception for sample: {e}")
 
     # Step 2: Handle CPU-bound tasks
-    with concurrent.futures.ProcessPoolExecutor() as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=16) as executor:
         cpu_futures = [
             executor.submit(
                 process_sample_cpu, sampleNumber, evalOffset, trainPath, evalPath, generatedEvalPath
