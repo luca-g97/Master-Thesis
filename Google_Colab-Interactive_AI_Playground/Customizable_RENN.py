@@ -3,7 +3,10 @@ from torch import nn
 import numpy as np
 import concurrent.futures
 import threading
+import sys
 from collections import Counter
+from collections import defaultdict
+import heapq
 import LLM_Small1x1 as Small1x1
 import LLM_Verdict as Verdict
 import scipy.sparse as sp
@@ -523,7 +526,8 @@ def get_safe_copy_path(full_path, eval_sample):
 
 def thread_safe_print(message):
     with print_lock:
-        print(message, flush=True)
+        sys.stdout.write(f"{message}\n")
+        sys.stdout.flush()
 
 # Helper function for I/O-bound tasks (file copying)
 def safe_copy_file(src, dest):
@@ -538,8 +542,33 @@ def safe_remove(file_path):
             except OSError as e:
                 print(f"Error removing file {file_path}: {e}")
 
+# Sort by evalSample, layer, neuron
+def keep_closest_sources(data, closestSources):
+    grouped = defaultdict(list)
+
+    # Group data by (evalSample, layer, neuron)
+    for item in data:
+        grouped[(item['evalSample'], item['layer'], item['neuron'])].append(item)
+
+    # Maintain only the closestSources entries using a heap
+    result = []
+    for key, group in grouped.items():
+        # Use a heap to maintain the closest sources based on the 'difference'
+        closest_heap = []
+        for item in group:
+            heapq.heappush(closest_heap, (item['difference'], item))
+
+            # If the heap exceeds closestSources, pop the largest difference
+            if len(closest_heap) > closestSources:
+                heapq.heappop(closest_heap)
+
+        # Extract the closest entries and add to the result list
+        result.extend([item for _, item in closest_heap])
+
+    return result
+
 # Helper function for CPU-bound tasks (matrix manipulations)
-def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEvalPath):
+def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEvalPath, closestSources):
     local_eval_data = []
     local_generated_eval_data = []
 
@@ -549,49 +578,51 @@ def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEva
     for (train_dirpath, _, train_filenames) in os.walk(trainPath):
         for train_filename in train_filenames:
             train_full_path = os.path.join(train_dirpath, train_filename)
-            if not os.path.exists(train_full_path):
-                continue
+            if os.path.exists(train_full_path):
 
-            layerNumber, sourceNumber, train_sentenceNumber = getInformationFromFileName(train_full_path)
-            eval_full_path = os.path.join(evalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-0.parquet")
-            generated_eval_full_path = os.path.join(generatedEvalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-0.parquet")
+                layerNumber, sourceNumber, train_sentenceNumber = getInformationFromFileName(train_full_path)
+                eval_full_path = os.path.join(evalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-0.parquet")
+                generated_eval_full_path = os.path.join(generatedEvalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-0.parquet")
 
-            evalPathExists, generatedEvalPathExists = os.path.exists(eval_full_path), os.path.exists(generated_eval_full_path)
-            toCheck = []
-            normalizedTrainNeurons = getNormalizedValues(train_full_path, evalSample)
+                evalPathExists, generatedEvalPathExists = os.path.exists(eval_full_path), os.path.exists(generated_eval_full_path)
+                toCheck = []
+                normalizedTrainNeurons = getNormalizedValues(train_full_path, evalSample)
 
-            if evalPathExists:
-                normalizedEvalNeurons = getNormalizedValues(eval_full_path, evalSample)
-                max_eval_rows = max(normalizedTrainNeurons.shape[0], normalizedEvalNeurons.shape[0])
-                max_eval_cols = max(normalizedTrainNeurons.shape[1], normalizedEvalNeurons.shape[1])
-                toCheck.append((local_eval_data, normalizedEvalNeurons, max_eval_rows, max_eval_cols))
+                if evalPathExists:
+                    normalizedEvalNeurons = getNormalizedValues(eval_full_path, evalSample)
+                    max_eval_rows = max(normalizedTrainNeurons.shape[0], normalizedEvalNeurons.shape[0])
+                    max_eval_cols = max(normalizedTrainNeurons.shape[1], normalizedEvalNeurons.shape[1])
+                    toCheck.append((local_eval_data, normalizedEvalNeurons, max_eval_rows, max_eval_cols))
 
-            if generatedEvalPathExists:
-                normalizedGeneratedEvalNeurons = getNormalizedValues(generated_eval_full_path, evalSample)
-                max_generated_eval_rows = max(normalizedTrainNeurons.shape[0], normalizedGeneratedEvalNeurons.shape[0])
-                max_generated_eval_cols = max(normalizedTrainNeurons.shape[1], normalizedGeneratedEvalNeurons.shape[1])
-                toCheck.append((local_generated_eval_data, normalizedGeneratedEvalNeurons, max_generated_eval_rows, max_generated_eval_cols))
+                if generatedEvalPathExists:
+                    normalizedGeneratedEvalNeurons = getNormalizedValues(generated_eval_full_path, evalSample)
+                    max_generated_eval_rows = max(normalizedTrainNeurons.shape[0], normalizedGeneratedEvalNeurons.shape[0])
+                    max_generated_eval_cols = max(normalizedTrainNeurons.shape[1], normalizedGeneratedEvalNeurons.shape[1])
+                    toCheck.append((local_generated_eval_data, normalizedGeneratedEvalNeurons, max_generated_eval_rows, max_generated_eval_cols))
 
-            if len(toCheck) > 0:
-                for (currentData, currentNeurons, max_rows, max_cols) in toCheck:
-                    alignedTrain = sp.coo_matrix((normalizedTrainNeurons.data,
-                                                  (normalizedTrainNeurons.row, normalizedTrainNeurons.col)),
-                                                 shape=(max_rows, max_cols))
-                    alignedEval = sp.coo_matrix((currentNeurons.data,
-                                                 (currentNeurons.row, currentNeurons.col)),
-                                                shape=(max_rows, max_cols))
-                    common_mask = alignedTrain.multiply(alignedEval)
-                    differencesBetweenSources = sp.coo_matrix(np.abs(alignedTrain - alignedEval).multiply(common_mask))
+                if len(toCheck) > 0:
+                    for (currentData, currentNeurons, max_rows, max_cols) in toCheck:
+                        alignedTrain = sp.coo_matrix((normalizedTrainNeurons.data,
+                                                      (normalizedTrainNeurons.row, normalizedTrainNeurons.col)),
+                                                     shape=(max_rows, max_cols))
+                        alignedEval = sp.coo_matrix((currentNeurons.data,
+                                                     (currentNeurons.row, currentNeurons.col)),
+                                                    shape=(max_rows, max_cols))
+                        common_mask = alignedTrain.multiply(alignedEval)
+                        differencesBetweenSources = sp.coo_matrix(np.abs(alignedTrain - alignedEval).multiply(common_mask))
 
-                    for neuron_idx, difference in zip(differencesBetweenSources.col, differencesBetweenSources.data):
-                        sparse_traincol = normalizedTrainNeurons.getcol(neuron_idx)
-                        sparse_evalcol = currentNeurons.getcol(neuron_idx)
-                        if sparse_traincol.nnz > 0:
-                            neuron_value = sparse_traincol.data[0]
-                            eval_neuron_value = sparse_evalcol.data[0] if sparse_evalcol.nnz > 0 else 0
-                            current_source = f"{sourceNumber}:{train_sentenceNumber}"
-                            currentData.append({'evalSample': evalSample, 'layer': layerNumber, 'neuron': neuron_idx,
-                                                'source': current_source, 'eval_neuron_value': eval_neuron_value, 'neuron_value': neuron_value, 'difference': difference})
+                        for neuron_idx, difference in zip(differencesBetweenSources.col, differencesBetweenSources.data):
+                            sparse_traincol = normalizedTrainNeurons.getcol(neuron_idx)
+                            sparse_evalcol = currentNeurons.getcol(neuron_idx)
+                            if sparse_traincol.nnz > 0:
+                                neuron_value = sparse_traincol.data[0]
+                                eval_neuron_value = sparse_evalcol.data[0] if sparse_evalcol.nnz > 0 else 0
+                                current_source = f"{sourceNumber}:{train_sentenceNumber}"
+                                currentData.append({'evalSample': evalSample, 'layer': layerNumber, 'neuron': neuron_idx,
+                                                    'source': current_source, 'eval_neuron_value': eval_neuron_value, 'neuron_value': neuron_value, 'difference': difference})
+
+                        # Apply filtering to only keep closestSources for each neuron
+                        currentData = keep_closest_sources(currentData, closestSources)
 
     return local_eval_data, local_generated_eval_data
 
@@ -634,24 +665,6 @@ def getClosestSourcesFromDf(df, closestSources):
     )
     return closest_sources
 
-def append_to_parquet_with_filter(file_path, df, closestSources):
-    if os.path.exists(file_path):
-        existing_data = pd.read_parquet(file_path)
-        combined_data = pd.concat([existing_data, df], ignore_index=True)
-    else:
-        combined_data = df
-
-    # Filter combined data immediately to ensure closestSources limit is respected
-    filtered_data = (
-        combined_data
-        .sort_values(by=['evalSample', 'layer', 'neuron', 'difference'])  # Sort by the desired criteria
-        .groupby(['evalSample', 'layer', 'neuron'], group_keys=False)  # Group by the same criteria
-        .head(closestSources)  # Retain only the top closestSources per group
-    )
-
-    # Overwrite the file with the filtered data
-    filtered_data.to_parquet(file_path, compression='zstd')
-
 def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
     global layers, layerSizes, fileName
 
@@ -659,9 +672,9 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
     evalPath = os.path.join(baseDirectory, "Evaluation", "Sample")
     generatedEvalPath = os.path.join(baseDirectory, "Evaluation", "Generated")
 
-    # Initialize DataFrames for direct use
-    eval_df = pd.DataFrame(columns=['evalSample', 'layer', 'neuron', 'source', 'difference', 'eval_neuron_value', 'neuron_value'])
-    generated_eval_df = pd.DataFrame(columns=['evalSample', 'layer', 'neuron', 'source', 'difference', 'eval_neuron_value', 'neuron_value'])
+    # Initialize lists for direct usage
+    eval_data = []
+    generated_eval_data = []
 
     # Step 1: Handle I/O-bound tasks
     with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -678,9 +691,7 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
     # Step 2: Handle CPU-bound tasks
     with concurrent.futures.ProcessPoolExecutor(max_workers=16) as executor:
         cpu_futures = [
-            executor.submit(
-                process_sample_cpu, sampleNumber, evalOffset, trainPath, evalPath, generatedEvalPath
-            )
+            executor.submit(process_sample_cpu, sampleNumber, evalOffset, trainPath, evalPath, generatedEvalPath, closestSources)
             for sampleNumber in range(evalSamples)
         ]
 
@@ -688,37 +699,26 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
             try:
                 local_eval_data, local_generated_eval_data = future.result()
 
-                # Convert to DataFrames
-                local_eval_df = pd.DataFrame(local_eval_data)
-                local_generated_eval_df = pd.DataFrame(local_generated_eval_data)
-
-                # Append and filter in a thread-safe manner
+                # Thread-safe addition to shared data
                 with data_lock:
-                    # Append and filter `eval_df`
-                    eval_df = pd.concat([eval_df, local_eval_df], ignore_index=True)
-                    eval_df = (
-                        eval_df
-                        .sort_values(by=['evalSample', 'layer', 'neuron', 'difference'])
-                        .groupby(['evalSample', 'layer', 'neuron'], group_keys=False)
-                        .head(closestSources)
-                    )
-
-                    # Append and filter `generated_eval_df`
-                    generated_eval_df = pd.concat([generated_eval_df, local_generated_eval_df], ignore_index=True)
-                    generated_eval_df = (
-                        generated_eval_df
-                        .sort_values(by=['evalSample', 'layer', 'neuron', 'difference'])
-                        .groupby(['evalSample', 'layer', 'neuron'], group_keys=False)
-                        .head(closestSources)
-                    )
-
+                    eval_data.extend(local_eval_data)
+                    generated_eval_data.extend(local_generated_eval_data)
             except Exception as e:
                 print(f"CPU Task Exception for sample: {e}")
+
+    # Create the DataFrame from the collected data
+    eval_df = pd.DataFrame(eval_data)
+    generated_eval_df = pd.DataFrame(generated_eval_data)
+
+    # Extract closest sources from DataFrame
+    eval_df = getClosestSourcesFromDf(eval_df, closestSources)
+    generated_eval_df = getClosestSourcesFromDf(generated_eval_df, closestSources)
 
     # Set index for easier retrieval
     eval_df.set_index(['evalSample'], inplace=True)
     generated_eval_df.set_index(['evalSample'], inplace=True)
-    # Save final results
+
+    # Save the DataFrame as Parquet
     eval_df.to_parquet('identifiedClosestEvalSources.parquet', compression='zstd')
     generated_eval_df.to_parquet('identifiedClosestGeneratedEvalSources.parquet', compression='zstd')
 
