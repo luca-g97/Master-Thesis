@@ -9,6 +9,7 @@ from collections import defaultdict
 import heapq
 import LLM_Small1x1 as Small1x1
 import LLM_GPT2 as GPT2
+import LLM_LSTM as LSTM
 import scipy.sparse as sp
 import shutil
 import os
