@@ -57,8 +57,9 @@ def get_hidden_sizes(num_layers, trainSamples):
 
     model = LSTM(len(words), embedding_dim, padding_idx, hidden_size, dropout_p, num_layers, device).to(device)
     model.to(device)
-    
-    hidden_sizes = ['Embedding', len(words), embedding_dim]
+
+    hidden_sizes = []
+    hidden_sizes.append(['Embedding', len(words), embedding_dim])
     hidden_sizes.append(['LSTM', batch_size*num_layers, hidden_size])
     hidden_sizes.append(['Linear', len(words), hidden_size])
 
