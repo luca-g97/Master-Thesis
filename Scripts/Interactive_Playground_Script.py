@@ -106,7 +106,7 @@ GPT2.initializePackages(random, lorem, device, tiktoken, DataLoader, nlp, GPT2To
 gpt2train, gpt2test = GPT2.createWikiText2TrainSet()
 # gpt2train, gpt2test = GPT2.createEnglishWikiTrainSet("./english_wikipedia/data/train-00021-of-00022-8014350d27e6cde7.parquet")
 
-print(gpt2train)
+print(gpt2train[:10])
 
 # Organize datasets for easy access
 datasets = {

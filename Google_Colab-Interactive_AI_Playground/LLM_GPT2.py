@@ -196,6 +196,8 @@ def create_sources(data):
     return titles, sources
 
 def createWikiText2Set(path):
+    global sentences, sentencesStructure
+
     data = load_data(path)
 
     titles, sources = create_sources(data)
