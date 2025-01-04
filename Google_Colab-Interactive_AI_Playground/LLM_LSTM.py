@@ -482,13 +482,13 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
     # Split the combined sentences into sentences and words
     sentences, words = split_data(" ".join(generatedEvalSentences))
     generatedEvalLoader = prepare_data_loader(sentences, words, seq_len=seq_len, batch_size=1, shuffle=False)
-    RENN.initializeEvaluationHook(hidden_sizes, generatedEvalLoader, eval_samples, model, os.path.join("Evaluation", "Generated"), True, 0, True)
+    RENN.initializeEvaluationHook(hidden_sizes, generatedEvalLoader, len(eval_loader), model, os.path.join("Evaluation", "Generated"), True, 0, True)
 
     #RENN.initializeEvaluationHook(hidden_sizes, eval_loader, eval_samples, model, os.path.join("Evaluation", "Sample"), True, train_samples)
     #closestSourcesEvaluation, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(eval_samples, 0, closestSources)
-    _, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(eval_samples, 0, closestSources)
+    _, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(len(eval_loader), 0, closestSources)
 
-    for sampleNumber in range(eval_samples):
+    for sampleNumber in range(len(eval_loader)):
         #mostUsedEvalSources = RENN.getMostUsedSources(closestSourcesEvaluation, closestSources, sampleNumber, "Mean")
         #_ = RENN.getMostUsedSources(closestSourcesEvaluation, closestSources, sampleNumber, "Sum")
         mostUsedGeneratedEvalSources = RENN.getMostUsedSources(closestSourcesGeneratedEvaluation, closestSources, sampleNumber, "Mean")
