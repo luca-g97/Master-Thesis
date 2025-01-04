@@ -259,9 +259,9 @@ def prepare_data_loader(sentences, words, seq_len, batch_size, shuffle=True):
 
     # Step 7: Create a dataset and DataLoader
     dataset = TextDataset(pad_predictors, class_labels)
-    print(len(pad_predictors), len(class_labels))
+    print(pad_predictors.shape(), class_labels.shape())
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
-    print(len(dataset), len(dataloader))
+    print(dataset.shape(), dataloader.shape())
 
     print("Number of input sequences: ", len(pad_predictors))
 
