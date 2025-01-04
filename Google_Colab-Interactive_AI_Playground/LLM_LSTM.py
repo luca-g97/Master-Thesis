@@ -53,6 +53,8 @@ def initializePackages(devicePackage, DataLoaderPackage):
     device, DataLoader = devicePackage, DataLoaderPackage
 
 def get_hidden_sizes(num_layers, trainSamples):
+    global model
+
     sentences, words = split_data(cleaned_train_data, trainSamples)
 
     model = LSTM(len(words), embedding_dim, padding_idx, hidden_size, dropout_p, num_layers, device).to(device)
