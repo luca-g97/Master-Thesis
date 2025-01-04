@@ -241,13 +241,24 @@ def prepare_data_loader(sentences, words, seq_len, batch_size, shuffle=True):
     predictors = [seq[:-1] for seq in sent_sequences]
     class_labels = [seq[-1] for seq in sent_sequences]
 
-    # Step 3: Pad predictors with empty strings
+    # Step 3: Pad predictors
     pad_predictors = []
     for pred in predictors:
-        pad_predictors.append([''] * (seq_len - len(pred)) + pred)
+        if len(pred) < seq_len:
+            pad = [''] * (seq_len - len(pred))
+            pred = pad + pred
+        else:
+            pred = pred[:seq_len]  # Truncate if longer than seq_len
+        pad_predictors.append(pred)
 
     # Step 4: Create word-to-index mapping
     word_ind = {word: idx for idx, word in enumerate(words)}
+
+    # Debugging: Print sequences and indices
+    for seq in pad_predictors:
+        print(f"Original sequence: {seq}, Length: {len(seq)}")
+    for label in class_labels:
+        print(f"Class label: {label}, Index: {word_ind[label]}")
 
     # Step 5: Convert predictors and class_labels to indices
     pad_predictors = [[word_ind[word] for word in pred] for pred in pad_predictors]
@@ -259,10 +270,9 @@ def prepare_data_loader(sentences, words, seq_len, batch_size, shuffle=True):
 
     # Step 7: Create a dataset and DataLoader
     dataset = TextDataset(pad_predictors, class_labels)
-    print(pad_predictors.shape, class_labels.shape)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
 
-    print("Number of input sequences: ", len(pad_predictors))
+    print(f"Number of input sequences: {len(dataset)}")
 
     return dataloader
 
