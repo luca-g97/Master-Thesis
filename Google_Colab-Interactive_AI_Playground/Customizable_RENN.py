@@ -228,7 +228,7 @@ def attachHooks(hookLoader, model, llmType = False, filename = "", sourceOffset=
                 inputs = inputs.float()
             else:
                 actualSource, actualSentenceNumber = GPT2.getSourceAndSentenceIndex(source, fileName)
-                print(f"Saving all Activations for {fileName}-Source {tempSource} (Actual Source: {actualSource}:{actualSentenceNumber})")
+                print(f"Saving all Activations for {fileName}-Source {tempSource} (Actual {fileName}-Source: {actualSource}:{actualSentenceNumber})")
             inputs = inputs.to(device)
             _ = model(inputs)
 
@@ -549,7 +549,7 @@ def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEva
     local_generated_eval_data = []
 
     evalSource, eval_sentenceNumber = GPT2.getSourceAndSentenceIndex(evalOffset + evalSample, "Evaluation")
-    thread_safe_print(f"Starting Evaluation for Evaluation-Sample {evalSample} (Actual Source: {evalSource}:{eval_sentenceNumber})")
+    thread_safe_print(f"Starting Evaluation for Evaluation-Sample {evalSample} (Actual Evaluation-Source: {evalSource}:{eval_sentenceNumber})")
 
     for (train_dirpath, _, train_filenames) in os.walk(trainPath):
         for train_filename in train_filenames:
@@ -603,7 +603,7 @@ def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEva
 def process_sample_io(evalSample, evalOffset, trainPath, evalPath, generatedEvalPath):
     # I/O-bound operations such as file copying and reading parquet files
     evalSource, eval_sentenceNumber = GPT2.getSourceAndSentenceIndex(evalOffset + evalSample, "Evaluation")
-    thread_safe_print(f"Starting I/O-bound tasks for Evaluation-Sample {evalSample}")
+    thread_safe_print(f"Starting I/O-bound tasks for Evaluation-Sample {evalSample} (Actual Evaluation-Source: {evalSource}:{eval_sentenceNumber})")
 
     to_copy = []
     for (train_dirpath, _, train_filenames) in os.walk(trainPath):
