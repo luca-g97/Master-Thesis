@@ -16,12 +16,12 @@ import os
 
 layer, source, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, activationsBySources, activationsByLayers, totalLayers = "", "", "", "", "", "", ""
 llm, layerSizes, device, hidden_sizes, layers, currentLayer, relevantLayerIndices, useBitNet = "", "", "", "", [], 0, [], False
-sourceArray, fileName, contextLength, io, pd, pa, pq, zstd, baseDirectory = "", "", 1, "", "", "", "", "", "./LookUp"
+sourceArray, fileName, contextLength, io, pd, pa, pq, zstd, chosenDataSet, baseDirectory = "", "", 1, "", "", "", "", "", "", "./LookUp"
 
-def initializePackages(devicePackage, ioPackage, pdPackage, paPackage, pqPackage, zstdPackage, seed="", useBitLinear=False):
-    global device, useBitNet, io, pd, pa, pq, zstd
+def initializePackages(devicePackage, ioPackage, pdPackage, paPackage, pqPackage, zstdPackage, chosenDataSetPackage, seed="", useBitLinear=False):
+    global device, useBitNet, io, pd, pa, pq, zstd, chosenDataSet
 
-    device, io, pd, pa, pq, zstd = devicePackage, ioPackage, pdPackage, paPackage, pqPackage, zstdPackage
+    device, io, pd, pa, pq, zstd, chosenDataSet = devicePackage, ioPackage, pdPackage, paPackage, pqPackage, zstdPackage, chosenDataSetPackage
     useBitNet = useBitLinear
 
     if(seed != ""):
@@ -147,7 +147,7 @@ class CustomizableRENN(nn.Module):
 def forward_hook(module, input, output):
     global layer, source, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, sourceArray, hidden_sizes, llm, fileName
 
-    #if not (isinstance(module, nn.Sequential) or isinstance(module, Small1x1.FeedForward) or isinstance(module, Small1x1.TransformerBlock) or isinstance(module, nn.Dropout) or isinstance(module, Verdict.FeedForward) or isinstance(module, GPT2.TransformerBlock)):
+    #if not (isinstance(module, nn.Sequential) or isinstance(module, Small1x1.FeedForward) or isinstance(module, Small1x1.TransformerBlock) or isinstance(module, nn.Dropout) or isinstance(module, GPT2.FeedForward) or isinstance(module, GPT2.TransformerBlock)):
     if (llm):
         actualLayer = layer
         layerNeurons = layers[actualLayer][1]
@@ -182,7 +182,7 @@ def forward_hook(module, input, output):
         #Use for array structure like: [layer, neuron, source]
         output = relevantOutput if len(relevantOutput.shape) == 1 else relevantOutput[0]
         if(llm):
-            result = GPT2.getSourceAndSentenceIndex(source, fileName)
+            result = chosenDataSet.getSourceAndSentenceIndex(source, fileName)
             if result is not None:
                 #print(f"Create File: LookUp/{fileName}/Layer{layer}/Source={result[0]}/Sentence{result[1]}-0")
                 append_structured_sparse(output[:layerNeurons], str(layer), str(result[0]), str(result[1]))
@@ -227,7 +227,7 @@ def attachHooks(hookLoader, model, llmType = False, filename = "", sourceOffset=
             if not llmType:
                 inputs = inputs.float()
             else:
-                actualSource, actualSentenceNumber = GPT2.getSourceAndSentenceIndex(source, fileName)
+                actualSource, actualSentenceNumber = chosenDataSet.getSourceAndSentenceIndex(source, fileName)
                 print(f"Saving all Activations for {fileName}-Source {tempSource} (Actual {fileName}-Source: {actualSource}:{actualSentenceNumber})")
             inputs = inputs.to(device)
             _ = model(inputs)
@@ -548,7 +548,7 @@ def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEva
     local_eval_data = []
     local_generated_eval_data = []
 
-    evalSource, eval_sentenceNumber = GPT2.getSourceAndSentenceIndex(evalOffset + evalSample, "Evaluation")
+    evalSource, eval_sentenceNumber = chosenDataSet.getSourceAndSentenceIndex(evalOffset + evalSample, "Evaluation")
     thread_safe_print(f"Starting Evaluation for Evaluation-Sample {evalSample} (Actual Evaluation-Source: {evalSource}:{eval_sentenceNumber})")
 
     for (train_dirpath, _, train_filenames) in os.walk(trainPath):
@@ -602,7 +602,7 @@ def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEva
 
 def process_sample_io(evalSample, evalOffset, trainPath, evalPath, generatedEvalPath):
     # I/O-bound operations such as file copying and reading parquet files
-    evalSource, eval_sentenceNumber = GPT2.getSourceAndSentenceIndex(evalOffset + evalSample, "Evaluation")
+    evalSource, eval_sentenceNumber = chosenDataSet.getSourceAndSentenceIndex(evalOffset + evalSample, "Evaluation")
     thread_safe_print(f"Starting I/O-bound tasks for Evaluation-Sample {evalSample} (Actual Evaluation-Source: {evalSource}:{eval_sentenceNumber})")
 
     to_copy = []

@@ -205,7 +205,7 @@ print(f"Total memory usage for the sparse tensor: {total_storage_mb:.2f} MB")
 print(f"Total memory usage for the list: {total_storage_for_list_mb:.2f} MB")
 
 import Customizable_RENN as RENN
-RENN.initializePackages(device, io, pd, pa, pq, zstd, seed, useBitLinear)
+RENN.initializePackages(device, io, pd, pa, pq, zstd, chosenDataSet, seed, useBitLinear)
 
 """# Training"""
 
