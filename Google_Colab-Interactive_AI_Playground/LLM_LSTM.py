@@ -365,6 +365,7 @@ def initializeTraining(hidden_sizes, loss_function, optimizer, learning_ratePara
     global criterion_class, chosen_optimizer, layers
 
     learning_rate = learning_rateParameter
+    loss_function, optimizer = "Cross-Entropy", "Adam"
 
     if(loss_function == "MSE"):
         criterion_class = nn.MSELoss()  # For regression
