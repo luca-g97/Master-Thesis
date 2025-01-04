@@ -602,6 +602,7 @@ def initializeTraining(hidden_sizes, loss_function, optimizer, learning_rate):
     model = GPTModel(GPT_CONFIG_124M)
     model.to(device)
     layers = hidden_sizes
+    loss_function, optimizer = "Cross-Entropy", "Adam"
 
     if(loss_function == "MSE"):
         criterion_class = nn.MSELoss()  # For regression
