@@ -403,21 +403,12 @@ def train_model(train_loader, epochs):
             x, y = x.to(device), y.to(device)
             state_h, state_c = state_h.to(device), state_c.to(device)
 
-            # Debug shapes and devices
-            print(f"x shape: {x.shape}, y shape: {y.shape}")
-            print(f"state_h shape: {state_h.shape}, state_c shape: {state_c.shape}")
-            print(f"x device: {x.device}, y device: {y.device}")
-            print(f"state_h device: {state_h.device}, state_c device: {state_c.device}")
-
             # Detach hidden states to prevent backpropagation through past batches
             state_h = state_h.detach()
             state_c = state_c.detach()
 
             # Forward pass and loss computation
             logits, (state_h, state_c) = model(x, state_h, state_c)
-
-            # Debug output shapes
-            print(f"logits shape: {logits.shape}, state_h shape: {state_h.shape}, state_c shape: {state_c.shape}")
 
             loss = criterion_class(logits, y)
 
@@ -431,7 +422,7 @@ def train_model(train_loader, epochs):
             total_loss += loss.item() * current_batch_size
 
         # Normalize loss by total number of predictors
-        total_loss /= len(train_loader.dataset[0][1])
+        total_loss /= len(train_loader.dataset)
         perplexity = np.exp(total_loss)
 
         # Logging progress
