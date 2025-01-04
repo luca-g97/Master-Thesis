@@ -513,4 +513,4 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             index = get_flat_index(sourceNumber, sentenceNumber, train_source_structure)
             trainSentence = train_sentences[index].replace('\n', '').replace('<|endoftext|>', '')
             print(f"Source: {source}, Count: {count}, Sentence: {trainSentence}")
-        print("Whole List: ", [(source, count, train_sources[get_flat_index(source.split(":")[0], int(source.split(":")[1]), train_source_structure)].replace('\n', '').replace('<|endoftext|>', '')) for source, count in mostUsedGeneratedEvalSources], "\n")
+        print("Whole List: ", [(source, count, train_sources[get_flat_index(int(source.split(":")[0]), int(source.split(":")[1]), train_source_structure)].replace('\n', '').replace('<|endoftext|>', '')) for source, count in mostUsedGeneratedEvalSources], "\n")
