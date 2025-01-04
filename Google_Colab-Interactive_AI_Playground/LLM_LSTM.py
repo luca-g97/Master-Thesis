@@ -475,7 +475,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
     global train_samples, test_samples, eval_samples, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
 
     #Generate sentences and get their activation values
-    generatedEvalSentences, generatedPrediction = zip(*[generate(test_sentences[evalSample]) for evalSample in range(eval_samples)])
+    generatedEvalSentences = [generate(test_sentences[evalSample]) for evalSample in range(eval_samples)]
     print([generatedEvalSentence.replace('"', '\\"') for generatedEvalSentence in generatedEvalSentences])
 
     # Split the combined sentences into sentences and words
