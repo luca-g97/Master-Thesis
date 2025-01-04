@@ -244,7 +244,10 @@ def prepare_data_loader(sentences, words, seq_len, batch_size, shuffle=True):
     # Step 3: Pad predictors with empty strings
     pad_predictors = []
     for pred in predictors:
-        pad_predictors.append([''] * (seq_len - len(pred)) + pred)
+        if len(pred) < seq_len:
+            pad = [''] * (seq_len - len(pred))
+            pred = pad + pred
+        pad_predictors.append(pred)
 
     # Step 4: Create word-to-index mapping
     word_ind = {word: idx for idx, word in enumerate(words)}
@@ -261,7 +264,7 @@ def prepare_data_loader(sentences, words, seq_len, batch_size, shuffle=True):
     dataset = TextDataset(pad_predictors, class_labels)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
 
-    print("Number of input sequences: ", len(pad_predictors))
+    #print("Number of input sequences: ", len(pad_predictors))
 
     return dataloader
 
@@ -362,9 +365,6 @@ def get_batch(pad_predictors, class_labels, batch_size):
 
 def initializeTraining(hidden_sizes, loss_function, optimizer, learning_rateParameter):
     global criterion_class, chosen_optimizer, layers
-
-    input_size = len(torch.flatten(train_loader.dataset[0][0].clone().detach()))
-    output_size = len(torch.flatten(train_loader.dataset[0][1].clone().detach()))
 
     learning_rate = learning_rateParameter
 
