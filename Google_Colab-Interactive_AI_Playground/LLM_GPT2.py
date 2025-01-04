@@ -768,7 +768,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
 
     #RENN.initializeEvaluationHook(hidden_sizes, eval_loader, eval_samples, model, os.path.join("Evaluation", "Sample"), True, train_samples)
     #closestSourcesEvaluation, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(eval_samples, train_samples, closestSources)
-    closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(eval_samples, train_samples, closestSources)
+    _, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(eval_samples, train_samples, closestSources)
 
     for sampleNumber in range(eval_samples):
         #mostUsedEvalSources = RENN.getMostUsedSources(closestSourcesEvaluation, closestSources, sampleNumber, "Mean")
