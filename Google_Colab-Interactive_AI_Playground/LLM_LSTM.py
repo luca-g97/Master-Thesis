@@ -259,7 +259,6 @@ def prepare_data_loader(sentences, words, seq_len, batch_size, shuffle=True):
 
     # Step 7: Create a dataset and DataLoader
     dataset = TextDataset(pad_predictors, class_labels)
-    print(pad_predictors.shape, class_labels.shape)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
 
     print("Number of input sequences: ", len(pad_predictors))
@@ -390,6 +389,8 @@ def trainModel(hidden_sizes, loss_function, optimizer, learning_rate, epochs):
     print("Training finished")
 
 def train_model(train_loader, epochs):
+    global model
+
     for epoch in range(epochs):
         total_loss = 0
         model.train()  # Set model to training mode
@@ -505,7 +506,6 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
         #    print(f"Source: {source}, Count: {count}, Sentence: {trainSentence}")
         #print("Whole List: ", [(source, count, trainSentencesStructure[int(source.split(":")[0])][int(source.split(":")[1])].replace('\n', '').replace('<|endoftext|>', '')) for source, count in mostUsedEvalSources], "\n")
         print(f"Generated Source Sentence: {generatedEvalSentences[sampleNumber]}")
-        print(f"Generated Source: {generatedPrediction[sampleNumber]}")
         print(f"Closest Sources for GeneratedEvaluation-Sample {sampleNumber} in format [SourceNumber, Occurrences, Source]:")
         for source, count in mostUsedGeneratedEvalSources[:closestSources]:
             tempSource = source.split(":")
