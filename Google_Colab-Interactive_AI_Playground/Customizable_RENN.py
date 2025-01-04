@@ -542,31 +542,6 @@ def safe_remove(file_path):
             except OSError as e:
                 print(f"Error removing file {file_path}: {e}")
 
-# Sort by evalSample, layer, neuron
-def keep_closest_sources(data, closestSources):
-    grouped = defaultdict(list)
-
-    # Group data by (evalSample, layer, neuron)
-    for item in data:
-        grouped[(item['evalSample'], item['layer'], item['neuron'])].append(item)
-
-    # Maintain only the closestSources entries using a heap
-    result = []
-    for key, group in grouped.items():
-        # Use a heap to maintain the closest sources based on the 'difference'
-        closest_heap = []
-        for item in group:
-            heapq.heappush(closest_heap, (item['difference'], item))
-
-            # If the heap exceeds closestSources, pop the largest difference
-            if len(closest_heap) > closestSources:
-                heapq.heappop(closest_heap)
-
-        # Extract the closest entries and add to the result list
-        result.extend([item for _, item in closest_heap])
-
-    return result
-
 # Helper function for CPU-bound tasks (matrix manipulations)
 def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEvalPath, closestSources):
     local_eval_data = []
@@ -578,6 +553,7 @@ def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEva
     for (train_dirpath, _, train_filenames) in os.walk(trainPath):
         for train_filename in train_filenames:
             train_full_path = os.path.join(train_dirpath, train_filename)
+
             if os.path.exists(train_full_path):
 
                 layerNumber, sourceNumber, train_sentenceNumber = getInformationFromFileName(train_full_path)
@@ -620,9 +596,6 @@ def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEva
                                 current_source = f"{sourceNumber}:{train_sentenceNumber}"
                                 currentData.append({'evalSample': evalSample, 'layer': layerNumber, 'neuron': neuron_idx,
                                                     'source': current_source, 'eval_neuron_value': eval_neuron_value, 'neuron_value': neuron_value, 'difference': difference})
-
-                        # Apply filtering to only keep closestSources for each neuron
-                        currentData = keep_closest_sources(currentData, closestSources)
 
     return local_eval_data, local_generated_eval_data
 
