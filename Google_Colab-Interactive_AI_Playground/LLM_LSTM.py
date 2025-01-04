@@ -241,24 +241,13 @@ def prepare_data_loader(sentences, words, seq_len, batch_size, shuffle=True):
     predictors = [seq[:-1] for seq in sent_sequences]
     class_labels = [seq[-1] for seq in sent_sequences]
 
-    # Step 3: Pad predictors
+    # Step 3: Pad predictors with empty strings
     pad_predictors = []
     for pred in predictors:
-        if len(pred) < seq_len:
-            pad = [''] * (seq_len - len(pred))
-            pred = pad + pred
-        else:
-            pred = pred[:seq_len]  # Truncate if longer than seq_len
-        pad_predictors.append(pred)
+        pad_predictors.append([''] * (seq_len - len(pred)) + pred)
 
     # Step 4: Create word-to-index mapping
     word_ind = {word: idx for idx, word in enumerate(words)}
-
-    # Debugging: Print sequences and indices
-    for seq in pad_predictors:
-        print(f"Original sequence: {seq}, Length: {len(seq)}")
-    for label in class_labels:
-        print(f"Class label: {label}, Index: {word_ind[label]}")
 
     # Step 5: Convert predictors and class_labels to indices
     pad_predictors = [[word_ind[word] for word in pred] for pred in pad_predictors]
@@ -270,9 +259,10 @@ def prepare_data_loader(sentences, words, seq_len, batch_size, shuffle=True):
 
     # Step 7: Create a dataset and DataLoader
     dataset = TextDataset(pad_predictors, class_labels)
+    print(pad_predictors.shape, class_labels.shape)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
 
-    print(f"Number of input sequences: {len(dataset)}")
+    print("Number of input sequences: ", len(pad_predictors))
 
     return dataloader
 
@@ -412,12 +402,22 @@ def train_model(train_loader, epochs):
             x, y = x.to(device), y.to(device)
             state_h, state_c = state_h.to(device), state_c.to(device)
 
+            # Debug shapes and devices
+            print(f"x shape: {x.shape}, y shape: {y.shape}")
+            print(f"state_h shape: {state_h.shape}, state_c shape: {state_c.shape}")
+            print(f"x device: {x.device}, y device: {y.device}")
+            print(f"state_h device: {state_h.device}, state_c device: {state_c.device}")
+
             # Detach hidden states to prevent backpropagation through past batches
             state_h = state_h.detach()
             state_c = state_c.detach()
 
             # Forward pass and loss computation
             logits, (state_h, state_c) = model(x, state_h, state_c)
+
+            # Debug output shapes
+            print(f"logits shape: {logits.shape}, state_h shape: {state_h.shape}, state_c shape: {state_c.shape}")
+
             loss = criterion_class(logits, y)
 
             # Backpropagation
