@@ -685,15 +685,15 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
     generated_eval_df = pd.DataFrame(generated_eval_data)
 
     # Extract closest sources from DataFrame
-    eval_df = getClosestSourcesFromDf(eval_df, closestSources)
+    #eval_df = getClosestSourcesFromDf(eval_df, closestSources)
     generated_eval_df = getClosestSourcesFromDf(generated_eval_df, closestSources)
 
     # Set index for easier retrieval
-    eval_df.set_index(['evalSample'], inplace=True)
+    #eval_df.set_index(['evalSample'], inplace=True)
     generated_eval_df.set_index(['evalSample'], inplace=True)
 
     # Save the DataFrame as Parquet
-    eval_df.to_parquet('identifiedClosestEvalSources.parquet', compression='zstd')
+    #eval_df.to_parquet('identifiedClosestEvalSources.parquet', compression='zstd')
     generated_eval_df.to_parquet('identifiedClosestGeneratedEvalSources.parquet', compression='zstd')
 
     return eval_df, generated_eval_df
