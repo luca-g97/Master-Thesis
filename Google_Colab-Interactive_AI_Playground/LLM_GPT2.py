@@ -9,6 +9,14 @@ import requests
 import urllib.request
 import Customizable_RENN as RENN
 import pandas as pd
+import sys
+from subprocess import run
+sys.path.append('/tf/.local/lib/python3.11/site-packages')
+run([sys.executable, "-m", "pip", "install", "--upgrade", "pip"], check=True)
+run([sys.executable, "-m", "pip", "install", "-q", "nltk"], check=True)
+import nltk
+nltk.download('punkt_tab')
+from nltk import word_tokenize,sent_tokenize
 
 random, lorem, device, tiktoken, DataLoader, nlp, GPT2Tokenizer = "", "", "", "", "", "", ""
 train_samples, test_samples, eval_samples = "", "", ""
@@ -176,7 +184,7 @@ def create_sources(data):
     split_text = re.split(f'(?={heading_pattern})', data)
 
     # Print the adjusted titles
-    print("Titles: ", titles[:10])
+    #print("Titles: ", titles[:10])
 
     sources = []
     for source in split_text:
@@ -197,9 +205,8 @@ def createWikiText2Set(path):
     sentencesStructure = []
 
     for source in sources:
-        # Process the paragraph through Stanza
-        doc = nlp(source)
-        sentences_data = [sentence.text for sentence in doc.sentences]
+        # Process the paragraph using NLTK
+        sentences_data = nltk.sent_tokenize(source)
 
         # Add the list of sentences for this paragraph
         sentencesStructure.append(sentences_data)
