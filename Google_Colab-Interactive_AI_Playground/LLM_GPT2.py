@@ -5,6 +5,7 @@ import torch.optim as optim
 from torch.utils.data import Dataset
 import os
 import re
+import numpy as np
 import requests
 import urllib.request
 import Customizable_RENN as RENN
@@ -631,7 +632,7 @@ def train_model_simple(train_loader, val_loader, optimizer, num_epochs,
             val_losses.append(val_loss)
             track_tokens_seen.append(tokens_seen)
         #print(f"Ep {epoch+1} (Step {global_step:06d}): "f"Train loss {train_loss:.3f}, Val loss {val_loss:.3f}")
-        print(f"Ep {epoch+1}: "f"Train loss {train_loss}, Val loss {val_loss}")
+        print(f"Epoch {epoch+1}: "f"Train-Loss {train_loss:.4f}, Train-Perplexity {np.exp(train_loss):.4f}, Validation-Loss {val_loss:.4f}, Test-Perplexity {np.exp(val_loss):.4f},")
 
 
     return train_losses, val_losses, track_tokens_seen
