@@ -206,7 +206,7 @@ def forward_hook(module, input, output):
             else:
                 layer += 1
 
-def attachHooks(hookLoader, model, llmType = False, filename = "", sourceOffset=0):
+def attachHooks(hookLoader, model, llmType = False, filename = "", sourceOffset=0, lstm = False):
     global source, layer, sourceArray, fileName
 
     fileName = filename
@@ -230,7 +230,12 @@ def attachHooks(hookLoader, model, llmType = False, filename = "", sourceOffset=
                 actualSource, actualSentenceNumber = chosenDataSet.getSourceAndSentenceIndex(source, fileName)
                 print(f"Saving all Activations for {fileName}-Source {tempSource} (Actual {fileName}-Source: {actualSource}:{actualSentenceNumber})")
             inputs = inputs.to(device)
-            _ = model(inputs)
+            if lstm:
+                state_h, state_c = model.init_hidden(1)
+                state_h, state_c = state_h.to(device), state_c.to(device)
+                _, _ = model(inputs, state_h, state_c)
+            else:
+                _ = model(inputs)
 
     # Remove hooks after use
     for hook in hooks:
