@@ -30,5 +30,3 @@ Google_Colab-Interactive_AI_Playground/*
 
 # Exclude the Datasets folder from being ignored
 !Google_Colab-Interactive_AI_Playground/Datasets/
-!Google_Colab-Interactive_AI_Playground/LLM_GPT2.py
-!Google_Colab-Interactive_AI_Playground/LLM_LSTM.py

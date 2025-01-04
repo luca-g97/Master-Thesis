@@ -2,6 +2,12 @@ import os
 import logging
 import timeit
 
+# Set up dependencies
+logging.info("Installing dependencies...")
+os.system("pip install -q lorem==0.1.1 tiktoken==0.8.0 stanza ipywidgets==7.7.1 plotly pyarrow zstandard")
+import stanza
+stanza.download('en', verbose=False)
+
 #Libraries related to Torch
 import torch
 from torch.utils.data import DataLoader
@@ -53,12 +59,6 @@ def check_if_all_files_are_present(expected_files):
             logging.warning(f"Missing: {item}")
             return False
     return True
-
-def setup_environment():
-    # Set up dependencies
-    logging.info("Installing dependencies...")
-    os.system("pip install lorem==0.1.1 tiktoken==0.8.0 stanza ipywidgets==7.7.1 plotly pyarrow zstandard")
-    stanza.download('en', verbose=False)
 
 def main():
     logging.info("Starting Interactive AI Playground...")

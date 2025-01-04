@@ -213,6 +213,7 @@ def createWikiText2TrainSet():
     test_sentences = createWikiText2Set("./Datasets/WikiText2Test.txt")
     train_sentences = createWikiText2Set("./Datasets/WikiText2Train.txt")
 
+    print("Created a training set with " + str(len(train_sentences)) + " sentences")
     return train_sentences, test_sentences
 
 def createEnglishWikiTrainSet(filePath):
