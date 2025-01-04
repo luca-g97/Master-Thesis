@@ -254,7 +254,7 @@ def createDictionaries(hidden_sizes, totalLayersParameter, train_samples, llmTyp
             activationsByLayers = np.zeros((totalLayers, np.max(layerSizes), train_samples), dtype=np.float128)
     print("Hook-Dictionaries created")
 
-def runHooks(train_dataloader, model, layersParameter=layers, llmType=False, context_length=1):
+def runHooks(train_dataloader, model, layersParameter=layers, llmType=False, context_length=1, lstm=False):
     global layers, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, activationsBySources, activationsByLayers, llm, contextLength
 
     #Variables for usage within the hook
@@ -265,7 +265,7 @@ def runHooks(train_dataloader, model, layersParameter=layers, llmType=False, con
         dictionaryForSourceLayerNeuron = activationsBySources
         dictionaryForLayerNeuronSource = activationsByLayers
 
-    attachHooks(train_dataloader, model, llmType, filename="Training", sourceOffset=0)
+    attachHooks(train_dataloader, model, llmType, filename="Training", sourceOffset=0, lstm=lstm)
 
     if not llm:
         activationsBySources = dictionaryForSourceLayerNeuron
@@ -281,7 +281,7 @@ def initializeHook(train_dataloader, model, hidden_sizesParameter, train_samples
     createDictionaries(hidden_sizes, totalLayers, train_samples)
     runHooks(train_dataloader, model, layers)
 
-def initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model, filename="Evaluation", llmType = False, sourceOffset=0):
+def initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model, filename="Evaluation", llmType = False, sourceOffset=0, lstm=False):
     global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
 
     if not llm:
@@ -290,7 +290,7 @@ def initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model,
 
     with torch.no_grad():
         model.eval()  # Set the model to evaluation mode
-        attachHooks(eval_dataloader, model, llmType, filename, sourceOffset)
+        attachHooks(eval_dataloader, model, llmType, filename, sourceOffset, lstm)
 
     return dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
 

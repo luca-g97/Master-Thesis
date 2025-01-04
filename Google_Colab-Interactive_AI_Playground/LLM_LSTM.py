@@ -440,7 +440,7 @@ def initializeHook(hidden_sizes, train_samples):
     sentences, words = split_data(cleaned_train_data, train_samples)
     train_loader = prepare_data_loader(sentences, words, seq_len=seq_len, batch_size=1, shuffle=False)
 
-    RENN.runHooks(train_loader, model, hidden_sizes, True)
+    RENN.runHooks(train_loader, model, hidden_sizes, True, lstm=True)
 
 def generate(init):
     model.eval()
@@ -481,7 +481,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
     # Split the combined sentences into sentences and words
     sentences, words = split_data(" ".join(generatedEvalSentences))
     generatedEvalLoader = prepare_data_loader(sentences, words, seq_len=seq_len, batch_size=1, shuffle=False)
-    RENN.initializeEvaluationHook(hidden_sizes, generatedEvalLoader, eval_samples, model, os.path.join("Evaluation", "Generated"), True, 0)
+    RENN.initializeEvaluationHook(hidden_sizes, generatedEvalLoader, eval_samples, model, os.path.join("Evaluation", "Generated"), True, 0, True)
 
     #RENN.initializeEvaluationHook(hidden_sizes, eval_loader, eval_samples, model, os.path.join("Evaluation", "Sample"), True, train_samples)
     #closestSourcesEvaluation, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(eval_samples, 0, closestSources)
