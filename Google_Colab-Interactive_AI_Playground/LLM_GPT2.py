@@ -22,7 +22,7 @@ from nltk import word_tokenize,sent_tokenize
 random, lorem, device, tiktoken, DataLoader, nlp, GPT2Tokenizer = "", "", "", "", "", "", ""
 train_samples, test_samples, eval_samples = "", "", ""
 GPT_CONFIG_124M, settings = "", ""
-train_loader, val_loader, eval_loader, tokenizer, sentences, sentencesStructure = "", "", "", "", "", ""
+train_loader, val_loader, eval_loader, tokenizer, trainSentences, trainSentencesStructure, testSentences, testSentencesStructure = "", "", "", "", "", "", "", ""
 dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource = [], []
 
 def initializePackages(randomPackage, loremPackage, devicePackage, tiktokenPackage, DataLoaderPackage, nlpPackage, GPT2TokenizerPackage):
@@ -30,8 +30,26 @@ def initializePackages(randomPackage, loremPackage, devicePackage, tiktokenPacka
 
     random, lorem, device, tiktoken, DataLoader, nlp, GPT2Tokenizer = randomPackage, loremPackage, devicePackage, tiktokenPackage, DataLoaderPackage, nlpPackage, GPT2TokenizerPackage
 
+def createTrainAndTestStructure(sentencesStructure, offset):
+    train_sentences, test_sentences = [], []
+    current_count = 0
+
+    for sublist in sentencesStructure:
+        if current_count + len(sublist) <= offset:
+            train_sentences.append(sublist)
+            current_count += len(sublist)
+        else:
+            split_idx = offset - current_count
+            if split_idx > 0:
+                train_sentences.append(sublist[:split_idx])
+            test_sentences.append(sublist[split_idx:])
+            test_sentences.extend(sentencesStructure[sentencesStructure.index(sublist) + 1:])
+            break
+
+    return train_sentences, test_sentences
+
 def createTrainSet():
-    global sentences, sentencesStructure
+    global trainSentences, trainSentencesStructure, testSentences, testSentencesStructure
 
     file_path = "./Datasets/TheVerdict.txt"
     with open(file_path, "r", encoding="utf-8") as file:
@@ -47,8 +65,13 @@ def createTrainSet():
     # Flatten the list of sentences correctly
     sentences = [sentence for sublist in sentencesStructure for sentence in sublist]
 
+    offset = int(len(sentences)*0.8)
+    trainSentencesStructure, testSentencesStructure = createTrainAndTestStructure(sentencesStructure, offset)
     print(f"Created a train set with {len(sentences)} sentences")
-    return sentences[:int(len(sentences)*0.8)], sentences[int(len(sentences)*0.8):]
+
+    trainSentences, testSentences = sentences[:offset], sentences[offset:]
+
+    return trainSentences, testSentences
 
 # Wikipedia API endpoint for querying
 WIKIPEDIA_API_URL = "https://en.wikipedia.org/w/api.php"
@@ -122,7 +145,7 @@ def split_sentences(content, nlp):
     return sentences
 
 def createWikiTrainSet(category):
-    global sentences, sentencesStructure
+    global trainSentences, trainSentencesStructure, testSentences, testSentencesStructure
 
     # Fetch a list of article titles from the specified category
     titles = fetch_article_titles(category)
@@ -144,8 +167,14 @@ def createWikiTrainSet(category):
         sentencesStructure.append(sentence_data)
 
     sentences = [sentence for sublist in sentencesStructure for sentence in sublist]
-    print("Created a training set with " + str(len(sentences)) + " sentences")
-    return sentences[:int(len(sentences)*0.8)], sentences[int(len(sentences)*0.8):]
+
+    offset = int(len(sentences)*0.8)
+    trainSentencesStructure, testSentencesStructure = createTrainAndTestStructure(sentencesStructure, offset)
+    print(f"Created a train set with {len(sentences)} sentences")
+
+    trainSentences, testSentences = sentences[:offset], sentences[offset:]
+
+    return trainSentences, testSentences
 
 def load_data(filepath):
     try:
@@ -197,8 +226,6 @@ def create_sources(data):
     return titles, sources
 
 def createWikiText2Set(path):
-    global sentences, sentencesStructure
-
     data = load_data(path)
 
     titles, sources = create_sources(data)
@@ -217,17 +244,20 @@ def createWikiText2Set(path):
     # Flatten the list of lists to have a total collection of sentences
     sentences = [sentence for sublist in sentencesStructure for sentence in sublist]
 
-    return sentences
+    return sentences, sentencesStructure
 
 def createWikiText2TrainSet():
-    test_sentences = createWikiText2Set("./Datasets/WikiText2Test.txt")
-    train_sentences = createWikiText2Set("./Datasets/WikiText2Train.txt")
+    global trainSentences, trainSentencesStructure, testSentences, testSentencesStructure
 
-    print("Created a training set with " + str(len(train_sentences)) + " sentences")
-    return train_sentences, test_sentences
+    testSentences, testSentencesStructure = createWikiText2Set("./Datasets/WikiText2Test.txt")
+    trainSentences, trainSentencesStructure = createWikiText2Set("./Datasets/WikiText2Train.txt")
+
+    print(f"Created a train set with {len(trainSentences)} sentences")
+
+    return trainSentences, testSentences
 
 def createEnglishWikiTrainSet(filePath):
-    global sentences, sentencesStructure
+    global trainSentences, trainSentencesStructure, testSentences, testSentencesStructure
 
     # Load the specific Parquet file using pandas
     df = pd.read_parquet(filePath)
@@ -250,13 +280,26 @@ def createEnglishWikiTrainSet(filePath):
     # Flatten the list of lists to have a total collection of sentences
     sentences = [sentence for sublist in sentencesStructure for sentence in sublist]
 
-    return sentences[:int(len(sentences)*0.8)], sentences[int(len(sentences)*0.8):]
+    offset = int(len(sentences)*0.8)
+    trainSentencesStructure, testSentencesStructure = createTrainAndTestStructure(sentencesStructure, offset)
+    print(f"Created a train set with {len(sentences)} sentences")
+
+    trainSentences, testSentences = sentences[:offset], sentences[offset:]
+
+    return trainSentences, testSentences
 
 # Function to map a flattened index back to its source and sentence index
-def getSourceAndSentenceIndex(flat_index):
+def getSourceAndSentenceIndex(flat_index, structure="Training"):
+    if structure == "Training":
+        structure = trainSentencesStructure
+    elif "Evaluation" in structure:
+        structure = testSentencesStructure
+    else:
+        raise ValueError("Invalid structure name. Must be 'Training' or contain 'Evaluation'!")
+
     # Iterate over the sentences list of lists to find the corresponding sublist and sentence index
     current_index = 0
-    for source_index, sublist in enumerate(sentencesStructure):
+    for source_index, sublist in enumerate(structure):
         sublist_length = len(sublist)
         if flat_index < current_index + sublist_length:
             sentence_index = flat_index - current_index
@@ -379,9 +422,9 @@ def createLLMLoaders(train_samplesParameter, test_samplesParameter, eval_samples
 
     train_samples, test_samples, eval_samples = train_samplesParameter, test_samplesParameter, eval_samplesParameter
     # Split the sentences into train, test, and eval sets
-    train_sentences = sentences[:train_samples]
-    test_sentences = sentences[train_samples:train_samples+test_samples]
-    eval_sentences = sentences[train_samples:train_samples+eval_samples]
+    train_sentences = trainSentences[:train_samples]
+    test_sentences = testSentences[:test_samples]
+    eval_sentences = testSentences[:eval_samples]
 
     # Create loaders with sentences and context length
     train_loader = createLLMLoader(train_sentences, 2 if train_samples >= 2 else train_samples, GPT_CONFIG_124M["context_length"], True)
@@ -665,7 +708,7 @@ def plot_losses(epochs_seen, tokens_seen, train_losses, val_losses):
 
 def main():
     global tokenizer
-    
+
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=settings["learning_rate"], weight_decay=settings["weight_decay"]
     )
@@ -689,7 +732,7 @@ def trainModel(hidden_sizes, loss_function, optimizer, learning_rate, epochs):
 def initializeHook(hidden_sizes, train_samples):  
     RENN.createDictionaries(hidden_sizes, len(hidden_sizes), train_samples, llmType=True)
 
-    samples = sentences[:train_samples]
+    samples = trainSentences[:train_samples]
     train_loader = createLLMLoader(samples, 1, context_length=1)
 
     RENN.runHooks(train_loader, model, hidden_sizes, True)
@@ -761,14 +804,14 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
     global train_samples, test_samples, eval_samples, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
 
     #Generate sentences and get their activation values
-    generatedEvalSentences, generatedPrediction = zip(*[getLLMPrediction(sentences[train_samples + evalSample], True) for evalSample in range(eval_samples)])
+    generatedEvalSentences, generatedPrediction = zip(*[getLLMPrediction(testSentences[evalSample], True) for evalSample in range(eval_samples)])
     print([generatedEvalSentence.replace('"', '\\"') for generatedEvalSentence in generatedEvalSentences])
     generatedEvalLoader = createLLMLoader(generatedEvalSentences, 1, context_length=256)
     RENN.initializeEvaluationHook(hidden_sizes, generatedEvalLoader, eval_samples, model, os.path.join("Evaluation", "Generated"), True, train_samples)
 
     #RENN.initializeEvaluationHook(hidden_sizes, eval_loader, eval_samples, model, os.path.join("Evaluation", "Sample"), True, train_samples)
-    #closestSourcesEvaluation, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(eval_samples, train_samples, closestSources)
-    _, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(eval_samples, train_samples, closestSources)
+    #closestSourcesEvaluation, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(eval_samples, 0, closestSources)
+    _, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(eval_samples, 0, closestSources)
 
     for sampleNumber in range(eval_samples):
         #mostUsedEvalSources = RENN.getMostUsedSources(closestSourcesEvaluation, closestSources, sampleNumber, "Mean")
@@ -776,23 +819,23 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
         mostUsedGeneratedEvalSources = RENN.getMostUsedSources(closestSourcesGeneratedEvaluation, closestSources, sampleNumber, "Mean")
         _ = RENN.getMostUsedSources(closestSourcesGeneratedEvaluation, closestSources, sampleNumber, "Sum")
 
-        sample, prediction = getLLMPrediction(sentences[train_samples+sampleNumber])
+        sample, prediction = getLLMPrediction(testSentences[sampleNumber])
         print("Evaluation Sample ", sampleNumber, ": ", sample.replace('\n', '').replace('<|endoftext|>', ''))
         print("Follow up: ", prediction.replace('\n', '').replace('<|endoftext|>', ''))
         #print(f"Closest Sources for Evaluation-Sample {sampleNumber} in format [SourceNumber, Occurrences, Source]:")
         #for source, count in mostUsedEvalSources[:closestSources]:
         #    tempSource = source.split(":")
         #    sourceNumber, sentenceNumber = int(tempSource[0]), int(tempSource[1])
-        #    trainSentence = sentencesStructure[sourceNumber][sentenceNumber].replace('\n', '').replace('<|endoftext|>', '')
+        #    trainSentence = trainSentencesStructure[sourceNumber][sentenceNumber].replace('\n', '').replace('<|endoftext|>', '')
         #    print(f"Source: {source}, Count: {count}, Sentence: {trainSentence}")
-        #print("Whole List: ", [(source, count, sentencesStructure[int(source.split(":")[0])][int(source.split(":")[1])].replace('\n', '').replace('<|endoftext|>', '')) for source, count in mostUsedEvalSources], "\n")
+        #print("Whole List: ", [(source, count, trainSentencesStructure[int(source.split(":")[0])][int(source.split(":")[1])].replace('\n', '').replace('<|endoftext|>', '')) for source, count in mostUsedEvalSources], "\n")
         print(f"Generated Source Sentence: {generatedEvalSentences[sampleNumber]}")
         print(f"Generated Source: {generatedPrediction[sampleNumber]}")
         print(f"Closest Sources for GeneratedEvaluation-Sample {sampleNumber} in format [SourceNumber, Occurrences, Source]:")
         for source, count in mostUsedGeneratedEvalSources[:closestSources]:
             tempSource = source.split(":")
             sourceNumber, sentenceNumber = int(tempSource[0]), int(tempSource[1])
-            trainSentence = sentencesStructure[sourceNumber][sentenceNumber].replace('\n', '').replace('<|endoftext|>', '')
+            trainSentence = trainSentencesStructure[sourceNumber][sentenceNumber].replace('\n', '').replace('<|endoftext|>', '')
             print(f"Source: {source}, Count: {count}, Sentence: {trainSentence}")
-        print("Whole List: ", [(source, count, sentencesStructure[int(source.split(":")[0])][int(source.split(":")[1])].replace('\n', '').replace('<|endoftext|>', '')) for source, count in mostUsedGeneratedEvalSources], "\n")
+        print("Whole List: ", [(source, count, trainSentencesStructure[int(source.split(":")[0])][int(source.split(":")[1])].replace('\n', '').replace('<|endoftext|>', '')) for source, count in mostUsedGeneratedEvalSources], "\n")
     #print(f"Time passed since start: {time_since_start(startTime)}")
