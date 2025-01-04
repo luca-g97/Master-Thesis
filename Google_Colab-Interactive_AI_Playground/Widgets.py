@@ -75,9 +75,9 @@ def createBoolButtonChoice(description, tooltip, value = False, disabled=False, 
     )
     return boolButton
 
-datasetChoice = createLayerChoice(options=['MNIST', 'HSV-RGB', 'Small 1x1', 'The Verdict'], # 'Cifar10', 
+datasetChoice = createLayerChoice(options=['MNIST', 'HSV-RGB', 'WikiText2 (GPT2)', 'WikiText2 (LSTM)'], #'Small1x1' 
                                   tooltips=['60000 Written numbers from 0 to 9 (Classification)', '50000 HSV-values (Conversion to RGB)',
-                                            '90 random values of the small 1x1 (Calculation)', '1982 American legal drama film directed by Sidney Lumet'], description='Dataset') #'50000 images from 10 classes (Classification)'
+                                            'Wikipedia (WikiText2) Dataset using GPT2-Architecture', 'Wikipedia (WikiText2) Dataset using LSTM-Architecture'], description='Dataset') #'90 random values of the small 1x1 (Calculation)'
 
 def updateDatasetTab():
     global datasetChoice
@@ -109,8 +109,8 @@ def updateNetworkTab():
 
     num_layers = layerAmountChoice.value
 
-    if(datasetChoice.value == "Small 1x1" or datasetChoice.value == "The Verdict"):
-        num_layers = 12
+    #if(datasetChoice.value == "WikiText2 (GPT2)"):
+    #    num_layers = 12
 
     # Create list of ToggleButtons for normal and activation choices for each layer
     normalLayerChoice = [createLayerChoice(options=['Linear'],
@@ -157,7 +157,7 @@ def updateNetworkTab():
             #chosenLayers.append((accordionNormalLayer[i].children[0].children[1].value, accordionActivationLayer[i].children[0].children[0].value))
             tab_nest.set_title(i, f"Layer {i}")
 
-    if(datasetChoice.value == "Small 1x1" or datasetChoice.value == "The Verdict"):
+    if(datasetChoice.value == "WikiText2 (GPT2)" or datasetChoice.value == "WikiText2 (LSTM)"):
         return widgets.VBox([seedChoice, useBitLinearChoice, layerAmountChoice])
     else:
         return widgets.VBox([seedChoice, useBitLinearChoice, layerAmountChoice, tab_nest])
@@ -189,8 +189,8 @@ def updateTrainingTab():
     maxTrain = len(trainDataSet)
     maxTest = len(testDataSet)
 
-    learningRate = 0.001  
-    if(datasetChoice.value == "The Verdict"):
+    learningRate = 0.001
+    if(datasetChoice.value == "WikiText2 (GPT2)"):
         learningRate = 0.0004
 
     learningRateChoice = widgets.BoundedFloatText(value=learningRate, min=0.0000001, max=10.0, step=0.0000001, description='Learning Rate', style = {'description_width': 'initial'}, disabled=False)
@@ -201,7 +201,7 @@ def updateTrainingTab():
     trainingsLink = widgets.jslink((trainSamplesChoice, 'value'), (batchSizeTraining, 'max'))
     testLink = widgets.jslink((testSamplesChoice, 'value'), (batchSizeTest, 'max'))
 
-    if(datasetChoice.value == "Small 1x1" or datasetChoice.value == "The Verdict"):
+    if(datasetChoice.value == "WikiText2 (GPT2)" or datasetChoice.value == "WikiText2 (LSTM)"):
         #trainTestLink = widgets.jslink((trainSamplesChoice, 'value'), (testSamplesChoice, 'max'))
         return widgets.VBox([epochsChoice, learningRateChoice, trainSamplesChoice, testSamplesChoice])
     else:
@@ -229,7 +229,7 @@ def updateVisualizationTab():
     outputLayerSizeChoice = createRangeSliderChoice(max=10, description=f"Output Layer")
     outputLayerActivationChoiceType = createBoolButtonChoice(description=f"Activation layer ({outputActivationLayerChoice.value})", tooltip="Include activation layer", disabled = True if outputActivationLayerChoice.value == "None" else False)
     showClosestMostUsedSourcesLink = widgets.jslink((trainSamplesChoice, 'value'), (showClosestMostUsedSourcesChoice, 'max'))
-    if(datasetChoice.value == "Small 1x1" or datasetChoice.value == "The Verdict"):
+    if(datasetChoice.value == "WikiText2 (GPT2)" or datasetChoice.value == "WikiText2 (LSTM)"):
         evalSamplesChoice = createIntSlider(1, min=1, max=len(testDataSet), description="Evaluations")
         closestSourceTrainingLink = widgets.jslink((trainSamplesChoice, 'value'), (closestSourcesChoice, 'max'))
         return widgets.VBox([evalSamplesChoice, closestSourcesChoice, showClosestMostUsedSourcesChoice])

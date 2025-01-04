@@ -65,7 +65,7 @@ def main():
 
     # Check for required files
     expected_files = ['Customizable_RENN.py', 'Images_HSVRGB.py', 'Images_MNIST.py',
-                      'LLM_Small1x1.py', 'LLM_Verdict.py', 'Widgets.py']
+                      'LLM_Small1x1.py', 'LLM_GPT2.py', 'LLM_LSTM.py', 'Widgets.py', 'Datasets']
 
     if not check_if_all_files_are_present(expected_files):
         logging.info("Cloning repository...")
@@ -98,32 +98,34 @@ Small1x1.initializePackages(random, lorem, device, tiktoken, DataLoader)
 small1x1 = Small1x1.createTrainAndTestSet(100)
 
 # The Verdict: LLM-Sourcecheck
-import LLM_Verdict as Verdict
-Verdict.initializePackages(random, lorem, device, tiktoken, DataLoader, nlp, GPT2Tokenizer)
+import LLM_GPT2 as GPT2
+GPT2.initializePackages(random, lorem, device, tiktoken, DataLoader, nlp, GPT2Tokenizer)
 # Choose one of the following as needed:
-# verdict = Verdict.createTrainSet()
-verdict = Verdict.createWikiTrainSet("sports")
-# verdict = Verdict.createEnglishWikiTrainSet("./english_wikipedia/data/train-00021-of-00022-8014350d27e6cde7.parquet")
+# gpt2train, gpt2test = GPT2.createTrainSet()
+# gpt2train, gpt2test = GPT2.createWikiTrainSet("sports")
+gpt2train, gpt2test = GPT2.createWikiText2TrainSet()
+# gpt2train, gpt2test = GPT2.createEnglishWikiTrainSet("./english_wikipedia/data/train-00021-of-00022-8014350d27e6cde7.parquet")
 
-print(verdict)
+print(gpt2train)
 
 # Organize datasets for easy access
 datasets = {
     "MNIST": (trainSetMNIST, testSetMNIST),
     "HSV-RGB": (trainSetHSVRGB, testSetHSVRGB),
     "Small 1x1": (small1x1[:int(len(small1x1) * 0.8)], small1x1[int(len(small1x1) * 0.8):]),
-    "The Verdict": (verdict[:int(len(verdict) * 0.8)], verdict[int(len(verdict) * 0.8):])
+    "WikiText2 (GPT2)": (gpt2train, gpt2test),
+    #"WikiText2 (LSTM)": (lstmTrain, lstmTest)
 }
 
 layerAmount = 2
 learning_rate = 0.0004
-epochs = 10#00
+epochs = 10
 seed = 0
 useBitLinear = False
 normalLayers = [['Linear', 128, 'ReLU'], ['Linear', 128, 'ReLU']]
 neuronChoices = [((0, 128), True), ((0, 128), True)]
 
-datasetChoice = "The Verdict"
+datasetChoice = "WikiText2 (GPT2)"
 chosenDataSet = ""
 
 # Selection Initialization
@@ -133,10 +135,10 @@ elif datasetChoice == "HSV-RGB":
     chosenDataSet = HSVRGB
 elif datasetChoice == "Small 1x1":
     chosenDataSet = Small1x1
-elif datasetChoice == "The Verdict":
-    chosenDataSet = Verdict
+elif datasetChoice == "WikiText2 (GPT2)":
+    chosenDataSet = GPT2
 
-if datasetChoice in ["Small 1x1", "The Verdict"]:
+if datasetChoice in ["Small 1x1", "WikiText2 (GPT2)"]:
     LLM_Layers, TransformerBlockLayer = chosenDataSet.setGPTSettings(layerAmount, learning_rate, epochs)
     chosenDataSet.setGPTSettings(layerAmount, learning_rate, epochs)
     hidden_sizes = [LLM_Layers[0]]

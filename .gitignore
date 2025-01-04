@@ -26,6 +26,7 @@ venv/
 .local
 
 #Ignore produced files
-Google_Colab-Interactive_AI_Playground/SparseArray.txt
-Google_Colab-Interactive_AI_Playground/TheVerdict.txt
 Google_Colab-Interactive_AI_Playground/*
+
+# Exclude the Datasets folder from being ignored
+!Google_Colab-Interactive_AI_Playground/Datasets/
