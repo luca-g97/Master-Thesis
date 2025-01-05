@@ -122,6 +122,7 @@ def create_sources(data):
 
 def create_source_structure(data, name, titles, sources):
     source_structure = []
+    current_offset = 0
 
     # Write sources to the output file
     with open(f"{name}_sources.txt", 'w', encoding='utf-8') as f:
@@ -131,7 +132,7 @@ def create_source_structure(data, name, titles, sources):
 
             # Split data into sentences and sequences
             sentences, _ = split_data(source)
-            _, sequences = create_sequences(sentences)
+            _, sequences, current_offset = create_sequences(sentences, current_offset)
 
             for sentence_number, (sentence, sequence) in enumerate(zip(sentences, sequences)):
                 # Append the sequence to the source structure
@@ -143,10 +144,9 @@ def create_source_structure(data, name, titles, sources):
 
     return titles, sources, source_structure
 
-def create_sequences(sentences):
+def create_sequences(sentences, current_offset=0):
     sent_sequences = []
 
-    current_offset = 0
     sequences = []
     for sentence in sentences:
         sequence_offset = 0
@@ -164,7 +164,7 @@ def create_sequences(sentences):
         sequences.append([current_offset, current_offset+sequence_offset])
         current_offset += sequence_offset
 
-    return sent_sequences, sequences
+    return sent_sequences, sequences, current_offset
 
 def split_data(data, num_sentences=-1):
     sentences = sent_tokenize(data) if num_sentences == -1 else sent_tokenize(data)[:num_sentences]
@@ -236,7 +236,7 @@ def prepare_data_loader(sentences, words, seq_len, batch_size, shuffle=True):
             return self.predictors[idx], self.class_labels[idx]
 
     # Step 1: Generate sent_sequences
-    sent_sequences, _ = create_sequences(sentences)
+    sent_sequences, _, _ = create_sequences(sentences)
 
     # Step 2: Split into predictors and class_labels
     predictors = [seq[:-1] for seq in sent_sequences]
@@ -478,7 +478,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
 
     #Generate sentences and get their activation values
     generatedEvals = [generate(test_sentences[evalSample]) for evalSample in range(eval_samples)]
-    generatedEvalSentences = [split_data(generatedEvalSentence, 1)[0][0] for generatedEvalSentence in generatedEvals]
+    generatedEvalSentences = [split_data(generatedEvalSentence, 2)[0][1] for generatedEvalSentence in generatedEvals]
 
     print(generatedEvalSentences)
     # Split the combined sentences into sentences and words
@@ -490,7 +490,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
 
     #RENN.initializeEvaluationHook(hidden_sizes, eval_loader, eval_samples, model, os.path.join("Evaluation", "Sample"), True, train_samples)
     #closestSourcesEvaluation, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(eval_samples, 0, closestSources)
-    _, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(eval_samples, 0, closestSources)
+    _, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(len(generatedEvalLoader), 0, closestSources)
 
     for sampleNumber in range(eval_samples):
         #mostUsedEvalSources = RENN.getMostUsedSources(closestSourcesEvaluation, closestSources, sampleNumber, "Mean")

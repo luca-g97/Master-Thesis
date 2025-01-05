@@ -423,18 +423,18 @@ def normalize_to_integer_sparse(sparse_data, min_val, max_val):
 
     return normalized_data
 
+i=0
 # Function to compress DataFrame using ZSTD
 def compress_dataframe_zstd(filepath, df, source_name, sentence_number):
+    global i
+
     # Convert to PyArrow Table
     table = pa.Table.from_pandas(df)
 
     # Ensure the layer directory exists
     os.makedirs(filepath, exist_ok=True)
 
-    # Determine the next available partition index
-    i = 0
-    while os.path.exists(f"{filepath}/Source={source_name}/Sentence{sentence_number}-{{i}}.parquet"):
-        i += 1
+    i += 1
 
     # Write to partitioned dataset, creating partitions if necessary
     pq.write_to_dataset(
