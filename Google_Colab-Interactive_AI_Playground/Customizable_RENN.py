@@ -389,15 +389,16 @@ def getMostUsedFromDataFrame(df, evalSample, closestSources, weightedMode=""):
 
     return sourceCounter, mostUsed
 
-def getMostUsedSources(sources, closestSources, evalSample=0, weightedMode=""):
+def getMostUsedSources(sources, closestSources, evalSample=0, weightedMode="", info=True):
     weightedSources = []
     if llm:
         sourceCounter, mostUsed = getMostUsedFromDataFrame(sources, evalSample, closestSources, weightedMode)
     else:
         sourceCounter, mostUsed = getMostUsed(sources, weightedMode)
     counter = Counter(mostUsed)
-
-    print("Total closest Sources :", sourceCounter, " | ", closestSources, " closest Sources (", weightedMode, ") in format: [SourceNumber, Occurances]: ", counter.most_common()[:closestSources])
+    
+    if(info):
+        print("Total closest Sources :", sourceCounter, " | ", closestSources, " closest Sources (", weightedMode, ") in format: [SourceNumber, Occurances]: ", counter.most_common()[:closestSources])
     return counter.most_common()[:closestSources]
 
 # Normalize function to convert to integer range for sparse arrays
@@ -554,12 +555,13 @@ def safe_remove(file_path):
                 print(f"Error removing file {file_path}: {e}")
 
 # Helper function for CPU-bound tasks (matrix manipulations)
-def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEvalPath, closestSources):
+def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEvalPath, closestSources, info):
     local_eval_data = []
     local_generated_eval_data = []
 
     evalSource, eval_sentenceNumber = chosenDataSet.getSourceAndSentenceIndex(evalOffset + evalSample, "Evaluation")
-    thread_safe_print(f"Starting Evaluation for Evaluation-Sample {evalSample} (Actual Evaluation-Source: {evalSource}:{eval_sentenceNumber})")
+    if(info):
+        thread_safe_print(f"Starting Evaluation for Evaluation-Sample {evalSample} (Actual Evaluation-Source: {evalSource}:{eval_sentenceNumber})")
 
     for (train_dirpath, _, train_filenames) in os.walk(trainPath):
         for train_filename in train_filenames:
@@ -610,10 +612,11 @@ def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEva
 
     return local_eval_data, local_generated_eval_data
 
-def process_sample_io(evalSample, evalOffset, trainPath, evalPath, generatedEvalPath, layersToCheck):
+def process_sample_io(evalSample, evalOffset, trainPath, evalPath, generatedEvalPath, layersToCheck, info):
     # I/O-bound operations such as file copying and reading parquet files
     evalSource, eval_sentenceNumber = chosenDataSet.getSourceAndSentenceIndex(evalOffset + evalSample, "Evaluation")
-    thread_safe_print(f"Starting I/O-bound tasks for Evaluation-Sample {evalSample} (Actual Evaluation-Source: {evalSource}:{eval_sentenceNumber})")
+    if info:
+        thread_safe_print(f"Starting I/O-bound tasks for Evaluation-Sample {evalSample} (Actual Evaluation-Source: {evalSource}:{eval_sentenceNumber})")
 
     to_copy = []
     for (train_dirpath, _, train_filenames) in os.walk(trainPath):
@@ -650,7 +653,7 @@ def getClosestSourcesFromDf(df, closestSources):
     )
     return closest_sources
 
-def identifyClosestLLMSources(evalSamples, evalOffset, closestSources, onlyOneEvaluation=False, layersToCheck=[]):
+def identifyClosestLLMSources(evalSamples, evalOffset, closestSources, onlyOneEvaluation=False, layersToCheck=[], info=True):
     global layers, layerSizes, fileName
 
     trainPath = os.path.join(baseDirectory, "Training")
@@ -664,7 +667,7 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources, onlyOneEv
     # Step 1: Handle I/O-bound tasks
     with concurrent.futures.ThreadPoolExecutor() as executor:
         io_futures = [
-            executor.submit(process_sample_io, sampleNumber, evalOffset, trainPath, evalPath, generatedEvalPath, layersToCheck)
+            executor.submit(process_sample_io, sampleNumber, evalOffset, trainPath, evalPath, generatedEvalPath, layersToCheck, info)
             for sampleNumber in range(evalSamples)
         ]
         for future in concurrent.futures.as_completed(io_futures):
@@ -677,7 +680,7 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources, onlyOneEv
     # Step 2: Handle CPU-bound tasks
     with concurrent.futures.ProcessPoolExecutor(max_workers=16) as executor:
         cpu_futures = [
-            executor.submit(process_sample_cpu, sampleNumber, evalOffset, trainPath, evalPath, generatedEvalPath, closestSources)
+            executor.submit(process_sample_cpu, sampleNumber, evalOffset, trainPath, evalPath, generatedEvalPath, closestSources, info)
             for sampleNumber in range(evalSamples)
         ]
 
