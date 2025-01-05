@@ -202,7 +202,8 @@ def get_flat_index(source_index, sentence_index, structure="Training"):
         raise ValueError("Invalid structure name. Must be 'Training' or contain 'Evaluation'!")
 
     # Calculate the total number of sentences in all sources before the target source
-    flat_index = sum(len(sentences) for sentences in structure[:source_index])
+    #flat_index = sum(len(sentences) for sentences in structure[:source_index]) #For sequences
+    flat_index = sum(len(sentences) for sentences in structure[:source_index]) #For sentences
 
     # Add the sentence index within the target source
     flat_index += sentence_index
@@ -490,11 +491,13 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
     generatedEvalSentences = [split_data(generatedEvalSentence, 2)[0][1] for generatedEvalSentence in generatedEvals]
 
     # Split the combined sentences into sentences and words
-    eval_source_structure = [create_sequences(generatedEvalSentences)[1]]
+    #eval_source_structure = [create_sequences(generatedEvalSentences)[1]] #For sequences
+    eval_source_structure = [generatedEvalSentences[1]] #For sentences
     sentences, words = split_data(" ".join(generatedEvalSentences))
     generatedEvalLoader = prepare_data_loader(sentences, words, seq_len=seq_len, batch_size=1, shuffle=False)
     RENN.initializeEvaluationHook(hidden_sizes, generatedEvalLoader, len(generatedEvalLoader), model, os.path.join("Evaluation", "Generated"), True, 0, True)
-
+    
+    print(len(generatedEvalLoader))
     #RENN.initializeEvaluationHook(hidden_sizes, eval_loader, eval_samples, model, os.path.join("Evaluation", "Sample"), True, train_samples)
     #closestSourcesEvaluation, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(eval_samples, 0, closestSources)
     _, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(len(generatedEvalLoader), 0, closestSources)
@@ -514,4 +517,5 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             index = get_flat_index(sourceNumber, sentenceNumber)
             trainSentence = train_sentences[index]
             print(f"Source: {source}, Count: {count}, Sentence: {trainSentence}")
+        #print("Whole List: ", [(source, count, train_sentences[get_flat_index(int(source.split(":")[0]), int(source.split(":")[1]))]) for source, count in mostUsedGeneratedEvalSources], "\n") #For sequences
         print("Whole List: ", [(source, count, train_sentences[get_flat_index(int(source.split(":")[0]), int(source.split(":")[1]))]) for source, count in mostUsedGeneratedEvalSources], "\n")
