@@ -177,14 +177,15 @@ def getSourceAndSentenceIndex(flat_index, structure="Training"):
     if structure == "Training":
         structure = train_source_structure
     elif "Evaluation" in structure:
-        structure = test_source_structure
+        structure = eval_source_structure
     else:
         raise ValueError("Invalid structure name. Must be 'Training' or contain 'Evaluation'!")
 
-    for source, sequences in enumerate(structure):
-        for sentence, (start, end) in enumerate(sequences):
+    for sourceNumber, sentences in enumerate(structure):
+        for sentence, (start, end) in enumerate(sentences):
             if start <= flat_index < end:
-                return source, sentence
+                sequence = flat_index - start
+                return sourceNumber, sentence, sequence
 
     raise ValueError("Flat index is out of bounds!")
 
@@ -197,7 +198,7 @@ def get_flat_index(source_index, sentence_index, structure="Training"):
         raise ValueError("Invalid structure name. Must be 'Training' or contain 'Evaluation'!")
 
     # Calculate the total number of sentences in all sources before the target source
-    flat_index = sum(len(sequences) for sequences in structure[:source_index])
+    flat_index = sum(len(sentences) for sentences in structure[:source_index])
 
     # Add the sentence index within the target source
     flat_index += sentence_index
