@@ -4,6 +4,50 @@ from IPython.display import display, clear_output
 trainDataSet, testDataSet, maxTrain, maxTest, batchSizeTraining, batchSizeTest, trainingsLink, testLink, datasets = [[""]], [[""]], "", "", "", "", "", "", [[""]]
 tab_nest, datasetTab, networkTab, trainingTab, visualizationTab = "", "", "", "", ""
 
+datasetMapping = {
+    "MNIST": {
+        "train_samples": 10000,
+        "test_samples": 2000,
+        "epochs": 10,
+        "learning_rate": 0.001,
+        "eval_samples": 1,
+        "closest_sources": 10,
+        "show_closest_sources": 3
+    }, "HSV-RGB": {
+        "train_samples": 10000,
+        "test_samples": 2000,
+        "epochs": 10,
+        "learning_rate": 0.001,
+        "eval_samples": 1,
+        "closest_sources": 10,
+        "show_closest_sources": 3
+    }, "Small 1x1": {
+        "train_samples": 80,
+        "test_samples": 20,
+        "epochs": 10,
+        "learning_rate": 0.001,
+        "eval_samples": 1,
+        "closest_sources": 10,
+        "show_closest_sources": 3
+    }, "WikiText2 (GPT2)": {
+        "train_samples": 2,
+        "test_samples": 5,
+        "epochs": 10,
+        "learning_rate": 0.0004,
+        "eval_samples": 1,
+        "closest_sources": 2,
+        "show_closest_sources": 2
+    }, "WikiText2 (LSTM)": {
+        "train_samples": 100,
+        "test_samples": 2000,
+        "epochs": 100,
+        "learning_rate": 0.001,
+        "eval_samples": 1,
+        "closest_sources": 10,
+        "show_closest_sources": 3
+    }
+}
+
 def createIntSlider(value, max, description, step=1, min=1, disabled=False):
     slider = widgets.IntSlider(
         value=value,
@@ -20,9 +64,6 @@ def createIntSlider(value, max, description, step=1, min=1, disabled=False):
         style = {'description_width': 'initial'}
     )
     return slider
-
-trainSamplesChoice = createIntSlider(2000, min=1, max=10, description="Train Samples")
-testSamplesChoice = createIntSlider(2000, min=1, max=10, description="Test Samples")
 
 def createSelectionSlider(value, options, description):
     slider = widgets.SelectionSlider(
@@ -109,9 +150,6 @@ def updateNetworkTab():
 
     num_layers = layerAmountChoice.value
 
-    #if(datasetChoice.value == "WikiText2 (GPT2)"):
-    #    num_layers = 12
-
     # Create list of ToggleButtons for normal and activation choices for each layer
     normalLayerChoice = [createLayerChoice(options=['Linear'],
                                            tooltips=['Fully connected layer'], description='Type') for _ in range(num_layers)]
@@ -162,6 +200,9 @@ def updateNetworkTab():
     else:
         return widgets.VBox([seedChoice, useBitLinearChoice, layerAmountChoice, tab_nest])
 
+trainSamplesChoice = createIntSlider(2000, min=1, max=10, description="Train Samples")
+testSamplesChoice = createIntSlider(2000, min=1, max=10, description="Test Samples")
+
 def initializeTrainSet(trainSetMNIST, testSetMNIST):
     global datasetChoice, trainDataSet, testDataSet, maxTrain, maxTest, trainSamplesChoice, testSamplesChoice, batchSizeTraining, batchSizeTest, trainingsLink, testLink
     trainDataSet = trainSetMNIST
@@ -172,8 +213,6 @@ def initializeTrainSet(trainSetMNIST, testSetMNIST):
     testSamplesChoice = createIntSlider(2000, min=1, max=maxTest, description="Test Samples")
     batchSizeTraining = createIntSlider(64, min=1, max=maxTrain, description="Batchsize Training")
     batchSizeTest = createIntSlider(64, min=1, max=maxTest, description="Batchsize Test")
-    trainingsLink = widgets.jslink((trainSamplesChoice, 'value'), (batchSizeTraining, 'max'))
-    testLink = widgets.jslink((testSamplesChoice, 'value'), (batchSizeTest, 'max'))
 
 epochsChoice = createIntSlider(10, min=1, max=1000, description="Epochs")
 learningRateChoice = widgets.BoundedFloatText(value=0.001, min=0.0000001, max=10.0, step=0.0000001, description='Learning Rate', style = {'description_width': 'initial'}, disabled=False)
@@ -184,25 +223,20 @@ optimizerChoice = createLayerChoice(options=['Adam', 'SGD'],
                                     tooltips=['Adaptive learning rate and efficient handling of sparse gradients', 'SGD is best when the dataset is large, and computation efficiency is crucial'], description='Optimizer-Type')
 
 def updateTrainingTab():
-    global datasetChoice, trainSamplesChoice, testSamplesChoice, trainDataSet, testDataSet, batchSizeTraining, batchSizeTest
+    global datasetChoice, trainSamplesChoice, testSamplesChoice, trainDataSet, testDataSet, batchSizeTraining, batchSizeTest, learningRateChoice, optimizerChoice
 
     maxTrain = len(trainDataSet)
     maxTest = len(testDataSet)
 
-    learningRate = 0.001
-    if(datasetChoice.value == "WikiText2 (GPT2)"):
-        learningRate = 0.0004
-
-    learningRateChoice = widgets.BoundedFloatText(value=learningRate, min=0.0000001, max=10.0, step=0.0000001, description='Learning Rate', style = {'description_width': 'initial'}, disabled=False)
-    trainSamplesChoice = createIntSlider(10000, min=1, max=maxTrain, description="Train Samples")
-    testSamplesChoice = createIntSlider(2000, min=1, max=maxTest, description="Test Samples")
+    learningRateChoice = widgets.BoundedFloatText(value=datasetMapping[datasetChoice.value]["learning_rate"], min=0.0000001, max=10.0, step=0.0000001, description='Learning Rate', style = {'description_width': 'initial'}, disabled=False)
+    trainSamplesChoice = createIntSlider(datasetMapping[datasetChoice.value]["train_samples"], min=1, max=maxTrain, description="Train Samples")
+    testSamplesChoice = createIntSlider(datasetMapping[datasetChoice.value]["test_samples"], min=1, max=maxTest, description="Test Samples")
     batchSizeTraining = createIntSlider(64, min=1, max=maxTrain, description="Batchsize Training")
     batchSizeTest = createIntSlider(64, min=1, max=maxTest, description="Batchsize Test")
     trainingsLink = widgets.jslink((trainSamplesChoice, 'value'), (batchSizeTraining, 'max'))
     testLink = widgets.jslink((testSamplesChoice, 'value'), (batchSizeTest, 'max'))
 
     if(datasetChoice.value == "WikiText2 (GPT2)" or datasetChoice.value == "WikiText2 (LSTM)"):
-        #trainTestLink = widgets.jslink((trainSamplesChoice, 'value'), (testSamplesChoice, 'max'))
         return widgets.VBox([epochsChoice, learningRateChoice, trainSamplesChoice, testSamplesChoice])
     else:
         return widgets.VBox([epochsChoice, learningRateChoice, trainSamplesChoice, testSamplesChoice, batchSizeTraining,
@@ -224,14 +258,20 @@ showClosestMostUsedSourcesChoice = createIntSlider(3, min=1, max=20, description
 showClosestMostUsedSourcesLink = widgets.jslink((trainSamplesChoice, 'value'), (showClosestMostUsedSourcesChoice, 'max'))
 
 def updateVisualizationTab():
-    global normalLayerChoice, normalLayerSizeChoice, activationLayerChoice, neuronChoice, activationLayerTypeChoice, outputLayerSizeChoice, outputLayerActivationChoiceType, closestSourcesChoice, trainSamplesChoice,testSamplesChoice, evalSamplesChoice, showClosestMostUsedSourcesChoice, closestSourceTrainingLink
+    global normalLayerChoice, normalLayerSizeChoice, activationLayerChoice, neuronChoice, activationLayerTypeChoice, outputLayerSizeChoice, outputLayerActivationChoiceType, closestSourcesChoice, trainSamplesChoice, testSamplesChoice, evalSamplesChoice, showClosestMostUsedSourcesChoice, closestSourceTrainingLink
 
+    evalSamplesChoice = createIntSlider(datasetMapping[datasetChoice.value]["eval_samples"], min=1, max=len(testDataSet), description="Evaluations")
     outputLayerSizeChoice = createRangeSliderChoice(max=10, description=f"Output Layer")
     outputLayerActivationChoiceType = createBoolButtonChoice(description=f"Activation layer ({outputActivationLayerChoice.value})", tooltip="Include activation layer", disabled = True if outputActivationLayerChoice.value == "None" else False)
+
+    evalSamplesChoice = createIntSlider(datasetMapping[datasetChoice.value]["eval_samples"], min=1, max=100, description="Evaluations")
+    closestSourceTestLink = widgets.jslink((testSamplesChoice, 'value'), (evalSamplesChoice, 'max'))
+    closestSourcesChoice = createIntSlider(datasetMapping[datasetChoice.value]["closest_sources"], min=1, max=10000, description="Closest Sources")
+    closestSourceTrainingLink = widgets.jslink((trainSamplesChoice, 'value'), (closestSourcesChoice, 'max'))
+    showClosestMostUsedSourcesChoice = createIntSlider(datasetMapping[datasetChoice.value]["show_closest_sources"], min=1, max=20, description="Show Closest Sources")
     showClosestMostUsedSourcesLink = widgets.jslink((trainSamplesChoice, 'value'), (showClosestMostUsedSourcesChoice, 'max'))
+
     if(datasetChoice.value == "WikiText2 (GPT2)" or datasetChoice.value == "WikiText2 (LSTM)"):
-        evalSamplesChoice = createIntSlider(1, min=1, max=len(testDataSet), description="Evaluations")
-        closestSourceTrainingLink = widgets.jslink((trainSamplesChoice, 'value'), (closestSourcesChoice, 'max'))
         return widgets.VBox([evalSamplesChoice, closestSourcesChoice, showClosestMostUsedSourcesChoice])
 
     if(visualizationChoice.value == "Custom"):
@@ -243,12 +283,8 @@ def updateVisualizationTab():
                                      for i in range(num_layers)]
         layerChoice = [widgets.HBox([neuronChoice[i], activationLayerTypeChoice[i]]) for i in range(num_layers)] + [widgets.HBox([outputLayerSizeChoice, outputLayerActivationChoiceType])]
         customBox = widgets.VBox(children=layerChoice)
-        closestSourceTrainingLink = widgets.jslink((trainSamplesChoice, 'value'), (closestSourcesChoice, 'max'))
-        closestSourceTestLink = widgets.jslink((testSamplesChoice, 'value'), (evalSamplesChoice, 'max'))
         return widgets.VBox([evalSamplesChoice, closestSourcesChoice, showClosestMostUsedSourcesChoice, visualizationChoice, customBox])
     else:
-        closestSourceTrainingLink = widgets.jslink((trainSamplesChoice, 'value'), (closestSourcesChoice, 'max'))
-        closestSourceTestLink = widgets.jslink((testSamplesChoice, 'value'), (evalSamplesChoice, 'max'))
         return widgets.VBox([evalSamplesChoice, closestSourcesChoice, showClosestMostUsedSourcesChoice, visualizationChoice])
 
 def changeTab(change):
