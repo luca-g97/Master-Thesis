@@ -181,11 +181,15 @@ def getSourceAndSentenceIndex(flat_index, structure="Training"):
     else:
         raise ValueError("Invalid structure name. Must be 'Training' or contain 'Evaluation'!")
 
+    counter = 0
     for sourceNumber, sentences in enumerate(structure):
         for sentence, (start, end) in enumerate(sentences):
-            if start <= flat_index < end:
+            #if start <= flat_index < end: #For sequences
+            if counter == flat_index: #For sentences
                 sequence = flat_index - start
                 return sourceNumber, sentence
+
+            counter += 1
 
     raise ValueError("Flat index is out of bounds!")
 
