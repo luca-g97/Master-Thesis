@@ -664,7 +664,7 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources, onlyOneEv
     # Step 1: Handle I/O-bound tasks
     with concurrent.futures.ThreadPoolExecutor() as executor:
         io_futures = [
-            executor.submit(process_sample_io, sampleNumber, evalOffset, trainPath, evalPath, generatedEvalPath, layersToCheck) for sampleNumber in evalSamples
+            executor.submit(process_sample_io, sampleNumber, evalOffset, trainPath, evalPath, generatedEvalPath, layersToCheck)
             for sampleNumber in range(evalSamples)
         ]
         for future in concurrent.futures.as_completed(io_futures):
