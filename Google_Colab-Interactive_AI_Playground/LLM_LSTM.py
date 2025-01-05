@@ -383,12 +383,47 @@ def trainModel(hidden_sizes, loss_function, optimizer, learning_rate, epochs):
 
     initializeTraining(hidden_sizes, loss_function, optimizer, learning_rate)
     print("Model initialized, Starting training")
-    model, _ = train_model(train_loader, epochs)
+    model = train_model(train_loader, epochs)
 
     # Save the trained model
     torch.save(model, model_path)
 
     print("Training finished")
+
+def evaluate():
+    model.eval()
+    total_loss = 0
+
+    for x, y in train_loader:
+        with torch.no_grad():
+            # Reinitialize hidden states for current batch size
+            current_batch_size = x.size(0)
+            state_h, state_c = model.init_hidden(current_batch_size)
+
+            # Move data and states to the appropriate device
+            x, y = x.to(device), y.to(device)
+            state_h, state_c = state_h.to(device), state_c.to(device)
+
+            # Detach hidden states to prevent backpropagation through past batches
+            state_h = state_h.detach()
+            state_c = state_c.detach()
+
+            # Forward pass and loss computation
+            logits, (state_h, state_c) = model(x, state_h, state_c)
+
+            loss = criterion_class(logits, y)
+
+            # Accumulate loss
+            total_loss += loss.item() * current_batch_size
+
+    # Normalize loss by total number of predictors
+    total_loss /= len(test_loader.dataset)
+    perplexity = np.exp(total_loss)
+
+    # Generate text after each epoch
+    text = generate("The")
+
+    return total_loss, perplexity, text
 
 def train_model(train_loader, epochs):
     global model
@@ -428,14 +463,13 @@ def train_model(train_loader, epochs):
         total_loss /= len(train_loader.dataset)
         perplexity = np.exp(total_loss)
 
+        test_loss, test_perplexity, text = evaluate()
+
         # Logging progress
-        print(f"Epoch [{epoch + 1}/{epochs}] Loss: {total_loss:.4f}, Perplexity: {perplexity:.4f}")
+        print(f"Epoch [{epoch + 1}/{epochs}] -> Train-Loss: {total_loss:.4f}, Train-Perplexity: {perplexity:.4f}, Test-Loss: {test_loss:.4f}, Test-Perplexity: {test_perplexity:.4f}")
+        print(f"Text generated after epoch {epoch + 1}: {text}\n")
 
-        # Generate text after each epoch
-        gen_text = generate("The")
-        print(f"Text generated after epoch {epoch + 1}:\n{gen_text}\n")
-
-    return model, total_loss
+    return model
 
 def initializeHook(hidden_sizes, train_samples):
     RENN.createDictionaries(hidden_sizes, len(hidden_sizes), train_samples, llmType=True)
@@ -482,7 +516,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
     generatedEvalSentences = [split_data(generatedEvalSentence, 2)[0][1]+"." for generatedEvalSentence in generatedEvals]
 
     # Split the combined sentences into sentences and words
-    eval_source_structure = [create_sequences(generatedEvalSentences)[1]] #For sequences
+    eval_source_structure = [create_sequences(generatedEvalSentences)[1]]
     sentences, words = split_data(" ".join(generatedEvalSentences))
     generatedEvalLoader = prepare_data_loader(sentences, words, batch_size=1, shuffle=False)
     RENN.initializeEvaluationHook(hidden_sizes, generatedEvalLoader, len(generatedEvalLoader), model, os.path.join("Evaluation", "Generated"), True, 0, True)
