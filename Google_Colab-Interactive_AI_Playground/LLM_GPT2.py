@@ -15,7 +15,7 @@ random, lorem, device, tiktoken, DataLoader, nlp, GPT2Tokenizer, nltk = "", "", 
 train_samples, test_samples, eval_samples = "", "", ""
 GPT_CONFIG_124M, settings = "", ""
 train_loader, val_loader, eval_loader, tokenizer, trainSentences, trainSentencesStructure, testSentences, testSentencesStructure = "", "", "", "", "", "", "", ""
-dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource = [], []
+dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, layersToCheck = [], [], []
 
 def initializePackages(randomPackage, loremPackage, devicePackage, tiktokenPackage, DataLoaderPackage, nlpPackage, GPT2TokenizerPackage, nltkPackage):
     global random, lorem, device, tiktoken, DataLoader, nlp, GPT2Tokenizer, nltk
@@ -587,7 +587,10 @@ def initializeDatasets(train_samples, test_samples, eval_samples, batch_size_tra
     print("Created all dataloaders")
 
 def initializeTraining(hidden_sizes, loss_function, optimizer, learning_rate):
-    global model, criterion_class, chosen_optimizer, layers
+    global model, criterion_class, chosen_optimizer, layers, layersToCheck
+
+    layersToCheck = [layerNumber for layerNumber, layer in enumerate(hidden_sizes) if layer[0] == "FeedForward"]
+
     input_size = len(torch.flatten(train_loader.dataset[0][0].clone().detach()))
     output_size = len(torch.flatten(train_loader.dataset[0][1].clone().detach()))
 
@@ -728,7 +731,7 @@ def initializeHook(hidden_sizes, train_samples):
     samples = trainSentences[:train_samples]
     train_loader = createLLMLoader(samples, 1, context_length=1)
 
-    RENN.runHooks(train_loader, model, hidden_sizes, True)
+    RENN.runHooks(train_loader, model, hidden_sizes, True, layersToCheckParameter=layersToCheck)
 
 
 def generate(model, idx, max_new_tokens, context_size, temperature, top_k=None):
@@ -804,8 +807,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
 
     #RENN.initializeEvaluationHook(hidden_sizes, eval_loader, eval_samples, model, os.path.join("Evaluation", "Sample"), True, train_samples)
     #closestSourcesEvaluation, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(eval_samples, 0, closestSources)
-    layersToCheck = [layer for layer in hidden_sizes if layer[0] == "FeedForward"]
-    _, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(eval_samples, 0, closestSources, True, layersToCheck=layersToCheck)
+    _, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(eval_samples, 0, closestSources, True)
 
     for sampleNumber in range(eval_samples):
         #mostUsedEvalSources = RENN.getMostUsedSources(closestSourcesEvaluation, closestSources, sampleNumber, "Mean")

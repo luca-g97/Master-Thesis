@@ -35,7 +35,7 @@ word_to_idx, idx_to_word = {}, {}
 train_sources, cleaned_train_data, train_titles, train_sentences, train_source_structure = [], "", [], [], []
 test_sources, cleaned_test_data, test_titles, test_sentences, test_source_structure = [], "", [], [], []
 train_samples, test_samples, eval_samples, train_loader, test_loader, eval_loader = "", "", "", "", "", ""
-model, criterion_class, chosen_optimizer, layers = "", "", "", ""
+model, criterion_class, chosen_optimizer, layers, layersToCheck = "", "", "", "", []
 dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, eval_source_structure = [], [], []
 
 def initializePackages(devicePackage, DataLoaderPackage, nltkPackage):
@@ -44,7 +44,7 @@ def initializePackages(devicePackage, DataLoaderPackage, nltkPackage):
     device, DataLoader, nltk = devicePackage, DataLoaderPackage, nltkPackage
 
 def get_hidden_sizes(num_layers, trainSamples):
-    global model
+    global model, layersToCheck
 
     sentences, words = split_data(cleaned_train_data, trainSamples)
 
@@ -55,6 +55,8 @@ def get_hidden_sizes(num_layers, trainSamples):
     hidden_sizes.append(['Embedding', len(words), embedding_dim])
     hidden_sizes.append(['LSTM', batch_size*num_layers, hidden_size])
     hidden_sizes.append(['Linear', len(words), hidden_size])
+
+    layersToCheck = [layerNumber for layerNumber, layer in enumerate(hidden_sizes) if layer[0] == "LSTM"]
 
     return hidden_sizes
 
@@ -477,7 +479,7 @@ def initializeHook(hidden_sizes, train_samples):
     sentences, words = split_data(cleaned_train_data, train_samples)
     train_loader = prepare_data_loader(sentences, words, batch_size=1, shuffle=False)
 
-    RENN.runHooks(train_loader, model, hidden_sizes, True, lstm=True)
+    RENN.runHooks(train_loader, model, hidden_sizes, True, lstm=True, layersToCheckParameter=layersToCheck)
 
 def generate(init):
     model.eval()
@@ -527,7 +529,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
     #RENN.initializeEvaluationHook(hidden_sizes, eval_loader, eval_samples, model, os.path.join("Evaluation", "Sample"), True, train_samples)
     #closestSourcesEvaluation, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(eval_samples, 0, closestSources)
 
-    _, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(len(generatedEvalLoader), 0, closestSources, True, layersToCheck=[1])
+    _, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(len(generatedEvalLoader), 0, closestSources, True)
 
     for sampleNumber in range(eval_samples):
         #mostUsedEvalSources = RENN.getMostUsedSources(closestSourcesEvaluation, closestSources, sampleNumber, "Mean")

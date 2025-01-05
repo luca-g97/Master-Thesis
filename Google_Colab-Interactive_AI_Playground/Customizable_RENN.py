@@ -17,6 +17,7 @@ import os
 layer, source, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, activationsBySources, activationsByLayers, totalLayers = "", "", "", "", "", "", ""
 llm, layerSizes, device, hidden_sizes, layers, currentLayer, relevantLayerIndices, useBitNet = "", "", "", "", [], 0, [], False
 sourceArray, fileName, contextLength, io, pd, pa, pq, zstd, chosenDataSet, baseDirectory = "", "", 1, "", "", "", "", "", "", "./LookUp"
+layersToCheck = []
 
 def initializePackages(devicePackage, ioPackage, pdPackage, paPackage, pqPackage, zstdPackage, chosenDataSetPackage, seed="", useBitLinear=False):
     global device, useBitNet, io, pd, pa, pq, zstd, chosenDataSet
@@ -148,7 +149,7 @@ class CustomizableRENN(nn.Module):
 
 # Forward hook
 def forward_hook(module, input, output):
-    global layer, source, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, sourceArray, hidden_sizes, llm, fileName
+    global layer, source, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, sourceArray, hidden_sizes, llm, fileName, layersToCheck
 
     #if not (isinstance(module, nn.Sequential) or isinstance(module, Small1x1.FeedForward) or isinstance(module, Small1x1.TransformerBlock) or isinstance(module, nn.Dropout) or isinstance(module, GPT2.FeedForward) or isinstance(module, GPT2.TransformerBlock)):
     if (llm):
@@ -185,10 +186,11 @@ def forward_hook(module, input, output):
         #Use for array structure like: [layer, neuron, source]
         output = relevantOutput if len(relevantOutput.shape) == 1 else relevantOutput[0]
         if(llm):
-            sourceNumber, sentenceNumber = chosenDataSet.getSourceAndSentenceIndex(source, fileName)
-            if sourceNumber is not None and sentenceNumber is not None:
-                #print(f"Create File: LookUp/{fileName}/Layer{layer}/Source={result[0]}/Sentence{result[1]}-0")
-                append_structured_sparse(output[:layerNeurons], layer, sourceNumber, sentenceNumber)
+            if(actualLayer in layersToCheck or layersToCheck == []):
+                sourceNumber, sentenceNumber = chosenDataSet.getSourceAndSentenceIndex(source, fileName)
+                if sourceNumber is not None and sentenceNumber is not None:
+                    #print(f"Create File: LookUp/{fileName}/Layer{layer}/Source={result[0]}/Sentence{result[1]}-0")
+                    append_structured_sparse(output[:layerNeurons], actualLayer, sourceNumber, sentenceNumber)
         else:
             for neuronNumber, neuron in enumerate(output):
                 if neuronNumber < layerNeurons:
@@ -257,13 +259,15 @@ def createDictionaries(hidden_sizes, totalLayersParameter, train_samples, llmTyp
             activationsByLayers = np.zeros((totalLayers, np.max(layerSizes), train_samples), dtype=np.float128)
     print("Hook-Dictionaries created")
 
-def runHooks(train_dataloader, model, layersParameter=layers, llmType=False, context_length=1, lstm=False):
-    global layers, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, activationsBySources, activationsByLayers, llm, contextLength
+def runHooks(train_dataloader, model, layersParameter=layers, llmType=False, context_length=1, lstm=False, layersToCheckParameter=[]):
+    global layers, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, activationsBySources, activationsByLayers, llm, contextLength, layersToCheck
 
     #Variables for usage within the hook
     llm = llmType
     layers = layersParameter
     contextLength = context_length
+    layersToCheck = layersToCheckParameter
+
     if not llm:
         dictionaryForSourceLayerNeuron = activationsBySources
         dictionaryForLayerNeuronSource = activationsByLayers
