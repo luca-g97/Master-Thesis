@@ -433,7 +433,7 @@ def compress_dataframe_zstd(filepath, df, source_name, sentence_number):
 
     # Determine the next available partition index
     i = 0
-    while os.path.exists(f"{filepath}/Source={source_name}/Sentence{sentence_number}-{i}.parquet"):
+    while os.path.exists(f"{filepath}/Source={source_name}/Sentence{sentence_number}-{{i}}.parquet"):
         i += 1
 
     # Write to partitioned dataset, creating partitions if necessary
