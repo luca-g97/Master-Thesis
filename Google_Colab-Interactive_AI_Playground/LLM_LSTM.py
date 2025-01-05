@@ -45,7 +45,7 @@ train_sources, cleaned_train_data, train_titles, train_sentences, train_source_s
 test_sources, cleaned_test_data, test_titles, test_sentences, test_source_structure = [], "", [], [], []
 train_samples, test_samples, eval_samples, train_loader, test_loader, eval_loader = "", "", "", "", "", ""
 model, criterion_class, chosen_optimizer, layers = "", "", "", ""
-dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource = [], []
+dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, eval_source_structure = [], [], []
 
 def initializePackages(devicePackage, DataLoaderPackage):
     global device, DataLoader
@@ -176,7 +176,7 @@ def getSourceAndSentenceIndex(flat_index, structure="Training"):
     if structure == "Training":
         structure = train_source_structure
     elif "Evaluation" in structure:
-        structure = test_source_structure
+        structure = eval_source_structure
     else:
         raise ValueError("Invalid structure name. Must be 'Training' or contain 'Evaluation'!")
 
@@ -475,44 +475,37 @@ def generate(init):
     return sentence
 
 def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
-    global train_samples, test_samples, eval_samples, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
+    global train_samples, test_samples, eval_samples, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, eval_source_structure
 
     #Generate sentences and get their activation values
     generatedEvalSentences = [generate(test_sentences[evalSample]) for evalSample in range(eval_samples)]
     print([generatedEvalSentence.replace('"', '\\"') for generatedEvalSentence in generatedEvalSentences])
 
     # Split the combined sentences into sentences and words
+    eval_source_structure = [[create_sequences(generatedEvalSentences)]]
     sentences, words = split_data(" ".join(generatedEvalSentences))
     generatedEvalLoader = prepare_data_loader(sentences, words, seq_len=seq_len, batch_size=1, shuffle=False)
     RENN.initializeEvaluationHook(hidden_sizes, generatedEvalLoader, len(eval_loader), model, os.path.join("Evaluation", "Generated"), True, 0, True)
 
     #RENN.initializeEvaluationHook(hidden_sizes, eval_loader, eval_samples, model, os.path.join("Evaluation", "Sample"), True, train_samples)
     #closestSourcesEvaluation, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(eval_samples, 0, closestSources)
-    _, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(len(eval_loader), 0, closestSources)
+    _, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(eval_samples, 0, closestSources)
 
-    for sampleNumber in range(len(eval_loader)):
+    for sampleNumber in range(eval_samples):
         #mostUsedEvalSources = RENN.getMostUsedSources(closestSourcesEvaluation, closestSources, sampleNumber, "Mean")
         #_ = RENN.getMostUsedSources(closestSourcesEvaluation, closestSources, sampleNumber, "Sum")
         mostUsedGeneratedEvalSources = RENN.getMostUsedSources(closestSourcesGeneratedEvaluation, closestSources, sampleNumber, "Mean")
         _ = RENN.getMostUsedSources(closestSourcesGeneratedEvaluation, closestSources, sampleNumber, "Sum")
 
         sample = test_sentences[sampleNumber]
-        prediction = generate(sample)
-        print("Evaluation Sample ", sampleNumber, ": ", sample.replace('\n', '').replace('<|endoftext|>', ''))
-        print("Follow up: ", prediction.replace('\n', '').replace('<|endoftext|>', ''))
-        #print(f"Closest Sources for Evaluation-Sample {sampleNumber} in format [SourceNumber, Occurrences, Source]:")
-        #for source, count in mostUsedEvalSources[:closestSources]:
-        #    tempSource = source.split(":")
-        #    sourceNumber, sentenceNumber = int(tempSource[0]), int(tempSource[1])
-        #    trainSentence = trainSentencesStructure[sourceNumber][sentenceNumber].replace('\n', '').replace('<|endoftext|>', '')
-        #    print(f"Source: {source}, Count: {count}, Sentence: {trainSentence}")
-        #print("Whole List: ", [(source, count, trainSentencesStructure[int(source.split(":")[0])][int(source.split(":")[1])].replace('\n', '').replace('<|endoftext|>', '')) for source, count in mostUsedEvalSources], "\n")
+        print("Evaluation Sample ", sampleNumber, ": ", sample)
+        print("Follow up: ", generate(sample))
         print(f"Generated Source Sentence: {generatedEvalSentences[sampleNumber]}")
         print(f"Closest Sources for GeneratedEvaluation-Sample {sampleNumber} in format [SourceNumber, Occurrences, Source]:")
         for source, count in mostUsedGeneratedEvalSources[:closestSources]:
             tempSource = source.split(":")
             sourceNumber, sentenceNumber = int(tempSource[0]), int(tempSource[1])
             index = get_flat_index(sourceNumber, sentenceNumber, train_source_structure)
-            trainSentence = train_sentences[index].replace('\n', '').replace('<|endoftext|>', '')
+            trainSentence = train_sentences[index]
             print(f"Source: {source}, Count: {count}, Sentence: {trainSentence}")
-        print("Whole List: ", [(source, count, train_sources[get_flat_index(int(source.split(":")[0]), int(source.split(":")[1]), train_source_structure)].replace('\n', '').replace('<|endoftext|>', '')) for source, count in mostUsedGeneratedEvalSources], "\n")
+        print("Whole List: ", [(source, count, train_sources[get_flat_index(int(source.split(":")[0]), int(source.split(":")[1]), train_source_structure)]) for source, count in mostUsedGeneratedEvalSources], "\n")
