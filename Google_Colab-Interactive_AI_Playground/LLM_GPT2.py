@@ -10,9 +10,6 @@ import requests
 import urllib.request
 import Customizable_RENN as RENN
 import pandas as pd
-import nltk
-nltk.download('punkt_tab')
-from nltk import word_tokenize,sent_tokenize
 
 random, lorem, device, tiktoken, DataLoader, nlp, GPT2Tokenizer, nltk = "", "", "", "", "", "", "", ""
 train_samples, test_samples, eval_samples = "", "", ""

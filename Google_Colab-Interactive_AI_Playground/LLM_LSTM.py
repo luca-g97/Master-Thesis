@@ -7,9 +7,6 @@ import os
 import Customizable_RENN as RENN
 from torch.utils.data import Dataset
 from collections import defaultdict
-import nltk
-nltk.download('punkt_tab')
-from nltk import word_tokenize,sent_tokenize
 import gc
 import torch
 from torch import tensor
