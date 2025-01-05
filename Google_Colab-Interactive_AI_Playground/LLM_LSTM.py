@@ -478,7 +478,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
 
     #Generate sentences and get their activation values
     generatedEvals = [generate(test_sentences[evalSample]) for evalSample in range(eval_samples)]
-    generatedEvalSentences = [split_data(generatedEvalSentence, 1)[0] for generatedEvalSentence in generatedEvals]
+    generatedEvalSentences = [split_data(generatedEvalSentence, 1)[0][0] for generatedEvalSentence in generatedEvals]
 
     print(generatedEvalSentences)
     # Split the combined sentences into sentences and words

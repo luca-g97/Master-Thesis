@@ -97,7 +97,7 @@ import LLM_Small1x1 as Small1x1
 Small1x1.initializePackages(random, lorem, device, tiktoken, DataLoader)
 small1x1 = Small1x1.createTrainAndTestSet(100)
 
-# The Verdict: LLM-Sourcecheck
+# WikiText2: GPT2-Sourcecheck
 import LLM_GPT2 as GPT2
 GPT2.initializePackages(random, lorem, device, tiktoken, DataLoader, nlp, GPT2Tokenizer)
 # Choose one of the following as needed:
@@ -106,15 +106,18 @@ GPT2.initializePackages(random, lorem, device, tiktoken, DataLoader, nlp, GPT2To
 gpt2train, gpt2test = GPT2.createWikiText2TrainSet()
 # gpt2train, gpt2test = GPT2.createEnglishWikiTrainSet("./english_wikipedia/data/train-00021-of-00022-8014350d27e6cde7.parquet")
 
-print(gpt2train[:10])
+# WikiText2: LSTM-Sourcecheck
+import LLM_LSTM as LSTM
+LSTM.initializePackages(device, DataLoader)
+lstmTrain, lstmTest = LSTM.createTrainAndTestSet()
 
 # Organize datasets for easy access
 datasets = {
     "MNIST": (trainSetMNIST, testSetMNIST),
     "HSV-RGB": (trainSetHSVRGB, testSetHSVRGB),
-    "Small 1x1": (small1x1[:int(len(small1x1) * 0.8)], small1x1[int(len(small1x1) * 0.8):]),
+    "Small 1x1": (small1x1[:int(len(small1x1) * 0.8)], small1x1[int(len(small1x1) * 0.8):int(len(small1x1) * 0.9)]),
     "WikiText2 (GPT2)": (gpt2train, gpt2test),
-    #"WikiText2 (LSTM)": (lstmTrain, lstmTest)
+    "WikiText2 (LSTM)": (lstmTrain, lstmTest)
 }
 
 layerAmount = 2
@@ -137,6 +140,12 @@ elif datasetChoice == "Small 1x1":
     chosenDataSet = Small1x1
 elif datasetChoice == "WikiText2 (GPT2)":
     chosenDataSet = GPT2
+elif datasetChoice == "WikiText2 (LSTM)":
+    chosenDataSet = LSTM
+
+train_samples = 10#len(datasets[datasetChoice][0])
+test_samples = len(datasets[datasetChoice][1])
+eval_samples = 10#len(datasets[datasetChoice][1])
 
 if datasetChoice in ["Small 1x1", "WikiText2 (GPT2)"]:
     LLM_Layers, TransformerBlockLayer = chosenDataSet.setGPTSettings(layerAmount, learning_rate, epochs)
@@ -146,6 +155,8 @@ if datasetChoice in ["Small 1x1", "WikiText2 (GPT2)"]:
         hidden_sizes.append(TransformerBlockLayer)
     hidden_sizes.append(LLM_Layers[1])
     hidden_sizes = [item for sublist in hidden_sizes for item in sublist]
+elif(datasetChoice == "WikiText2 (LSTM)"):
+    hidden_sizes = LSTM.get_hidden_sizes(layerAmount, train_samples)
 else:
     hidden_sizes = [
         (normalLayer.value, normalLayerSize.value, activationLayer.value)
@@ -159,13 +170,10 @@ visualizeCustom = [
 visualizeCustom.append(((0, 10), True))
 
 # Extract settings from Widgets
-train_samples = 10#len(datasets[datasetChoice][0])
-test_samples = len(datasets[datasetChoice][1])
 batch_size_training = 64
 batch_size_test = 64
 loss_function = "MSE"
 optimizer = "Adam"
-eval_samples = 10#len(datasets[datasetChoice][1])
 
 closestSources = 10
 showClosestMostUsedSources = 5
