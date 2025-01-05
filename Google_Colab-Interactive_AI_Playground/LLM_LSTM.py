@@ -220,6 +220,7 @@ def createTrainAndTestSet():
     print(f"Created a train set with {len(train_sentences)} sentences")
 
     print(train_source_structure)
+    print(getSourceAndSentenceIndex(0), getSourceAndSentenceIndex(1), getSourceAndSentenceIndex(2))
 
     return train_sentences, test_sentences
 
