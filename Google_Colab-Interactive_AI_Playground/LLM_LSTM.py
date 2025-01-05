@@ -482,7 +482,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
 
     print(generatedEvalSentences)
     # Split the combined sentences into sentences and words
-    eval_source_structure = [[create_sequences(generatedEvalSentences)]]
+    eval_source_structure = [[create_sequences(generatedEvalSentences)[1]]]
     print(eval_source_structure)
     sentences, words = split_data(" ".join(generatedEvalSentences))
     generatedEvalLoader = prepare_data_loader(sentences, words, seq_len=seq_len, batch_size=1, shuffle=False)
