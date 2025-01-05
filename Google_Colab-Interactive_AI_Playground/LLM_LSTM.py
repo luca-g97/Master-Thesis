@@ -477,9 +477,8 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
     global train_samples, test_samples, eval_samples, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, eval_source_structure
 
     #Generate sentences and get their activation values
-    generatedEvalSentences = [generate(test_sentences[evalSample]) for evalSample in range(eval_samples)]
-    print(len(generatedEvalSentences))
-    print([generatedEvalSentence.replace('"', '\\"') for generatedEvalSentence in generatedEvalSentences])
+    generatedEvals = [generate(test_sentences[evalSample]) for evalSample in range(eval_samples)]
+    generatedEvalSentences = [split_data(generatedEvalSentence, 1)[0] for generatedEvalSentence in generatedEvals]
 
     # Split the combined sentences into sentences and words
     eval_source_structure = [[create_sequences(generatedEvalSentences)]]
@@ -497,7 +496,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
 
         sample = test_sentences[sampleNumber]
         print("Evaluation Sample ", sampleNumber, ": ", sample)
-        print("Follow up: ", generate(sample))
+        print("Follow up: ", generatedEvals[sampleNumber])
         print(f"Generated Source Sentence: {generatedEvalSentences[sampleNumber]}")
         print(f"Closest Sources for GeneratedEvaluation-Sample {sampleNumber} in format [SourceNumber, Occurrences, Source]:")
         for source, count in mostUsedGeneratedEvalSources[:closestSources]:
