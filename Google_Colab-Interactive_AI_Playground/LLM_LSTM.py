@@ -481,7 +481,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
     generatedEvalSentences = [split_data(generatedEvalSentence, 1)[0] for generatedEvalSentence in generatedEvals]
 
     # Split the combined sentences into sentences and words
-    eval_source_structure = [[create_sequences(generatedEvalSentences)]]
+    eval_source_structure = [[create_sequences(" ".join(generatedEvalSentences))]]
     sentences, words = split_data(" ".join(generatedEvalSentences))
     generatedEvalLoader = prepare_data_loader(sentences, words, seq_len=seq_len, batch_size=1, shuffle=False)
     RENN.initializeEvaluationHook(hidden_sizes, generatedEvalLoader, len(generatedEvalLoader), model, os.path.join("Evaluation", "Generated"), True, 0, True)
