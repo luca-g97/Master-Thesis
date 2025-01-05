@@ -623,7 +623,7 @@ def process_sample_io(evalSample, evalOffset, trainPath, evalPath, generatedEval
                 continue
 
             layerNumber, sourceNumber, train_sentenceNumber = getInformationFromFileName(train_full_path)
-            if (layerNumber in layersToCheck or layerNumber == -1):
+            if (layerNumber in layersToCheck or layersToCheck == []):
                 eval_full_path = os.path.join(evalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-0.parquet")
                 generated_eval_full_path = os.path.join(generatedEvalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-0.parquet")
 
@@ -650,7 +650,7 @@ def getClosestSourcesFromDf(df, closestSources):
     )
     return closest_sources
 
-def identifyClosestLLMSources(evalSamples, evalOffset, closestSources, onlyOneEvaluation=False, layersToCheck=-1):
+def identifyClosestLLMSources(evalSamples, evalOffset, closestSources, onlyOneEvaluation=False, layersToCheck=[]):
     global layers, layerSizes, fileName
 
     trainPath = os.path.join(baseDirectory, "Training")
