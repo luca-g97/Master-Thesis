@@ -491,12 +491,11 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
     generatedEvalSentences = [split_data(generatedEvalSentence, 2)[0][1] for generatedEvalSentence in generatedEvals]
 
     # Split the combined sentences into sentences and words
-    #eval_source_structure = [create_sequences(generatedEvalSentences)[1]] #For sequences
-    eval_source_structure = [generatedEvalSentences[1]] #For sentences
+    eval_source_structure = [create_sequences(generatedEvalSentences)[1]]
     sentences, words = split_data(" ".join(generatedEvalSentences))
     generatedEvalLoader = prepare_data_loader(sentences, words, seq_len=seq_len, batch_size=1, shuffle=False)
     RENN.initializeEvaluationHook(hidden_sizes, generatedEvalLoader, len(generatedEvalLoader), model, os.path.join("Evaluation", "Generated"), True, 0, True)
-    
+
     print(len(generatedEvalLoader))
     #RENN.initializeEvaluationHook(hidden_sizes, eval_loader, eval_samples, model, os.path.join("Evaluation", "Sample"), True, train_samples)
     #closestSourcesEvaluation, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(eval_samples, 0, closestSources)
