@@ -514,7 +514,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
     global train_samples, test_samples, eval_samples, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, eval_source_structure
 
     #Generate sentences and get their activation values
-    _, generatedEvals = [generate(test_sentences[evalSample]) for evalSample in range(eval_samples)]
+    generatedEvals = [generate(test_sentences[evalSample])[1] for evalSample in range(eval_samples)]
     generatedEvalSentences = [split_data(generatedEvalSentence, 2)[0][0] for generatedEvalSentence in generatedEvals]
     generatedEvalSentences = [generatedEvalSentence+"." if "." not in generatedEvalSentence else generatedEvalSentence for generatedEvalSentence in generatedEvalSentences]
 
