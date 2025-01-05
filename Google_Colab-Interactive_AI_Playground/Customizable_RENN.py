@@ -648,7 +648,7 @@ def getClosestSourcesFromDf(df, closestSources):
     )
     return closest_sources
 
-def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
+def identifyClosestLLMSources(evalSamples, evalOffset, closestSources, onlyOneEvaluation=False):
     global layers, layerSizes, fileName
 
     trainPath = os.path.join(baseDirectory, "Training")
@@ -669,7 +669,8 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
             try:
                 future.result()  # Ensure I/O tasks complete
             except Exception as e:
-                print(f"I/O Task Exception for sample: {e}")
+                if not onlyOneEvaluation:
+                    print(f"I/O Task Exception for sample: {e}")
 
     # Step 2: Handle CPU-bound tasks
     with concurrent.futures.ProcessPoolExecutor(max_workers=16) as executor:
@@ -687,7 +688,8 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources):
                     eval_data.extend(local_eval_data)
                     generated_eval_data.extend(local_generated_eval_data)
             except Exception as e:
-                print(f"CPU Task Exception for sample: {e}")
+                if not onlyOneEvaluation:
+                    print(f"CPU Task Exception for sample: {e}")
 
     # Create the DataFrame from the collected data
     eval_df = pd.DataFrame(eval_data)
