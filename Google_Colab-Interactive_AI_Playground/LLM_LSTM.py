@@ -185,7 +185,7 @@ def getSourceAndSentenceIndex(flat_index, structure="Training"):
         for sentence, (start, end) in enumerate(sentences):
             if start <= flat_index < end:
                 sequence = flat_index - start
-                return sourceNumber, sentence, sequence
+                return sourceNumber, sentence
 
     raise ValueError("Flat index is out of bounds!")
 
@@ -236,8 +236,11 @@ def prepare_data_loader(sentences, words, seq_len, batch_size, shuffle=True):
         def __getitem__(self, idx):
             return self.predictors[idx], self.class_labels[idx]
 
-    # Step 1: Generate sent_sequences
-    sent_sequences, _, _ = create_sequences(sentences)
+    if(batch_size > 1):
+        # Step 1: Generate sent_sequences
+        sent_sequences, _, _ = create_sequences(sentences)
+    else:
+        sent_sequences = [sentence.split(' ') for sentence in sentences]
 
     # Step 2: Split into predictors and class_labels
     predictors = [seq[:-1] for seq in sent_sequences]
