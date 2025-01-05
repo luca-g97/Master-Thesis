@@ -430,7 +430,7 @@ def train_model(train_loader, epochs):
         print(f"Epoch [{epoch + 1}/{epochs}] Loss: {total_loss:.4f}, Perplexity: {perplexity:.4f}")
 
         # Generate text after each epoch
-        gen_text = generate("The ")
+        gen_text = generate("The")
         print(f"Text generated after epoch {epoch + 1}:\n{gen_text}\n")
 
     return model, total_loss
