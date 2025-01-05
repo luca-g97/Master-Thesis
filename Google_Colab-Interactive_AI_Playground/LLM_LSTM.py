@@ -37,7 +37,7 @@ dropout_p = 0.1
 
 #Generation
 sent_len = 100
-topk = 1
+topk = 5
 
 #Preinitialize
 word_to_idx, idx_to_word = {}, {}
@@ -108,7 +108,7 @@ def create_sources(data):
     split_text = re.split(f'(?={heading_pattern})', data)
 
     # Print the adjusted titles
-    print("Titles: ", titles[:10])
+    #print("Titles: ", titles[:10])
 
     sources = []
     for source in split_text:
@@ -219,9 +219,6 @@ def createTrainAndTestSet():
 
     print(f"Created a train set with {len(train_sentences)} sentences")
 
-    print(train_source_structure)
-    print(getSourceAndSentenceIndex(0), getSourceAndSentenceIndex(1), getSourceAndSentenceIndex(2))
-
     return train_sentences, test_sentences
 
 def prepare_data_loader(sentences, words, seq_len, batch_size, shuffle=True):
@@ -264,7 +261,7 @@ def prepare_data_loader(sentences, words, seq_len, batch_size, shuffle=True):
     dataset = TextDataset(pad_predictors, class_labels)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
 
-    print("Number of input sequences: ", len(pad_predictors))
+    #print("Number of input sequences: ", len(pad_predictors))
 
     return dataloader
 
@@ -433,7 +430,7 @@ def train_model(train_loader, epochs):
         print(f"Epoch [{epoch + 1}/{epochs}] Loss: {total_loss:.4f}, Perplexity: {perplexity:.4f}")
 
         # Generate text after each epoch
-        gen_text = generate("The")
+        gen_text = generate("The ")
         print(f"Text generated after epoch {epoch + 1}:\n{gen_text}\n")
 
     return model, total_loss
