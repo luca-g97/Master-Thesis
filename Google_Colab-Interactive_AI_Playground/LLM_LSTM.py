@@ -527,16 +527,11 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
     #RENN.initializeEvaluationHook(hidden_sizes, eval_loader, eval_samples, model, os.path.join("Evaluation", "Sample"), True, train_samples)
     #closestSourcesEvaluation, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(eval_samples, 0, closestSources)
 
-    _, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(len(generatedEvalLoader), 0, closestSources, True)
-    if(analyze):
-        _, closestSourcesGeneratedEvaluationForLSTMLayer = RENN.identifyClosestLLMSources(len(generatedEvalLoader), 0, closestSources, True, layersToCheck=[1], info=False)
+    _, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(len(generatedEvalLoader), 0, closestSources, True, layersToCheck=[1])
 
     for sampleNumber in range(eval_samples):
         #mostUsedEvalSources = RENN.getMostUsedSources(closestSourcesEvaluation, closestSources, sampleNumber, "Mean")
         mostUsedGeneratedEvalSources = RENN.getMostUsedSources(closestSourcesGeneratedEvaluation, closestSources, sampleNumber, "Mean")
-
-        if(analyze):
-            mostUsedGeneratedEvalSourcesForLSTMLayer = RENN.getMostUsedSources(closestSourcesGeneratedEvaluationForLSTMLayer, closestSources, sampleNumber, "Mean", info=False)
 
         sample = test_sentences[sampleNumber]
         print("Evaluation Sample ", sampleNumber, ": ", sample)
@@ -551,7 +546,3 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             print(f"Source: {source}, Count: {count}, Sentence: {trainSentence}")
         #print("Whole List: ", [(source, count, train_sentences[get_flat_index(int(source.split(":")[0]), int(source.split(":")[1]))]) for source, count in mostUsedGeneratedEvalSources], "\n") #For sequences
         print("Whole List: ", [(source, count, train_sentences[get_flat_index(int(source.split(":")[0]), int(source.split(":")[1]))]) for source, count in mostUsedGeneratedEvalSources], "\n")
-
-        if(analyze):
-            print(sampleNumber, " -> Whole List for mostUsedGenerated: ", [(source, count) for source, count in mostUsedGeneratedEvalSources])
-            print(sampleNumber, " -> Whole List for onlyLSTMLayerused: ", [(source, count) for source, count in mostUsedGeneratedEvalSourcesForLSTMLayer], "\n")
