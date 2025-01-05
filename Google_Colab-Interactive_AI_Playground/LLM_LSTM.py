@@ -219,7 +219,7 @@ def createTrainAndTestSet():
 
     return train_sentences, test_sentences
 
-def prepare_data_loader(sentences, words, seq_len, batch_size, shuffle=True):
+def prepare_data_loader(sentences, words, batch_size, shuffle=True):
     class TextDataset(Dataset):
         """Custom Dataset for text sequences."""
         def __init__(self, predictors, class_labels):
@@ -281,13 +281,13 @@ def initializeDatasets(train_samplesParameter, test_samplesParameter, eval_sampl
     sentences, words = split_data(cleaned_train_data, train_samples)
     word_to_idx = {word: idx for idx, word in enumerate(words)}
     idx_to_word = {idx: word for word, idx in word_to_idx.items()}
-    train_loader = prepare_data_loader(sentences, words, seq_len=seq_len, batch_size=batch_size, shuffle=False)
+    train_loader = prepare_data_loader(sentences, words, batch_size=batch_size, shuffle=False)
 
     sentences, words = split_data(cleaned_test_data, test_samples)
-    test_loader = prepare_data_loader(sentences, words, seq_len=seq_len, batch_size=batch_size, shuffle=False)
+    test_loader = prepare_data_loader(sentences, words, batch_size=batch_size, shuffle=False)
 
     sentences, words = split_data(cleaned_test_data, eval_samples)
-    eval_loader = prepare_data_loader(sentences, words, seq_len=seq_len, batch_size=1, shuffle=False)
+    eval_loader = prepare_data_loader(sentences, words, batch_size=1, shuffle=False)
 
     print("Created all dataloaders")
 
@@ -441,7 +441,7 @@ def initializeHook(hidden_sizes, train_samples):
     RENN.createDictionaries(hidden_sizes, len(hidden_sizes), train_samples, llmType=True)
 
     sentences, words = split_data(cleaned_train_data, train_samples)
-    train_loader = prepare_data_loader(sentences, words, seq_len=seq_len, batch_size=1, shuffle=False)
+    train_loader = prepare_data_loader(sentences, words, batch_size=1, shuffle=False)
 
     RENN.runHooks(train_loader, model, hidden_sizes, True, lstm=True)
 
@@ -479,14 +479,12 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
 
     #Generate sentences and get their activation values
     generatedEvals = [generate(test_sentences[evalSample]) for evalSample in range(eval_samples)]
-    generatedEvalSentences = [split_data(generatedEvalSentence, 2)[0][1] for generatedEvalSentence in generatedEvals]
+    generatedEvalSentences = [split_data(generatedEvalSentence, 2)[0][1]+"." for generatedEvalSentence in generatedEvals]
 
     # Split the combined sentences into sentences and words
     eval_source_structure = [create_sequences(generatedEvalSentences)[1]] #For sequences
-    print(eval_source_structure)
-    print(len(generatedEvalSentences))
     sentences, words = split_data(" ".join(generatedEvalSentences))
-    generatedEvalLoader = prepare_data_loader(sentences, words, seq_len=seq_len, batch_size=1, shuffle=False)
+    generatedEvalLoader = prepare_data_loader(sentences, words, batch_size=1, shuffle=False)
     RENN.initializeEvaluationHook(hidden_sizes, generatedEvalLoader, len(generatedEvalLoader), model, os.path.join("Evaluation", "Generated"), True, 0, True)
 
     print(len(generatedEvalLoader))
