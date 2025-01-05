@@ -182,10 +182,10 @@ def forward_hook(module, input, output):
         #Use for array structure like: [layer, neuron, source]
         output = relevantOutput if len(relevantOutput.shape) == 1 else relevantOutput[0]
         if(llm):
-            result = chosenDataSet.getSourceAndSentenceIndex(source, fileName)
-            if result is not None:
+            sourceNumber, sentenceNumber = chosenDataSet.getSourceAndSentenceIndex(source, fileName)
+            if sourceNumber is not None and sentenceNumber is not None:
                 #print(f"Create File: LookUp/{fileName}/Layer{layer}/Source={result[0]}/Sentence{result[1]}-0")
-                append_structured_sparse(output[:layerNeurons], str(layer), str(result[0]), str(result[1]))
+                append_structured_sparse(output[:layerNeurons], str(layer), sourceNumber, sentenceNumber)
         else:
             for neuronNumber, neuron in enumerate(output):
                 if neuronNumber < layerNeurons:

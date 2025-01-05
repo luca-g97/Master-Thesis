@@ -303,7 +303,7 @@ def getSourceAndSentenceIndex(flat_index, structure="Training"):
         sublist_length = len(sublist)
         if flat_index < current_index + sublist_length:
             sentence_index = flat_index - current_index
-            return [source_index, sentence_index]
+            return source_index, sentence_index
         current_index += sublist_length
     return None  # Return None if the index is out of range
 
