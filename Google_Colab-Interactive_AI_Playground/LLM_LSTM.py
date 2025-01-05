@@ -528,10 +528,15 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
     #closestSourcesEvaluation, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(eval_samples, 0, closestSources)
 
     _, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(len(generatedEvalLoader), 0, closestSources, True)
+    if(analyze):
+        _, closestSourcesGeneratedEvaluationForLSTMLayer = RENN.identifyClosestLLMSources(len(generatedEvalLoader), 0, closestSources, True, layersToCheck=[1], info=False)
 
     for sampleNumber in range(eval_samples):
         #mostUsedEvalSources = RENN.getMostUsedSources(closestSourcesEvaluation, closestSources, sampleNumber, "Mean")
         mostUsedGeneratedEvalSources = RENN.getMostUsedSources(closestSourcesGeneratedEvaluation, closestSources, sampleNumber, "Mean")
+
+        if(analyze):
+            mostUsedGeneratedEvalSourcesForLSTMLayer = RENN.getMostUsedSources(closestSourcesGeneratedEvaluationForLSTMLayer, closestSources, sampleNumber, "Mean", info=False)
 
         sample = test_sentences[sampleNumber]
         print("Evaluation Sample ", sampleNumber, ": ", sample)
@@ -548,7 +553,5 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
         print("Whole List: ", [(source, count, train_sentences[get_flat_index(int(source.split(":")[0]), int(source.split(":")[1]))]) for source, count in mostUsedGeneratedEvalSources], "\n")
 
         if(analyze):
-            _, closestSourcesGeneratedEvaluationForLSTMLayer = RENN.identifyClosestLLMSources(len(generatedEvalLoader), 0, closestSources, True, layersToCheck=[1], info=False)
-            mostUsedGeneratedEvalSourcesForLSTMLayer = RENN.getMostUsedSources(closestSourcesGeneratedEvaluationForLSTMLayer, closestSources, sampleNumber, "Mean", info=False)
             print(sampleNumber, " -> Whole List for mostUsedGenerated: ", [(source, count) for source, count in mostUsedGeneratedEvalSources])
             print(sampleNumber, " -> Whole List for onlyLSTMLayerused: ", [(source, count) for source, count in mostUsedGeneratedEvalSourcesForLSTMLayer], "\n")
