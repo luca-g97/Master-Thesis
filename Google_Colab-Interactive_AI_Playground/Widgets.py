@@ -30,20 +30,20 @@ datasetMapping = {
         "closest_sources": 10,
         "show_closest_sources": 3
     }, "WikiText2 (GPT2)": {
-        "train_samples": 2,
-        "test_samples": 5,
-        "epochs": 10,
+        "train_samples": 10,
+        "test_samples": 10,
+        "epochs": 20,
         "learning_rate": 0.0004,
         "eval_samples": 1,
-        "closest_sources": 2,
-        "show_closest_sources": 2
+        "closest_sources": 5,
+        "show_closest_sources": 5
     }, "WikiText2 (LSTM)": {
         "train_samples": 100,
-        "test_samples": 2000,
+        "test_samples": 100,
         "epochs": 100,
         "learning_rate": 0.001,
         "eval_samples": 1,
-        "closest_sources": 10,
+        "closest_sources": 5,
         "show_closest_sources": 3
     }
 }
@@ -223,11 +223,12 @@ optimizerChoice = createLayerChoice(options=['Adam', 'SGD'],
                                     tooltips=['Adaptive learning rate and efficient handling of sparse gradients', 'SGD is best when the dataset is large, and computation efficiency is crucial'], description='Optimizer-Type')
 
 def updateTrainingTab():
-    global datasetChoice, trainSamplesChoice, testSamplesChoice, trainDataSet, testDataSet, batchSizeTraining, batchSizeTest, learningRateChoice, optimizerChoice
+    global datasetChoice, trainSamplesChoice, testSamplesChoice, trainDataSet, testDataSet, batchSizeTraining, batchSizeTest, learningRateChoice, optimizerChoice, epochsChoice
 
     maxTrain = len(trainDataSet)
     maxTest = len(testDataSet)
 
+    epochsChoice = createIntSlider(datasetMapping[datasetChoice.value]["epochs"], min=1, max=1000, description="Epochs")
     learningRateChoice = widgets.BoundedFloatText(value=datasetMapping[datasetChoice.value]["learning_rate"], min=0.0000001, max=10.0, step=0.0000001, description='Learning Rate', style = {'description_width': 'initial'}, disabled=False)
     trainSamplesChoice = createIntSlider(datasetMapping[datasetChoice.value]["train_samples"], min=1, max=maxTrain, description="Train Samples")
     testSamplesChoice = createIntSlider(datasetMapping[datasetChoice.value]["test_samples"], min=1, max=maxTest, description="Test Samples")
