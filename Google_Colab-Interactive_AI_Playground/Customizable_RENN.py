@@ -229,7 +229,7 @@ def attachHooks(hookLoader, model, llmType = False, filename = "", sourceOffset=
             if not llmType:
                 inputs = inputs.float()
             else:
-                actualSource, actualSentenceNumber = chosenDataSet.getSourceAndSentenceIndex(source, fileName)
+                actualSource, actualSentenceNumber, sequenceNumber = chosenDataSet.getSourceAndSentenceIndex(source, fileName)
                 print(f"Saving all Activations for {fileName}-Source {tempSource} (Actual {fileName}-Source: {actualSource}:{actualSentenceNumber})")
             inputs = inputs.to(device)
             if lstm:
