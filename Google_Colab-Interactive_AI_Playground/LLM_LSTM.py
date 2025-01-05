@@ -176,29 +176,29 @@ def getSourceAndSentenceIndex(flat_index, structure="Training"):
     if structure == "Training":
         structure = train_source_structure
     elif "Evaluation" in structure:
+        structure = test_source_structure
+    else:
+        raise ValueError("Invalid structure name. Must be 'Training' or contain 'Evaluation'!")
+
+    for source, sequences in enumerate(structure):
+        for sentence, (start, end) in enumerate(sequences):
+            if start <= flat_index < end:
+                return source, sentence
+
+    raise ValueError("Flat index is out of bounds!")
+
+def get_flat_index(source_index, sentence_index, structure="Training"):
+    if structure == "Training":
+        structure = train_source_structure
+    elif "Evaluation" in structure:
         structure = eval_source_structure
     else:
         raise ValueError("Invalid structure name. Must be 'Training' or contain 'Evaluation'!")
 
-    current_index = 0
+    # Calculate the total number of sentences in all sources before the target source
+    flat_index = sum(len(sequences) for sequences in structure[:source_index])
 
-    for source_index, sequences in enumerate(structure):
-        # Calculate the total sequences in the current source
-        source_length = len(sequences)
-
-        if flat_index < current_index + source_length:
-            # Determine the sequence index within the source
-            sequence_index = flat_index - current_index
-            return source_index, sequence_index
-
-        # Update the current index to account for the processed source
-        current_index += source_length
-
-def get_flat_index(source_index, sentence_index, source_structure):
-    # Calculate the cumulative length of sources up to the target source
-    flat_index = sum(len(sequences) for sequences in source_structure[:source_index])
-
-    # Add the sequence index within the target source
+    # Add the sentence index within the target source
     flat_index += sentence_index
 
     return flat_index
@@ -506,7 +506,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
         for source, count in mostUsedGeneratedEvalSources[:closestSources]:
             tempSource = source.split(":")
             sourceNumber, sentenceNumber = int(tempSource[0]), int(tempSource[1])
-            index = get_flat_index(sourceNumber, sentenceNumber, train_source_structure)
+            index = get_flat_index(sourceNumber, sentenceNumber)
             trainSentence = train_sentences[index]
             print(f"Source: {source}, Count: {count}, Sentence: {trainSentence}")
-        print("Whole List: ", [(source, count, train_sources[get_flat_index(int(source.split(":")[0]), int(source.split(":")[1]), train_source_structure)]) for source, count in mostUsedGeneratedEvalSources], "\n")
+        print("Whole List: ", [(source, count, train_sentences[get_flat_index(int(source.split(":")[0]), int(source.split(":")[1]))]) for source, count in mostUsedGeneratedEvalSources], "\n")
