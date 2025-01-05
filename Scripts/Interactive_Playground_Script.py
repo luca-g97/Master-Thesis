@@ -33,6 +33,15 @@ import stanza
 nlp = stanza.Pipeline('en', verbose=False)
 stanza.download('en', verbose=False)
 
+import sys
+from subprocess import run
+sys.path.append('/tf/.local/lib/python3.11/site-packages')
+run([sys.executable, "-m", "pip", "install", "--upgrade", "pip"], check=True)
+run([sys.executable, "-m", "pip", "install", "-q", "nltk"], check=True)
+import nltk
+nltk.download('punkt_tab')
+from nltk import word_tokenize,sent_tokenize
+
 #Libraries needed for Visualization
 from IPython.display import display, clear_output
 import plotly.graph_objects as go
