@@ -491,9 +491,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
 
     for sampleNumber in range(eval_samples):
         #mostUsedEvalSources = RENN.getMostUsedSources(closestSourcesEvaluation, closestSources, sampleNumber, "Mean")
-        #_ = RENN.getMostUsedSources(closestSourcesEvaluation, closestSources, sampleNumber, "Sum")
         mostUsedGeneratedEvalSources = RENN.getMostUsedSources(closestSourcesGeneratedEvaluation, closestSources, sampleNumber, "Mean")
-        _ = RENN.getMostUsedSources(closestSourcesGeneratedEvaluation, closestSources, sampleNumber, "Sum")
 
         sample = test_sentences[sampleNumber]
         print("Evaluation Sample ", sampleNumber, ": ", sample)

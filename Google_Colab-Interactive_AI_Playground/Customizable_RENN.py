@@ -372,13 +372,13 @@ def getMostUsedFromDataFrame(df, evalSample, closestSources, weightedMode=""):
     total_weight = sorted_sources.sum()
 
     # Print the total weight (sum, mean, or total count depending on the mode)
-    print(f"Total Weight for Weighted Mode={weightedMode}: {total_weight}")
+    #print(f"Total Weight for Weighted Mode={weightedMode}: {total_weight}")
 
     # Convert to a Counter-like output (sorted already by the determined order)
     counter = [(source, weight) for source, weight in sorted_sources.items()]
 
-    print(f"Total closest Sources (Weighted Mode={weightedMode}):", total_weight,
-          "|", closestSources, "closest Sources in format [SourceNumber, Weight]:", counter)
+    #print(f"Total closest Sources (Weighted Mode={weightedMode}):", total_weight,
+    #      "|", closestSources, "closest Sources in format [SourceNumber, Weight]:", counter)
 
     # Fix: Convert the 'source' column of valid_entries to a list
     sourceCounter = valid_entries['source'].value_counts().sum()  # Total count of valid sources
