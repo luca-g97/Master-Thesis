@@ -512,7 +512,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
     global train_samples, test_samples, eval_samples, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, eval_source_structure
 
     #Generate sentences and get their activation values
-    generatedEvals = [generate(test_sentences[evalSample]) for evalSample in range(eval_samples)]
+    generatedEvals = [generate(test_sentences[evalSample]) for evalSample in range(eval_samples+1)]
     generatedEvalSentences = [split_data(generatedEvalSentence, 2)[0][1]+"." for generatedEvalSentence in generatedEvals]
 
     # Split the combined sentences into sentences and words
