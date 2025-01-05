@@ -4,14 +4,6 @@ import seaborn as sns
 import random
 import re
 import os
-import sys
-from subprocess import run
-sys.path.append('/tf/.local/lib/python3.11/site-packages')
-run([sys.executable, "-m", "pip", "install", "--upgrade", "pip"], check=True)
-run([sys.executable, "-m", "pip", "install", "-q", "nltk"], check=True)
-import nltk
-nltk.download('punkt_tab')
-from nltk import word_tokenize,sent_tokenize
 import Customizable_RENN as RENN
 from torch.utils.data import Dataset
 from collections import defaultdict
@@ -20,8 +12,6 @@ import torch
 from torch import tensor
 import torch.nn as nn
 import torch.nn.functional as F
-
-device, DataLoader = "", ""
 
 #General
 seq_len = 6
@@ -40,6 +30,7 @@ sent_len = 100
 topk = 5
 
 #Preinitialize
+device, DataLoader, nltk = "", "", ""
 word_to_idx, idx_to_word = {}, {}
 train_sources, cleaned_train_data, train_titles, train_sentences, train_source_structure = [], "", [], [], []
 test_sources, cleaned_test_data, test_titles, test_sentences, test_source_structure = [], "", [], [], []
@@ -47,10 +38,10 @@ train_samples, test_samples, eval_samples, train_loader, test_loader, eval_loade
 model, criterion_class, chosen_optimizer, layers = "", "", "", ""
 dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, eval_source_structure = [], [], []
 
-def initializePackages(devicePackage, DataLoaderPackage):
-    global device, DataLoader
+def initializePackages(devicePackage, DataLoaderPackage, nltkPackage):
+    global device, DataLoader, nltk
 
-    device, DataLoader = devicePackage, DataLoaderPackage
+    device, DataLoader, nltk = devicePackage, DataLoaderPackage, nltkPackage
 
 def get_hidden_sizes(num_layers, trainSamples):
     global model
@@ -167,7 +158,7 @@ def create_sequences(sentences, current_offset=0):
     return sent_sequences, sequences, current_offset
 
 def split_data(data, num_sentences=-1):
-    sentences = sent_tokenize(data) if num_sentences == -1 else sent_tokenize(data)[:num_sentences]
+    sentences = nltk.sent_tokenize(data) if num_sentences == -1 else nltk.sent_tokenize(data)[:num_sentences]
     words = sorted({word for sent in sentences for word in sent.split()})
     words.insert(0, "")  # Add an empty string for padding
     return sentences, words

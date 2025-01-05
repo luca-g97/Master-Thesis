@@ -10,25 +10,17 @@ import requests
 import urllib.request
 import Customizable_RENN as RENN
 import pandas as pd
-import sys
-from subprocess import run
-sys.path.append('/tf/.local/lib/python3.11/site-packages')
-run([sys.executable, "-m", "pip", "install", "--upgrade", "pip"], check=True)
-run([sys.executable, "-m", "pip", "install", "-q", "nltk"], check=True)
-import nltk
-nltk.download('punkt_tab')
-from nltk import word_tokenize,sent_tokenize
 
-random, lorem, device, tiktoken, DataLoader, nlp, GPT2Tokenizer = "", "", "", "", "", "", ""
+random, lorem, device, tiktoken, DataLoader, nlp, GPT2Tokenizer, nltk = "", "", "", "", "", "", "", ""
 train_samples, test_samples, eval_samples = "", "", ""
 GPT_CONFIG_124M, settings = "", ""
 train_loader, val_loader, eval_loader, tokenizer, trainSentences, trainSentencesStructure, testSentences, testSentencesStructure = "", "", "", "", "", "", "", ""
 dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource = [], []
 
-def initializePackages(randomPackage, loremPackage, devicePackage, tiktokenPackage, DataLoaderPackage, nlpPackage, GPT2TokenizerPackage):
-    global random, lorem, device, tiktoken, DataLoader, nlp, GPT2Tokenizer
+def initializePackages(randomPackage, loremPackage, devicePackage, tiktokenPackage, DataLoaderPackage, nlpPackage, GPT2TokenizerPackage, nltkPackage):
+    global random, lorem, device, tiktoken, DataLoader, nlp, GPT2Tokenizer, nltk
 
-    random, lorem, device, tiktoken, DataLoader, nlp, GPT2Tokenizer = randomPackage, loremPackage, devicePackage, tiktokenPackage, DataLoaderPackage, nlpPackage, GPT2TokenizerPackage
+    random, lorem, device, tiktoken, DataLoader, nlp, GPT2Tokenizer, nltk = randomPackage, loremPackage, devicePackage, tiktokenPackage, DataLoaderPackage, nlpPackage, GPT2TokenizerPackage, nltkPackage
 
 def createTrainAndTestStructure(sentencesStructure, offset):
     train_sentences, test_sentences = [], []
