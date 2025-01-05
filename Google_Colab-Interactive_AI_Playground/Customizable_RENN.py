@@ -28,6 +28,8 @@ def initializePackages(devicePackage, ioPackage, pdPackage, paPackage, pqPackage
         torch.manual_seed(seed)
         np.random.seed(seed)
 
+    shutil.rmtree(baseDirectory, ignore_errors=True)
+
 #Bitnet-1.58b
 def weight_quant(weight, num_bits=1):
     dtype = weight.dtype
@@ -428,6 +430,11 @@ def compress_dataframe_zstd(filepath, df, sentence_number):
 
     # Ensure the layer directory exists
     os.makedirs(filepath, exist_ok=True)
+
+    # Determine the next available partition index
+    i = 0
+    while os.path.exists(f"{filepath}/Sentence{sentence_number}-{i}.parquet"):
+        i += 1
 
     # Write to partitioned dataset, creating partitions if necessary
     pq.write_to_dataset(
