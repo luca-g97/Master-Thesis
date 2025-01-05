@@ -108,7 +108,7 @@ small1x1 = Small1x1.createTrainAndTestSet(100)
 
 # WikiText2: GPT2-Sourcecheck
 import LLM_GPT2 as GPT2
-GPT2.initializePackages(random, lorem, device, tiktoken, DataLoader, nlp, GPT2Tokenizer)
+GPT2.initializePackages(random, lorem, device, tiktoken, DataLoader, nlp, GPT2Tokenizer, nltk)
 # Choose one of the following as needed:
 # gpt2train, gpt2test = GPT2.createTrainSet()
 # gpt2train, gpt2test = GPT2.createWikiTrainSet("sports")
@@ -117,7 +117,7 @@ gpt2train, gpt2test = GPT2.createWikiText2TrainSet()
 
 # WikiText2: LSTM-Sourcecheck
 import LLM_LSTM as LSTM
-LSTM.initializePackages(device, DataLoader)
+LSTM.initializePackages(device, DataLoader, nltk)
 lstmTrain, lstmTest = LSTM.createTrainAndTestSet()
 
 # Organize datasets for easy access

@@ -7,6 +7,9 @@ import os
 import Customizable_RENN as RENN
 from torch.utils.data import Dataset
 from collections import defaultdict
+import nltk
+nltk.download('punkt_tab')
+from nltk import word_tokenize,sent_tokenize
 import gc
 import torch
 from torch import tensor
@@ -482,8 +485,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
     generatedEvalSentences = [split_data(generatedEvalSentence, 2)[0][1] for generatedEvalSentence in generatedEvals]
 
     # Split the combined sentences into sentences and words
-    #eval_source_structure = [create_sequences(generatedEvalSentences)[1]] #For sequences
-    eval_source_structure = [create_sequences(generatedEvalSentences)] #For sentence
+    eval_source_structure = [create_sequences(generatedEvalSentences)[1]] #For sequences
     print(eval_source_structure)
     print(len(generatedEvalSentences))
     sentences, words = split_data(" ".join(generatedEvalSentences))
