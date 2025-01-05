@@ -782,19 +782,17 @@ def getLLMPrediction(sample, singleSentence=False):
     )
 
     prediction = token_ids_to_text(token_ids, tokenizer)
+    prediction = prediction.replace("\n", "\\n")  # Replace newlines with a space
+    onlyPrediction = prediction[len(sample)+1:]
 
     # Remove the sample from the prediction if it's a prefix
-    if prediction.startswith(sample):
-        prediction = prediction[len(sample):].strip()
-
     if(singleSentence):
         # Use Stanza to split the sample into sentences
-        doc = nlp(prediction)
+        doc = nlp(onlyPrediction)
         sentences = [sentence.text for sentence in doc.sentences]
-        return sentences[0], prediction
+        return sentences[0], onlyPrediction
     else:
-        prediction = prediction.replace("\n", "\\n")  # Replace newlines with a space
-        return sample, prediction
+        return sample, onlyPrediction
 
 def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
     global train_samples, test_samples, eval_samples, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource

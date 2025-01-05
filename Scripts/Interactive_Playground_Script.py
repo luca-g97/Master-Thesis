@@ -152,7 +152,7 @@ elif datasetChoice == "WikiText2 (GPT2)":
 elif datasetChoice == "WikiText2 (LSTM)":
     chosenDataSet = LSTM
 
-train_samples = 10#len(datasets[datasetChoice][0])
+train_samples = 100#len(datasets[datasetChoice][0])
 test_samples = len(datasets[datasetChoice][1])
 eval_samples = 10#len(datasets[datasetChoice][1])
 
