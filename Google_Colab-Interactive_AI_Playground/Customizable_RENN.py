@@ -29,6 +29,7 @@ def initializePackages(devicePackage, ioPackage, pdPackage, paPackage, pqPackage
         np.random.seed(seed)
 
     shutil.rmtree(baseDirectory, ignore_errors=True)
+    print("Initialized Packages for Customizable RENN")
 
 #Bitnet-1.58b
 def weight_quant(weight, num_bits=1):
