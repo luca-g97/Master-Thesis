@@ -610,7 +610,7 @@ def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEva
 
     return local_eval_data, local_generated_eval_data
 
-def process_sample_io(evalSample, evalOffset, trainPath, evalPath, generatedEvalPath):
+def process_sample_io(evalSample, evalOffset, trainPath, evalPath, generatedEvalPath, layersToCheck):
     # I/O-bound operations such as file copying and reading parquet files
     evalSource, eval_sentenceNumber = chosenDataSet.getSourceAndSentenceIndex(evalOffset + evalSample, "Evaluation")
     thread_safe_print(f"Starting I/O-bound tasks for Evaluation-Sample {evalSample} (Actual Evaluation-Source: {evalSource}:{eval_sentenceNumber})")
@@ -623,11 +623,12 @@ def process_sample_io(evalSample, evalOffset, trainPath, evalPath, generatedEval
                 continue
 
             layerNumber, sourceNumber, train_sentenceNumber = getInformationFromFileName(train_full_path)
-            eval_full_path = os.path.join(evalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-0.parquet")
-            generated_eval_full_path = os.path.join(generatedEvalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-0.parquet")
+            if (layerNumber in layersToCheck or layerNumber == -1):
+                eval_full_path = os.path.join(evalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-0.parquet")
+                generated_eval_full_path = os.path.join(generatedEvalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-0.parquet")
 
-            # Queue up file copies (avoiding actual copying until all paths are gathered)
-            to_copy.append((train_full_path, eval_full_path, generated_eval_full_path))
+                # Queue up file copies (avoiding actual copying until all paths are gathered)
+                to_copy.append((train_full_path, eval_full_path, generated_eval_full_path))
 
     # Perform file copying concurrently
     with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -649,7 +650,7 @@ def getClosestSourcesFromDf(df, closestSources):
     )
     return closest_sources
 
-def identifyClosestLLMSources(evalSamples, evalOffset, closestSources, onlyOneEvaluation=False):
+def identifyClosestLLMSources(evalSamples, evalOffset, closestSources, onlyOneEvaluation=False, layersToCheck=-1):
     global layers, layerSizes, fileName
 
     trainPath = os.path.join(baseDirectory, "Training")
@@ -663,7 +664,7 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources, onlyOneEv
     # Step 1: Handle I/O-bound tasks
     with concurrent.futures.ThreadPoolExecutor() as executor:
         io_futures = [
-            executor.submit(process_sample_io, sampleNumber, evalOffset, trainPath, evalPath, generatedEvalPath)
+            executor.submit(process_sample_io, sampleNumber, evalOffset, trainPath, evalPath, generatedEvalPath, layersToCheck) for sampleNumber in evalSamples
             for sampleNumber in range(evalSamples)
         ]
         for future in concurrent.futures.as_completed(io_futures):

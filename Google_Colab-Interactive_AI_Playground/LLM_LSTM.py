@@ -506,7 +506,7 @@ def generate(init):
 
             input_indices.append(word_idx)
 
-    generated = sentence[:len(init)+1]
+    generated = sentence[len(init)+1:]
 
     return sentence, generated
 
@@ -526,6 +526,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
 
     #RENN.initializeEvaluationHook(hidden_sizes, eval_loader, eval_samples, model, os.path.join("Evaluation", "Sample"), True, train_samples)
     #closestSourcesEvaluation, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(eval_samples, 0, closestSources)
+
     _, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(len(generatedEvalLoader), 0, closestSources, True)
 
     for sampleNumber in range(eval_samples):
@@ -545,3 +546,9 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             print(f"Source: {source}, Count: {count}, Sentence: {trainSentence}")
         #print("Whole List: ", [(source, count, train_sentences[get_flat_index(int(source.split(":")[0]), int(source.split(":")[1]))]) for source, count in mostUsedGeneratedEvalSources], "\n") #For sequences
         print("Whole List: ", [(source, count, train_sentences[get_flat_index(int(source.split(":")[0]), int(source.split(":")[1]))]) for source, count in mostUsedGeneratedEvalSources], "\n")
+
+        if(analyze):
+            _, closestSourcesGeneratedEvaluationForLSTMLayer = RENN.identifyClosestLLMSources(len(generatedEvalLoader), 0, closestSources, True, layersToCheck=[1])
+            mostUsedGeneratedEvalSourcesForLSTMLayer = RENN.getMostUsedSources(closestSourcesGeneratedEvaluationForLSTMLayer, closestSources, sampleNumber, "Mean")
+            print("Whole List: ", [(source, count) for source, count in mostUsedGeneratedEvalSources], "\n")
+            print("Whole List: ", [(source, count) for source, count in mostUsedGeneratedEvalSourcesForLSTMLayer], "\n")
