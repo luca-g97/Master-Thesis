@@ -219,6 +219,8 @@ def createTrainAndTestSet():
 
     print(f"Created a train set with {len(train_sentences)} sentences")
 
+    print(train_source_structure)
+
     return train_sentences, test_sentences
 
 def prepare_data_loader(sentences, words, seq_len, batch_size, shuffle=True):
@@ -360,11 +362,8 @@ def get_batch(pad_predictors, class_labels, batch_size):
         if i+batch_size<len(pad_predictors):
             yield pad_predictors[i:i+batch_size], class_labels[i:i+batch_size]
 
-def initializeTraining(hidden_sizes, loss_function, optimizer, learning_rateParameter):
+def initializeTraining(hidden_sizes, loss_function, optimizer, learning_rate):
     global criterion_class, chosen_optimizer, layers
-
-    learning_rate = learning_rateParameter
-    loss_function, optimizer = "Cross-Entropy", "Adam"
 
     if(loss_function == "MSE"):
         criterion_class = nn.MSELoss()  # For regression
@@ -375,6 +374,9 @@ def initializeTraining(hidden_sizes, loss_function, optimizer, learning_ratePara
         chosen_optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     elif(optimizer == "SGD"):
         chosen_optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
+
+    criterion_class = nn.CrossEntropyLoss(ignore_index=padding_idx)
+    chosen_optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
 def trainModel(hidden_sizes, loss_function, optimizer, learning_rate, epochs):
     global model
