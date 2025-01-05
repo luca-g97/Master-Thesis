@@ -804,7 +804,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
 
     #RENN.initializeEvaluationHook(hidden_sizes, eval_loader, eval_samples, model, os.path.join("Evaluation", "Sample"), True, train_samples)
     #closestSourcesEvaluation, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(eval_samples, 0, closestSources)
-    layersToCheck = [layer for layer in hidden_sizes if layer[1] == "FeedForward"]
+    layersToCheck = [layer for layer in hidden_sizes if layer[0] == "FeedForward"]
     _, closestSourcesGeneratedEvaluation = RENN.identifyClosestLLMSources(eval_samples, 0, closestSources, True, layersToCheck=layersToCheck)
 
     for sampleNumber in range(eval_samples):

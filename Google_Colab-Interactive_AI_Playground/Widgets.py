@@ -11,7 +11,7 @@ datasetMapping = {
         "epochs": 10,
         "learning_rate": 0.001,
         "eval_samples": 1,
-        "closest_sources": 10,
+        "closest_sources": 42,
         "show_closest_sources": 3
     }, "HSV-RGB": {
         "train_samples": 10000,
