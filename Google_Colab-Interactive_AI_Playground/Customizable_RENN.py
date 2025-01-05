@@ -185,7 +185,7 @@ def forward_hook(module, input, output):
             sourceNumber, sentenceNumber = chosenDataSet.getSourceAndSentenceIndex(source, fileName)
             if sourceNumber is not None and sentenceNumber is not None:
                 #print(f"Create File: LookUp/{fileName}/Layer{layer}/Source={result[0]}/Sentence{result[1]}-0")
-                append_structured_sparse(output[:layerNeurons], str(layer), sourceNumber, sentenceNumber)
+                append_structured_sparse(output[:layerNeurons], layer, sourceNumber, sentenceNumber)
         else:
             for neuronNumber, neuron in enumerate(output):
                 if neuronNumber < layerNeurons:
@@ -477,7 +477,8 @@ def getInformationFromFileName(filepath):
     layer = int(path_parts[3].replace('Layer', ''))  # Layer part: "Layer0" -> 0
     source = int(path_parts[4].replace('Source=', ''))  # Source part: "Source=0" -> 0
     sentence = int(path_parts[5].split('-')[0].replace('Sentence', ''))  # Sentence part: "Sentence0-0" -> 0
-    return layer, source, sentence
+    sequence = int(path_parts[5].split('-')[1].replace('.parquet', '')) # Sequence part: "Sentence0-0" -> 0
+    return layer, source, sentence, sequence
 
 def reconstruct_from_normalized(sparse_array, min_val, max_val):
     # Inverse normalization scaling factors
@@ -562,9 +563,9 @@ def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEva
 
             if os.path.exists(train_full_path):
 
-                layerNumber, sourceNumber, train_sentenceNumber = getInformationFromFileName(train_full_path)
-                eval_full_path = os.path.join(evalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-0.parquet")
-                generated_eval_full_path = os.path.join(generatedEvalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-0.parquet")
+                layerNumber, sourceNumber, train_sentenceNumber, sequence = getInformationFromFileName(train_full_path)
+                eval_full_path = os.path.join(evalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-{sequence}.parquet")
+                generated_eval_full_path = os.path.join(generatedEvalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-{sequence}.parquet")
 
                 evalPathExists, generatedEvalPathExists = os.path.exists(eval_full_path), os.path.exists(generated_eval_full_path)
                 toCheck = []
@@ -617,9 +618,9 @@ def process_sample_io(evalSample, evalOffset, trainPath, evalPath, generatedEval
             if not os.path.exists(train_full_path):
                 continue
 
-            layerNumber, sourceNumber, train_sentenceNumber = getInformationFromFileName(train_full_path)
-            eval_full_path = os.path.join(evalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-0.parquet")
-            generated_eval_full_path = os.path.join(generatedEvalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-0.parquet")
+            layerNumber, sourceNumber, train_sentenceNumber, sequence = getInformationFromFileName(train_full_path)
+            eval_full_path = os.path.join(evalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-{sequence}.parquet")
+            generated_eval_full_path = os.path.join(generatedEvalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-{sequence}.parquet")
 
             # Queue up file copies (avoiding actual copying until all paths are gathered)
             to_copy.append((train_full_path, eval_full_path, generated_eval_full_path))
