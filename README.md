@@ -9,6 +9,10 @@ To allow everyone to experiment easily with our new foundational findings, we cr
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://github.com/luca-g97/Master-Thesis/blob/main/Interactive_AI_Playground.ipynb)
 
+The tests for the best metrics to use within the LLM part of the Interactive Playground can be found here. Since the data was provided locally, it is not intended to run it but serves just as an informational source.
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://github.com/luca-g97/Master-Thesis/blob/main/Testing_Area.ipynb) 
+
 
 
 
