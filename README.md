@@ -7,7 +7,7 @@ The semester project focused on exploring "Explainable AI," particularly within 
 
 To allow everyone to experiment easily with our new foundational findings, we created a "playground" to be used in Google Colab.
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)][(https://colab.research.google.com/luca-g97/Master-Thesis/blob/main/Interactive_AI_Playground.ipynb)]
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/luca-g97/Master-Thesis/blob/main/Interactive_AI_Playground.ipynb)
 
 The tests for the best metrics to use within the LLM part of the Interactive Playground can be found here. Since the data was provided locally, it is not intended to run it but serves just as an informational source.
 
