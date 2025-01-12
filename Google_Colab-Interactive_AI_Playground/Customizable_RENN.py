@@ -259,7 +259,7 @@ def createDictionaries(hidden_sizes, totalLayersParameter, train_samples, llmTyp
             activationsByLayers = np.zeros((totalLayers, np.max(layerSizes), train_samples), dtype=np.float128)
     print("Hook-Dictionaries created")
 
-def runHooparks(train_dataloader, model, layersParameter=layers, llmType=False, context_length=1, lstm=False, layersToCheckParameter=[]):
+def runHooks(train_dataloader, model, layersParameter=layers, llmType=False, context_length=1, lstm=False, layersToCheckParameter=[]):
     global layers, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, activationsBySources, activationsByLayers, llm, contextLength, layersToCheck
 
     #Variables for usage within the hook
