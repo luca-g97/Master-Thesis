@@ -299,79 +299,130 @@ def getSourceAndSentenceIndex(flat_index, structure="Training"):
         current_index += sublist_length
     return None  # Return None if the index is out of range
 
+# Global definitions for special tokens
+eos_token_id = 50256  # GPT-2 EOS token ID
+pad_token_id = 0      # Arbitrary padding token ID (ensure it does not conflict with actual tokens)
+
 def setGPTSettings(layerAmount, learningRate, epochs):
-    global GPT_CONFIG_124M, settings, tokenizer
+    global GPT_CONFIG_124M, settings, tokenizer, eos_token_id, pad_token_id
 
     GPT_CONFIG_124M = {
         "vocab_size": 50257,   # Vocabulary size
-        "context_length": 256, # Shortened context length (orig: 1024)
+        "context_length": 256, # Context length (originally 1024)
         "emb_dim": 768,        # Embedding dimension
-        "n_heads": layerAmount,         # Number of attention heads
-        "n_layers": layerAmount,        # Number of layers
+        "n_heads": layerAmount,  # Number of attention heads
+        "n_layers": layerAmount, # Number of layers
         "drop_rate": 0.1,      # Dropout rate
         "qkv_bias": False      # Query-key-value bias
     }
 
-    # Initialize the tokenizer
-    #tokenizer = tiktoken.get_encoding("gpt2")
-    tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-    tokenizer.pad_token = tokenizer.eos_token  # Set padding token to EOS token if not already set
+    # Initialize the tokenizer using tiktoken
+    tokenizer = tiktoken.get_encoding("gpt2")
 
-    settings = {"learning_rate": learningRate, "weight_decay": 0.1, "batch_size": 8, "num_epochs": epochs}
+    settings = {
+        "learning_rate": learningRate,
+        "weight_decay": 0.1,
+        "batch_size": 8,
+        "num_epochs": epochs
+    }
 
-    LLM_Layers = [[('Embedding', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
-         ('Embedding', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
-         ('Dropout', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["drop_rate"])
-         ], [('Sequential', GPT_CONFIG_124M["emb_dim"], 4 * GPT_CONFIG_124M["emb_dim"]),
-         ('LayerNorm', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
-         ('Linear', GPT_CONFIG_124M["vocab_size"], GPT_CONFIG_124M["emb_dim"])]]
+    # (Optional) Define your LLM layers and transformer block layer as needed.
+    LLM_Layers = [
+        [
+            ('Embedding', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
+            ('Embedding', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
+            ('Dropout', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["drop_rate"])
+        ],
+        [
+            ('Sequential', GPT_CONFIG_124M["emb_dim"], 4 * GPT_CONFIG_124M["emb_dim"]),
+            ('LayerNorm', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
+            ('Linear', GPT_CONFIG_124M["vocab_size"], GPT_CONFIG_124M["emb_dim"])
+        ]
+    ]
 
-    TransformerBlockLayer = [('LayerNorm', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
-    ('Linear', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
-    ('Linear', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
-    ('Linear', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
-    ('Dropout', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["drop_rate"]),
-    ('Linear', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
-    ('MultiHeadAttention', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
-    ('Dropout', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["drop_rate"]),
-    ('LayerNorm', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
-    ('Linear', GPT_CONFIG_124M["emb_dim"], 4 * GPT_CONFIG_124M["emb_dim"]),
-    ('GELU', 4 * GPT_CONFIG_124M["emb_dim"], 4 * GPT_CONFIG_124M["emb_dim"]),
-    ('Linear', 4 * GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
-    ('Sequential', GPT_CONFIG_124M["emb_dim"], 4 * GPT_CONFIG_124M["emb_dim"]),
-    ('FeedForward', GPT_CONFIG_124M["emb_dim"], 4 * GPT_CONFIG_124M["emb_dim"]),
-    ('Dropout', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["drop_rate"]),
-    ('TransformerBlock', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"])
+    TransformerBlockLayer = [
+        ('LayerNorm', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
+        ('Linear', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
+        ('Linear', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
+        ('Linear', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
+        ('Dropout', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["drop_rate"]),
+        ('Linear', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
+        ('MultiHeadAttention', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
+        ('Dropout', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["drop_rate"]),
+        ('LayerNorm', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
+        ('Linear', GPT_CONFIG_124M["emb_dim"], 4 * GPT_CONFIG_124M["emb_dim"]),
+        ('GELU', 4 * GPT_CONFIG_124M["emb_dim"], 4 * GPT_CONFIG_124M["emb_dim"]),
+        ('Linear', 4 * GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"]),
+        ('Sequential', GPT_CONFIG_124M["emb_dim"], 4 * GPT_CONFIG_124M["emb_dim"]),
+        ('FeedForward', GPT_CONFIG_124M["emb_dim"], 4 * GPT_CONFIG_124M["emb_dim"]),
+        ('Dropout', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["drop_rate"]),
+        ('TransformerBlock', GPT_CONFIG_124M["emb_dim"], GPT_CONFIG_124M["emb_dim"])
     ]
 
     return LLM_Layers, TransformerBlockLayer
 
-"""#Data Initialization"""
 
+# Updated Dataset that returns variable-length token lists
 class GPTDatasetV1(Dataset):
-    def __init__(self, sentences, tokenizer, max_length):
+    def __init__(self, txt, tokenizer, max_length, use_sliding_window=False, stride=None):
         self.input_ids = []
         self.target_ids = []
+        stride = stride or max_length
 
-        for sentence in sentences:
-            # Tokenize the sentence using GPT2Tokenizer
-            token_ids = tokenizer.encode(sentence, add_special_tokens=True)  # add_special_tokens=True adds the EOS token by default
+        def process_with_sliding(token_ids):
+            # Ensure EOS token is appended if not present.
+            if not token_ids or token_ids[-1] != eos_token_id:
+                token_ids.append(eos_token_id)
+            # Use sliding window only if the token sequence is long enough.
+            if len(token_ids) >= max_length:
+                for i in range(0, len(token_ids) - max_length + 1, stride):
+                    sample_ids = token_ids[i : i + max_length]
+                    # Only add sample if it meets the required length.
+                    if len(sample_ids) == max_length:
+                        input_chunk = sample_ids[:-1]
+                        target_chunk = sample_ids[1:]
+                        self.input_ids.append(torch.tensor(input_chunk, dtype=torch.long))
+                        self.target_ids.append(torch.tensor(target_chunk, dtype=torch.long))
+            else:
+                # If the text is too short for sliding, fall back to single-sample mode.
+                process_as_single_sample(token_ids)
 
-            if(max_length > 1):
-                # Manually truncate or pad if necessary
-                if len(token_ids) > max_length:
-                    token_ids = token_ids[:max_length]
-                else:
-                    # Pad if necessary (pad_token_id is used for padding)
-                    token_ids += [tokenizer.pad_token_id] * (max_length - len(token_ids))
-
-            # Input chunk: all tokens except the last one (to predict the next token)
+        def process_as_single_sample(token_ids):
+            # Ensure EOS token is appended.
+            if not token_ids or token_ids[-1] != eos_token_id:
+                token_ids.append(eos_token_id)
+            # Truncate or pad the token_ids to exactly max_length.
+            if len(token_ids) > max_length:
+                token_ids = token_ids[:max_length]
+            else:
+                token_ids += [pad_token_id] * (max_length - len(token_ids))
             input_chunk = token_ids[:-1]
-            # Target chunk: shifted tokens (next token prediction)
             target_chunk = token_ids[1:]
+            self.input_ids.append(torch.tensor(input_chunk, dtype=torch.long))
+            self.target_ids.append(torch.tensor(target_chunk, dtype=torch.long))
 
-            self.input_ids.append(torch.tensor(input_chunk))
-            self.target_ids.append(torch.tensor(target_chunk))
+        # Process input based on type.
+        if isinstance(txt, list):
+            # Process each sentence.
+            for sentence in txt:
+                # Skip empty strings.
+                sentence = sentence.strip() if isinstance(sentence, str) else ""
+                if not sentence:
+                    continue
+                # Tokenize the sentence.
+                token_ids = tokenizer.encode(sentence, allowed_special={"<|endoftext|>"})
+                # Use sliding window if desired and if the sentence is long enough.
+                if use_sliding_window and len(token_ids) >= max_length:
+                    process_with_sliding(token_ids)
+                else:
+                    process_as_single_sample(token_ids)
+        else:
+            # txt is a single string.
+            token_ids = tokenizer.encode(txt, allowed_special={"<|endoftext|>"})
+            if use_sliding_window and len(token_ids) >= max_length:
+                process_with_sliding(token_ids)
+            else:
+                process_as_single_sample(token_ids)
 
     def __len__(self):
         return len(self.input_ids)
@@ -379,33 +430,28 @@ class GPTDatasetV1(Dataset):
     def __getitem__(self, idx):
         return self.input_ids[idx], self.target_ids[idx]
 
-# Custom collate function to handle padding of variable-length sentences
-def custom_collate_fn(batch):
-    input_ids, target_ids = zip(*batch)
 
-    # Pad sequences for batch processing to the maximum sequence length in the batch
-    input_ids_padded = torch.nn.utils.rnn.pad_sequence(input_ids, batch_first=True, padding_value=0)
-    target_ids_padded = torch.nn.utils.rnn.pad_sequence(target_ids, batch_first=True, padding_value=0)
-
-    return input_ids_padded, target_ids_padded
-
-def create_dataloader_v1(sentences, tokenizer, batch_size=4, max_length=256, shuffle=True, drop_last=True):
-    # Create dataset
-    dataset = GPTDatasetV1(sentences, tokenizer, max_length)
-
-    # Create dataloader
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last, collate_fn=custom_collate_fn)
-
+def create_dataloader_v1(txt, batch_size=4, max_length=256, use_sliding_window=False, stride=None, shuffle=True, drop_last=True, num_workers=0):
+    dataset = GPTDatasetV1(txt, tokenizer, max_length, use_sliding_window, stride)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, drop_last=drop_last, num_workers=num_workers, collate_fn=custom_collate_fn)
     return dataloader
 
-def createLLMLoader(sentences, batch_size, context_length, shuffle=False, drop_last=True):
+def custom_collate_fn(batch):
+    input_ids, target_ids = zip(*batch)
+    input_ids_padded = torch.nn.utils.rnn.pad_sequence(input_ids, batch_first=True, padding_value=pad_token_id)
+    target_ids_padded = torch.nn.utils.rnn.pad_sequence(target_ids, batch_first=True, padding_value=pad_token_id)
+    return input_ids_padded, target_ids_padded
+
+def createLLMLoader(sentences, batch_size, use_sliding_window=False, shuffle=False, drop_last=True):
+    stride = 128 if use_sliding_window else None
     loader = create_dataloader_v1(
         sentences,
-        tokenizer=tokenizer,
-        batch_size=batch_size,  # Ensure settings is defined somewhere
-        max_length=context_length,
-        drop_last=drop_last,
-        shuffle=shuffle
+        batch_size=batch_size,
+        max_length=GPT_CONFIG_124M["context_length"],
+        use_sliding_window=use_sliding_window,
+        stride=stride,
+        shuffle=shuffle,
+        drop_last=drop_last
     )
     return loader
 
@@ -413,16 +459,14 @@ def createLLMLoaders(train_samplesParameter, test_samplesParameter, eval_samples
     global train_loader, val_loader, eval_loader, train_samples, test_samples, eval_samples, tokenizer
 
     train_samples, test_samples, eval_samples = train_samplesParameter, test_samplesParameter, eval_samplesParameter
-    # Split the sentences into train, test, and eval sets
-    train_sentences = trainSentences[:train_samples]
-    test_sentences = testSentences[:test_samples]
+    # Assuming trainSentences and testSentences are defined globally
+    train_sentences = " ".join(trainSentences[:train_samples])
+    test_sentences = " ".join(testSentences[:test_samples])
     eval_sentences = testSentences[:eval_samples]
 
-    # Create loaders with sentences and context length
-    train_loader = createLLMLoader(train_sentences, 2 if train_samples >= 2 else train_samples, GPT_CONFIG_124M["context_length"], True)
-    val_loader = createLLMLoader(test_sentences, 2 if test_samples >= 2 else test_samples, GPT_CONFIG_124M["context_length"], True)
-    eval_loader = createLLMLoader(eval_sentences, 1, GPT_CONFIG_124M["context_length"])
-
+    train_loader = createLLMLoader(train_sentences, batch_size=1, use_sliding_window=True, shuffle=True)
+    val_loader = createLLMLoader(test_sentences, batch_size=1, use_sliding_window=True, shuffle=True)
+    eval_loader = createLLMLoader(eval_sentences, batch_size=1)
     return train_loader, val_loader, eval_loader
 
 """# Setup Customizable Network"""
@@ -622,7 +666,7 @@ def token_ids_to_text(token_ids, tokenizer):
 def calc_loss_batch(input_batch, target_batch):
     input_batch, target_batch = input_batch.to(device), target_batch.to(device)
     logits = model(input_batch)
-    loss = torch.nn.functional.cross_entropy(logits.flatten(0, 1), target_batch.flatten(), ignore_index=tokenizer.pad_token_id)
+    loss = torch.nn.functional.cross_entropy(logits.flatten(0, 1), target_batch.flatten(), ignore_index=pad_token_id)
     return loss
 
 
@@ -729,7 +773,7 @@ def initializeHook(hidden_sizes, train_samples):
     RENN.createDictionaries(hidden_sizes, len(hidden_sizes), train_samples, llmType=True)
 
     samples = trainSentences[:train_samples]
-    train_loader = createLLMLoader(samples, 1, context_length=1)
+    train_loader = createLLMLoader(samples, 1)
 
     RENN.runHooks(train_loader, model, hidden_sizes, True, layersToCheckParameter=layersToCheck)
 
@@ -772,27 +816,36 @@ def generate(model, idx, max_new_tokens, context_size, temperature, top_k=None):
 def getLLMPrediction(sample, singleSentence=False):
     global tokenizer
 
-    token_ids = generate(
-        model=model,
-        idx=text_to_token_ids(sample, tokenizer),
-        max_new_tokens=150,
-        context_size=GPT_CONFIG_124M["context_length"],
-        top_k=1,
-        temperature=0.0
-    )
+    # Convert text to token IDs
+    input_ids = torch.tensor([tokenizer.encode(sample)], dtype=torch.long)
 
-    prediction = token_ids_to_text(token_ids, tokenizer)
-    prediction = prediction.replace("\n", "\\n")  # Replace newlines with a space
-    onlyPrediction = prediction[len(sample)+1:]
+    # Generate new token IDs
+    with torch.no_grad():
+        token_ids = generate(
+            model=model,
+            idx=input_ids,
+            max_new_tokens=150,
+            context_size=GPT_CONFIG_124M["context_length"],
+            top_k=1,  # Greedy decoding
+            temperature=0.0  # Deterministic output
+        )
 
-    # Remove the sample from the prediction if it's a prefix
-    if(singleSentence):
-        # Use Stanza to split the sample into sentences
-        doc = nlp(onlyPrediction)
-        sentences = [sentence.text for sentence in doc.sentences]
-        return sentences[0], onlyPrediction
+    # Convert token IDs back to text
+    prediction = tokenizer.decode(token_ids.squeeze().tolist()).strip()
+
+    # Ensure the generated text does not include the prompt
+    if prediction.startswith(sample):
+        onlyPrediction = prediction[len(sample):].lstrip()
     else:
-        return sample, onlyPrediction
+        onlyPrediction = prediction
+
+    # If extracting only the first generated sentence
+    if singleSentence:
+        doc = nlp(onlyPrediction)
+        first_sentence = doc.sentences[0].text if doc.sentences else onlyPrediction
+        return first_sentence, onlyPrediction
+
+    return sample, onlyPrediction
 
 def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
     global train_samples, test_samples, eval_samples, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
@@ -800,7 +853,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
     #Generate sentences and get their activation values
     generatedEvalSentences, generatedPrediction = zip(*[getLLMPrediction(testSentences[evalSample], True) for evalSample in range(eval_samples)])
     print([generatedEvalSentence.replace('"', '\\"') for generatedEvalSentence in generatedEvalSentences])
-    generatedEvalLoader = createLLMLoader(generatedEvalSentences, 1, context_length=256)
+    generatedEvalLoader = createLLMLoader(list(generatedEvalSentences), 1)
     RENN.initializeEvaluationHook(hidden_sizes, generatedEvalLoader, eval_samples, model, os.path.join("Evaluation", "Generated"), True, 0)
 
     #RENN.initializeEvaluationHook(hidden_sizes, eval_loader, eval_samples, model, os.path.join("Evaluation", "Sample"), True, train_samples)

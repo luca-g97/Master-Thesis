@@ -161,7 +161,7 @@ def create_sequences(sentences, current_offset=0):
 
 def split_data(data, num_sentences=-1):
     sentences = nltk.sent_tokenize(data) if num_sentences == -1 else nltk.sent_tokenize(data)[:num_sentences]
-    words = sorted({word for sent in sentences for word in sent.split()})
+    words = sorted({word for sent in sentences for word in sent.split()}) #tiktoken
     words.insert(0, "")  # Add an empty string for padding
     return sentences, words
 
