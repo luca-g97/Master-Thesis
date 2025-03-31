@@ -6,7 +6,8 @@ import threading
 import sys
 from collections import Counter
 from scipy.spatial import distance
-from scipy.stats import spearmanr
+from scipy.stats import spearmanr, kendalltau, pearsonr
+from time import perf_counter
 from collections import defaultdict
 import heapq
 import LLM_Small1x1 as Small1x1
@@ -16,10 +17,44 @@ import scipy.sparse as sp
 import shutil
 import os
 
+
+mtEvaluation, NumberOfComponents = True, 20
+
 layer, source, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, activationsBySources, activationsByLayers, totalLayers = 0, 0, [], [], [], [], 0
 llm, metricsEvaluation, useBitNet, layerSizes, device, hidden_sizes, layers, currentLayer, relevantLayerIndices = False, False, False, [], "", [], 0, [], []
 sourceArray, fileName, contextLength, io, pd, pa, pq, zstd, levenshtein, chosenDataSet, baseDirectory = "", "", 1, "", "", "", "", "", "", "", "./LookUp"
 metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, metricsActivationsBySources, metricsActivationsByLayers, layersToCheck = [], [], [], [], []
+mmDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource, mtActivationsBySources, mtActivationsByLayers = [], [], [], []
+
+METRICS = {
+    # 1. L-family distances (vectorized)
+    'L2 norm (Euclidean)': lambda d, c: np.sqrt(np.sum((d - c)**2)),
+    'Squared Euclidean': lambda d, c: np.sum((d - c)**2),
+    'L1 norm (Manhattan)': lambda d, c: np.sum(np.abs(d - c)),
+    'Canberra': lambda d, c: np.sum(np.abs(d - c) / (np.abs(d) + np.abs(c) + 1e-10)),
+    'L∞ norm (Chebyshev)': lambda d, c: np.max(np.abs(d - c)),
+    'Lp norm (Minkowski p=3)': lambda d, c: np.sum(np.abs(d - c)**3)**(1/3),
+
+    # 2. Correlation measures (precomputed reference)
+    'Cosine Similarity': lambda d, c: (1 - distance.cosine(d, c) if (np.linalg.norm(d) > 1e-9 and np.linalg.norm(c) > 1e-9) else 0.0),
+    'Pearson Correlation': lambda d, ref: np.corrcoef(d, ref)[0, 1] if np.std(d) > 1e-9 else 0.0,
+    'Spearman Correlation': lambda d, ref: spearmanr(d, ref).correlation if np.std(d) > 1e-9 else 0.0,
+
+    # 3. Statistical distances (precomputed variances)
+    'Mahalanobis': lambda d, c, v: np.sqrt(np.sum((d - c)**2 / v)),
+    'Standardized Euclidean': lambda d, c, v: np.sqrt(np.sum((d - c)**2 / v)),
+    'Chi-square': lambda d, c: np.sum(np.where((d + c) > 0, (d - c)**2 / (d + c + 1e-10), 0)),
+    'Jensen-Shannon': lambda d, c: distance.jensenshannon(
+        (d - d.min() + 1e-10) / (d.sum() - d.min() + 1e-10),
+        (c - c.min() + 1e-10) / (c.sum() - c.min() + 1e-10)
+    ),
+
+    # 4. Discrete metrics (precomputed values)
+    'Levenshtein': lambda s1, s2: levenshtein(s1, s2),
+    'Hamming': lambda d, c: np.count_nonzero(np.round(d, 2) != np.round(c, 2)),
+    'Jaccard/Tanimoto': lambda s1, s2: len(s1 & s2) / max(len(s1 | s2), 1),
+    'Sørensen–Dice': lambda s1, s2: 2 * len(s1 & s2) / max((len(s1) + len(s2)), 1)
+}
 
 def initializePackages(devicePackage, ioPackage, pdPackage, paPackage, pqPackage, zstdPackage, levenshteinPackage, chosenDataSetPackage, seed="", useBitLinear=False):
     global device, useBitNet, io, pd, pa, pq, zstd, levenshtein, chosenDataSet
@@ -151,7 +186,9 @@ class CustomizableRENN(nn.Module):
 
 # Forward hook
 def forward_hook(module, input, output):
-    global layer, source, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, sourceArray, hidden_sizes, llm, fileName, layersToCheck
+    global layer, source, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, \
+        metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource, \
+        sourceArray, hidden_sizes, llm, fileName, layersToCheck
     
     #if not (isinstance(module, nn.Sequential) or isinstance(module, Small1x1.FeedForward) or isinstance(module, Small1x1.TransformerBlock) or isinstance(module, nn.Dropout) or isinstance(module, GPT2.FeedForward) or isinstance(module, GPT2.TransformerBlock)):
     if (llm):
@@ -191,6 +228,10 @@ def forward_hook(module, input, output):
             metricsArray = createMetricsArray(output) 
             metricsDictionaryForSourceLayerNeuron[source][layer] = metricsArray
             metricsDictionaryForLayerNeuronSource[layer][source] = metricsArray
+        if mtEvaluation:
+            reduced = np.argsort(-np.abs(output))[:min(NumberOfComponents, output.shape[0])]
+            mtDictionaryForSourceLayerNeuron[source][layer,:len(reduced)] = reduced
+            mtDictionaryForLayerNeuronSource[layer][source,:len(reduced)] = reduced
         
         if(llm):
             if(actualLayer in layersToCheck or layersToCheck == []):
@@ -254,7 +295,8 @@ def attachHooks(hookLoader, model, llmType = False, filename = "", sourceOffset=
         hook.remove()
 
 def createDictionaries(hidden_sizes, totalLayersParameter, train_samples, llmType = False):
-    global activationsBySources, activationsByLayers, metricsActivationsBySources, metricsActivationsByLayers, totalLayers, layerSizes
+    global activationsBySources, activationsByLayers, metricsActivationsBySources, metricsActivationsByLayers, mtActivationsBySources, mtActivationsByLayers, totalLayers, layerSizes
+    
     totalLayers = totalLayersParameter
     layerSizes = [size[1] for size in hidden_sizes[:]]
     if not llmType:
@@ -268,11 +310,17 @@ def createDictionaries(hidden_sizes, totalLayersParameter, train_samples, llmTyp
         if metricsEvaluation:
             metricsActivationsBySources = np.zeros((train_samples, totalLayers, len(METRICS)), dtype=np.float128)
             metricsActivationsByLayers = np.zeros((totalLayers, train_samples, len(METRICS)), dtype=np.float128)
+
+        if mtEvaluation:
+            mtActivationsBySources = np.zeros((train_samples, totalLayers, NumberOfComponents), dtype=np.float128)
+            mtActivationsByLayers = np.zeros((totalLayers, train_samples, NumberOfComponents), dtype=np.float128)
         
     print("Hook-Dictionaries created")
 
 def runHooks(train_dataloader, model, layersParameter=layers, llmType=False, context_length=1, lstm=False, layersToCheckParameter=[]):
-    global layers, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, activationsBySources, activationsByLayers, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, metricsActivationsBySources, metricsActivationsByLayers, llm, contextLength, layersToCheck
+    global layers, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, activationsBySources, activationsByLayers,\
+        metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, metricsActivationsBySources, metricsActivationsByLayers,\
+        mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource, mtActivationsBySources, mtActivationsByLayers, llm, contextLength, layersToCheck
 
     #Variables for usage within the hook
     llm = llmType
@@ -285,6 +333,8 @@ def runHooks(train_dataloader, model, layersParameter=layers, llmType=False, con
         dictionaryForLayerNeuronSource = activationsByLayers
         metricsDictionaryForSourceLayerNeuron = metricsActivationsBySources
         metricsDictionaryForLayerNeuronSource = metricsActivationsByLayers
+        mtDictionaryForSourceLayerNeuron = mtActivationsBySources
+        mtDictionaryForLayerNeuronSource = mtActivationsByLayers
 
     attachHooks(train_dataloader, model, llmType, filename="Training", sourceOffset=0, lstm=lstm)
 
@@ -293,6 +343,8 @@ def runHooks(train_dataloader, model, layersParameter=layers, llmType=False, con
         activationsByLayers = dictionaryForLayerNeuronSource
         metricsActivationsBySources = metricsDictionaryForSourceLayerNeuron
         metricsActivationsByLayers = metricsDictionaryForLayerNeuronSource
+        mtActivationsBySources = mtDictionaryForSourceLayerNeuron
+        mtActivationsByLayers = mtDictionaryForLayerNeuronSource
         
     print("Hooks finished successfully")
 
@@ -307,25 +359,43 @@ def initializeHook(train_dataloader, model, hidden_sizesParameter, train_samples
     runHooks(train_dataloader, model, layers)
 
 def initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model, filename="Evaluation", llmType = False, sourceOffset=0, lstm=False):
-    global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource
+    global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource
 
     if not llm:
         dictionaryForSourceLayerNeuron = np.zeros((eval_samples, totalLayers, np.max(layerSizes)), dtype=np.float128)
         dictionaryForLayerNeuronSource = np.zeros((totalLayers, np.max(layerSizes), eval_samples), dtype=np.float128)
         metricsDictionaryForSourceLayerNeuron = np.zeros((eval_samples, totalLayers, len(METRICS)), dtype=np.float128)
         metricsDictionaryForLayerNeuronSource = np.zeros((totalLayers, eval_samples, len(METRICS)), dtype=np.float128)
+        mtDictionaryForSourceLayerNeuron = np.zeros((eval_samples, totalLayers, NumberOfComponents), dtype=np.float128)
+        mtDictionaryForLayerNeuronSource = np.zeros((totalLayers, eval_samples, NumberOfComponents), dtype=np.float128)
 
     with torch.no_grad():
         model.eval()  # Set the model to evaluation mode
         attachHooks(eval_dataloader, model, llmType, filename, sourceOffset, lstm)
 
-    return dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource
+    return dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource
 
-def identifyClosestSources(closestSources, outputs, metricsOutputs, mode=""):
-    global layers
+# Global configuration
+METRIC_WEIGHTS = {name: 1.0 for name in METRICS.keys()}
+metrics_optimizer = None  # Will be initialized on first call
+# Add to global initialization
+mt_component_optimizer = None
+optimal_components_overall = 0
+
+def identifyClosestSources(closestSources, outputs, metricsOutputs, mtOutputs, mode=""):
+    global layers, METRIC_WEIGHTS, metrics_optimizer, mt_component_optimizer, optimal_components_overall
+
+    # Initialize optimizer on first call
+    if metricsEvaluation and metrics_optimizer is None:
+        metrics_optimizer = MetricWeightOptimizer(list(METRICS.keys()), top_k=closestSources)
+    if mtEvaluation and mt_component_optimizer is None:
+        mt_component_optimizer = ComponentOptimizer()
+
     dictionary = activationsByLayers
     metricsDictionary = metricsActivationsByLayers
-
+    mtDictionary = mtActivationsByLayers
+    
+    # Layer selection logic
     if mode == "Sum":
         layerNumbersToCheck = [idx * 2 for idx, (name, layerNumber, activation) in enumerate(layers)]
     elif mode == "Activation":
@@ -339,69 +409,119 @@ def identifyClosestSources(closestSources, outputs, metricsOutputs, mode=""):
     layersToCheck = dictionary[layerNumbersToCheck]
     outputsToCheck = outputs[layerNumbersToCheck]
     identifiedClosestSources = np.empty((len(layersToCheck), np.max(layerSizes), closestSources), dtype=tuple)
-
     metricsLayersToCheck = metricsDictionary[layerNumbersToCheck]
     metricsOutputsToCheck = metricsOutputs[layerNumbersToCheck]
     identifiedClosestMetricSources = np.empty((len(layersToCheck), closestSources), dtype=tuple)
+    mtLayersToCheck = mtDictionary[layerNumbersToCheck]
+    mtOutputsToCheck = mtOutputs[layerNumbersToCheck]
+    identifiedClosestMTSources = np.empty((len(layersToCheck), closestSources), dtype=tuple)
 
-    for currentLayer, (layer, currentMetricsLayer) in enumerate(zip(layersToCheck, metricsLayersToCheck)):
+    if mtEvaluation:
+        # Update component optimizer with current sample
+        for layer_idx in range(len(layersToCheck)):
+            mt_component_optimizer.update(outputsToCheck[layer_idx], mtLayersToCheck[layer_idx])
+
+        # Get current best component count
+        optimal_components = mt_component_optimizer.get_optimal_components()
+        if optimal_components != optimal_components_overall:
+            optimal_components_overall = optimal_components
+            print("Adjusted Optimal Components to: " + str(optimal_components))
+
+    for currentLayer, (layer, currentMetricsLayer, currentMTLayer) in enumerate(zip(layersToCheck, metricsLayersToCheck, mtLayersToCheck)):
+        # 1. Collect neuron-based indices and differences
+        layer_neuron_indices = []
+        neuron_differences = []
+
         for currentNeuron, neuron in enumerate(layer):
             maxNeurons = layers[currentLayer][1]
-            if not isinstance(maxNeurons, int):  # Ensure maxNeurons is an integer
+            if not isinstance(maxNeurons, int):
                 maxNeurons = maxNeurons.out_features
             if currentNeuron < maxNeurons:
-                differencesBetweenSources = np.abs(neuron - np.full(len(neuron), outputsToCheck[currentLayer][currentNeuron]))
-                sortedSourceIndices = np.argsort(differencesBetweenSources)
-                closestSourceIndices = sortedSourceIndices[:closestSources]
+                differences = np.abs(neuron - np.full(len(neuron), outputsToCheck[currentLayer][currentNeuron]))
+                sorted_indices = np.argsort(differences)
+                closest_indices = sorted_indices[:closestSources]
+                layer_neuron_indices.append(sorted_indices)
+                neuron_differences.append(differences)
+
+                # Store neuron results
                 tuples = tuple(
-                    (closestSourceIndices[i], neuron[closestSourceIndices[i]],
-                     abs(neuron[closestSourceIndices[i]] - outputsToCheck[currentLayer][currentNeuron]))
+                    (closest_indices[i], neuron[closest_indices[i]],
+                     differences[closest_indices[i]])
                     for i in range(closestSources)
                 )
                 identifiedClosestSources[currentLayer][currentNeuron] = tuples
-        if metricsEvaluation:
-            combined_scores, metric_diffs = get_combined_scores(currentMetricsLayer, metricsOutputsToCheck[currentLayer])
-            sortedSourceIndices = np.argsort(combined_scores)[:closestSources]
-            closestSourceIndices = sortedSourceIndices[:closestSources]
 
-            # Create tuples using the per-metric differences (metric_diffs) instead of combined_scores
+        # Get target indices from neuron-based approach        
+        target_indices = np.concatenate(
+            [indices for indices in layer_neuron_indices if len(indices) > 0]
+        )
+        
+        # 2. Process metrics for this layer
+        if metricsEvaluation:
+            # Calculate individual metric scores
+            metric_scores = {}
+            raw_diffs = np.abs(currentMetricsLayer - metricsOutputsToCheck[currentLayer][np.newaxis, :])
+
+            # Normalize per metric
+            min_vals = currentMetricsLayer.min(axis=0)
+            max_vals = currentMetricsLayer.max(axis=0)
+            norm_samples = (currentMetricsLayer - min_vals) / (max_vals - min_vals + 1e-10)
+            norm_ref = (metricsOutputsToCheck[currentLayer] - min_vals) / (max_vals - min_vals + 1e-10)
+
+            # Handle similarity metrics
+            similarity_indices = [i for i, name in enumerate(METRICS.keys())
+                                  if name in {'Cosine Similarity', 'Pearson Correlation',
+                                              'Spearman Correlation', 'Jaccard/Tanimoto', 'Sørensen–Dice'}]
+            norm_samples[:, similarity_indices] = 1 - norm_samples[:, similarity_indices]
+            norm_ref[similarity_indices] = 1 - norm_ref[similarity_indices]
+
+            # Store normalized scores per metric
+            for i, name in enumerate(METRICS.keys()):
+                metric_scores[name] = np.abs(norm_samples[:, i] - norm_ref[i])
+
+            # Update weights using this sample
+            metrics_optimizer.update_weights(metric_scores, target_indices)
+            METRIC_WEIGHTS = metrics_optimizer.get_weights()
+
+            # Combine scores using optimized weights
+            combined_scores = np.sum([
+                metric_scores[name] * METRIC_WEIGHTS[name]
+                for name in METRICS.keys()
+            ], axis=0)
+
+            sorted_metric_indices = np.argsort(combined_scores)
+            closest_metric_indices = sorted_metric_indices[:closestSources]
+
+            # Create output tuples
             tuples = tuple(
-                (closestSourceIndices[i],  # Indices of top samples
-                 currentMetricsLayer[closestSourceIndices[i]],  # Original values
-                 metric_diffs[closestSourceIndices[i]])  # Per-metric differences (not combined scores)
+                (closest_metric_indices[i],
+                 currentMetricsLayer[closest_metric_indices[i]],
+                 raw_diffs[closest_metric_indices[i]])
                 for i in range(closestSources)
             )
             identifiedClosestMetricSources[currentLayer] = tuples
-            
-        #Evaluate the best metrics here where everything is still known
-    return identifiedClosestSources, identifiedClosestMetricSources, outputsToCheck, layerNumbersToCheck
 
-def get_combined_scores(samples, reference):
-    """Calculate normalized combined metric scores"""
-    # Normalization
-    min_vals = samples.min(axis=0)
-    max_vals = samples.max(axis=0)
-    norm_samples = (samples - min_vals) / (max_vals - min_vals + 1e-10)
-    norm_ref = (reference - min_vals) / (max_vals - min_vals + 1e-10)
+        if mtEvaluation:
+            mt_differences = np.sum(np.abs(currentMTLayer - mtOutputsToCheck[currentLayer][np.newaxis, :]), axis=1)
+            mt_sorted_indices = np.argsort(mt_differences)
+            mt_closest_indices = mt_sorted_indices[:closestSources]
 
-    # Handle similarity metrics
-    similarity_metrics = {'Cosine Similarity', 'Pearson Correlation',
-                          'Spearman Correlation', 'Jaccard/Tanimoto', 'Sørensen–Dice'}
-    for i, name in enumerate(METRICS.keys()):
-        if name in similarity_metrics:
-            norm_samples[:, i] = 1 - norm_samples[:, i]
-            norm_ref[i] = 1 - norm_ref[i]
+            # Store results
+            tuples = tuple(
+                (mt_closest_indices[i],
+                 currentMTLayer[mt_closest_indices[i]],
+                 mt_differences[mt_closest_indices[i]])
+                for i in range(closestSources)
+            )
+            identifiedClosestMTSources[currentLayer] = tuples
 
-    # Return combined scores and raw differences
-    combined = np.sum(np.abs(norm_samples - norm_ref), axis=1)
-    differences = np.abs(samples - reference)
-    return combined, differences
-
-def getMostUsed(sources, mode="", metrics=False):
+    return identifiedClosestSources, identifiedClosestMetricSources, identifiedClosestMTSources, outputsToCheck, layerNumbersToCheck
+    
+def getMostUsed(sources, mode="", evaluation=""):
     mostUsed = []
     sourceCounter = 0
     for currentLayer, layer in enumerate(sources):
-        if metrics:
+        if evaluation == "Metrics" or evaluation == "Magnitude Truncation":
             for sourceNumber, value, difference in layer:
                 if(sourceNumber != 'None'):
                     mostUsed.append(sourceNumber)
@@ -460,22 +580,28 @@ def getMostUsedFromDataFrame(df, evalSample, closestSources, weightedMode=""):
 
     return sourceCounter, mostUsed
 
-def getMostUsedSources(sources, metricsSources, closestSources, evalSample=0, weightedMode="", info=True):
+def getMostUsedSources(sources, metricsSources, mtSources, closestSources, evalSample=0, weightedMode="", info=True):
     metricsMostUsed, metricsSourceCounter = [], []
+    mtMostUsed, mtSourceCounter = [], []
     if llm:
         sourceCounter, mostUsed = getMostUsedFromDataFrame(sources, evalSample, closestSources, weightedMode)
     else:
         sourceCounter, mostUsed = getMostUsed(sources, weightedMode)
         if metricsEvaluation:
-            metricsSourceCounter, metricsMostUsed = getMostUsed(metricsSources, weightedMode, metrics=True)
+            metricsSourceCounter, metricsMostUsed = getMostUsed(metricsSources, weightedMode, evaluation="Metrics")
+        if mtEvaluation:
+            mtSourceCounter, mtMostUsed = getMostUsed(mtSources, weightedMode, evaluation="Magnitude Truncation")
     counter = Counter(mostUsed)
     metricsCounter = Counter(metricsMostUsed)
+    mtCounter = Counter(mtMostUsed)
     
     if(info):
-        print("Total closest Sources :", sourceCounter, " | ", closestSources, " closest Sources (", weightedMode, ") in format: [SourceNumber, Occurances]: ", counter.most_common()[:closestSources])
+        print("Total closest Sources (Per Neuron):", sourceCounter, " | ", closestSources, " closest Sources (", weightedMode, ") in format: [SourceNumber, Occurances]: ", counter.most_common()[:closestSources])
         if metricsEvaluation:
-            print("Total closest Sources :", metricsSourceCounter, " | ", closestSources, " closest Sources (", weightedMode, ") in format: [SourceNumber, Occurances]: ", metricsCounter.most_common()[:closestSources])
-    return counter.most_common()[:closestSources], metricsCounter.most_common()[:closestSources]
+            print("Total closest Sources (Metrics):", metricsSourceCounter, " | ", closestSources, " closest Sources (", weightedMode, ") in format: [SourceNumber, Occurances]: ", metricsCounter.most_common()[:closestSources])
+        if mtEvaluation:
+            print("Total closest Sources (MT):", mtSourceCounter, " | ", closestSources, " closest Sources (", weightedMode, ") in format: [SourceNumber, Occurances]: ", mtCounter.most_common()[:closestSources])
+    return counter.most_common()[:closestSources], metricsCounter.most_common()[:closestSources], mtCounter.most_common()[:closestSources]
 
 # Normalize function to convert to integer range for sparse arrays
 def normalize_to_integer_sparse(sparse_data, min_val, max_val):
@@ -997,36 +1123,6 @@ def createMetricsArray(data):
 
     return list(results.values())
 
-METRICS = {
-    # 1. L-family distances (vectorized)
-    'L2 norm (Euclidean)': lambda d, c: np.sqrt(np.sum((d - c)**2)),
-    'Squared Euclidean': lambda d, c: np.sum((d - c)**2),
-    'L1 norm (Manhattan)': lambda d, c: np.sum(np.abs(d - c)),
-    'Canberra': lambda d, c: np.sum(np.abs(d - c) / (np.abs(d) + np.abs(c) + 1e-10)),
-    'L∞ norm (Chebyshev)': lambda d, c: np.max(np.abs(d - c)),
-    'Lp norm (Minkowski p=3)': lambda d, c: np.sum(np.abs(d - c)**3)**(1/3),
-
-    # 2. Correlation measures (precomputed reference)
-    'Cosine Similarity': lambda d, c: (1 - distance.cosine(d, c) if (np.linalg.norm(d) > 1e-9 and np.linalg.norm(c) > 1e-9) else 0.0),
-    'Pearson Correlation': lambda d, ref: np.corrcoef(d, ref)[0, 1] if np.std(d) > 1e-9 else 0.0,
-    'Spearman Correlation': lambda d, ref: spearmanr(d, ref).correlation if np.std(d) > 1e-9 else 0.0,
-
-    # 3. Statistical distances (precomputed variances)
-    'Mahalanobis': lambda d, c, v: np.sqrt(np.sum((d - c)**2 / v)),
-    'Standardized Euclidean': lambda d, c, v: np.sqrt(np.sum((d - c)**2 / v)),
-    'Chi-square': lambda d, c: np.sum(np.where((d + c) > 0, (d - c)**2 / (d + c + 1e-10), 0)),
-    'Jensen-Shannon': lambda d, c: distance.jensenshannon(
-        (d - d.min() + 1e-10) / (d.sum() - d.min() + 1e-10),
-        (c - c.min() + 1e-10) / (c.sum() - c.min() + 1e-10)
-    ),
-
-    # 4. Discrete metrics (precomputed values)
-    'Levenshtein': lambda s1, s2: levenshtein(s1, s2),
-    'Hamming': lambda d, c: np.count_nonzero(np.round(d, 2) != np.round(c, 2)),
-    'Jaccard/Tanimoto': lambda s1, s2: len(s1 & s2) / max(len(s1 | s2), 1),
-    'Sørensen–Dice': lambda s1, s2: 2 * len(s1 & s2) / max((len(s1) + len(s2)), 1)
-}
-
 class MetricProcessor:
     def __init__(self, comparison_value=0.5):
         self.comparison = None
@@ -1079,4 +1175,128 @@ class MetricProcessor:
             'Jaccard/Tanimoto': METRICS['Jaccard/Tanimoto'](self.round_cache['round2_d'], self.round_cache['round2_c']),
             'Sørensen–Dice': METRICS['Sørensen–Dice'](self.round_cache['round2_d'], self.round_cache['round2_c'])
         }
-    
+
+class MetricWeightOptimizer:
+    def __init__(self, metric_names, top_k=10, learning_rate=0.2, reg_strength=0.01):
+        self.weights = {name: 1.0 for name in metric_names}
+        self.top_k = top_k
+        self.base_lr = learning_rate
+        self.reg_strength = reg_strength
+        self.iteration = 0
+        self.margin = 0.05  # Minimum score difference margin
+        self.best_weights = None
+        self.best_score = -np.inf
+        self.gradient_history = {name: [] for name in metric_names}
+
+    def _calculate_gradient(self, metric_scores, target_indices):
+        gradients = {name: 0.0 for name in self.weights}
+        combined = np.sum([self.weights[name] * metric_scores[name]
+                           for name in self.weights], axis=0)
+
+        predicted_ranking = np.argsort(combined)[:self.top_k]
+        target_set = set(target_indices[:self.top_k])
+
+        # Calculate pairwise gradients
+        for target_idx in target_set:
+            for pred_idx in predicted_ranking:
+                if pred_idx == target_idx:
+                    continue
+
+                # Margin-based gradient calculation
+                score_diff = combined[pred_idx] - combined[target_idx]
+                if score_diff > -self.margin:
+                    for name in self.weights:
+                        feature_diff = metric_scores[name][pred_idx] - metric_scores[name][target_idx]
+                        gradients[name] += feature_diff * (1 if pred_idx not in target_set else -1)
+
+        # Apply regularization
+        for name in self.weights:
+            gradients[name] -= 2 * self.reg_strength * self.weights[name]
+
+        return gradients
+
+    def update_weights(self, metric_scores, target_indices):
+        gradients = self._calculate_gradient(metric_scores, target_indices)
+
+        # Adaptive learning rate with decay
+        lr = self.base_lr / (1 + 0.001 * self.iteration)
+
+        # Update weights with gradient clipping
+        for name in self.weights:
+            grad = np.clip(gradients[name], -1.0, 1.0)
+            self.weights[name] += lr * grad
+            self.gradient_history[name].append(grad)
+
+        # Apply constraints
+        for name in self.weights:
+            self.weights[name] = np.clip(self.weights[name], 0.5, 3.0)
+
+        self.iteration += 1
+
+        # Track best weights
+        current_score = self._evaluate(metric_scores, target_indices)
+        if current_score > self.best_score:
+            self.best_score = current_score
+            self.best_weights = self.weights.copy()
+
+    def _evaluate(self, metric_scores, target_indices):
+        combined = np.sum([self.weights[name] * metric_scores[name]
+                           for name in self.weights], axis=0)
+        predicted = set(np.argsort(combined)[:self.top_k])
+        target = set(target_indices[:self.top_k])
+        return len(predicted & target) / self.top_k
+
+    def get_weights(self):
+        return self.best_weights if self.best_weights else self.weights.copy()
+
+class ComponentOptimizer:
+    global optimal_components
+    def __init__(self, max_components=50, history_size=100):
+        self.max_components = max_components
+        self.history = []
+        self.component_errors = {}
+        self.best_components = None
+        self.history_size = history_size
+
+    def update(self, original, truncated_versions):
+        """Update statistics with new data sample"""
+        errors = []
+        for n in range(1, min(self.max_components + 1, len(original))):
+            # Calculate reconstruction error for this component count
+            reconstructed = np.zeros_like(original)
+            indices = np.argsort(-np.abs(original))[:n]
+            reconstructed[indices] = original[indices]
+            error = np.linalg.norm(original - reconstructed) / np.linalg.norm(original)
+            errors.append((n, error))
+
+        self.history.append(errors)
+        if len(self.history) > self.history_size:
+            self.history.pop(0)
+
+    def get_optimal_components(self):
+        """Determine optimal component count based on accumulated data"""
+        if not self.history:
+            return self.max_components  # Default to max
+
+        # Aggregate errors across all samples
+        error_sums = defaultdict(float)
+        counts = defaultdict(int)
+
+        for sample in self.history:
+            for n, err in sample:
+                error_sums[n] += err
+                counts[n] += 1
+
+        # Calculate mean errors and find optimal
+        mean_errors = {n: error_sums[n]/counts[n] for n in error_sums}
+        sorted_components = sorted(mean_errors.items(), key=lambda x: (x[1], x[0]))
+
+        # Find the knee point (best trade-off)
+        best_n = sorted_components[0][0]
+        for n, err in sorted_components[1:]:
+            if err > 1.1 * sorted_components[0][1]:
+                break
+            if n < best_n:
+                best_n = n
+        
+        return best_n

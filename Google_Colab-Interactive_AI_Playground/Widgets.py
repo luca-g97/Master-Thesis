@@ -130,6 +130,9 @@ layerAmountChoice = createIntSlider(num_layers, min=1, max=16, description="Laye
 seeds = ["Random"] + [i for i in range(100)]
 seedChoice = createSelectionSlider(value="Random", options=seeds, description="Seed")
 useBitLinearChoice = createBoolButtonChoice(description="Activate BitLinear", tooltip="Use BitLinear instead of nn.Linear")
+useMetricsEvaluation = createBoolButtonChoice(description="Use Metrics Evaluation", tooltip="Use Metrics to evaluate the closest sources")
+useMMEvaluation = createBoolButtonChoice(description="Use Magnitude Truncation Evaluation", tooltip="Use Magnitude Truncation to evaluate the closest sources")
+metricsChoice = widgets.HBox([useBitLinearChoice, useMetricsEvaluation, useMMEvaluation])
 normalLayerSizeChoice = [createIntSlider(value=128, min=1, max=1024, description="Size", step=1)
                          for _ in range(num_layers)]
 normalLayerChoice = [createLayerChoice(options=['Linear'],
@@ -196,9 +199,9 @@ def updateNetworkTab():
             tab_nest.set_title(i, f"Layer {i}")
 
     if(datasetChoice.value == "WikiText2 (GPT2)" or datasetChoice.value == "WikiText2 (LSTM)"):
-        return widgets.VBox([seedChoice, useBitLinearChoice, layerAmountChoice])
+        return widgets.VBox([metricsChoice, seedChoice, layerAmountChoice])
     else:
-        return widgets.VBox([seedChoice, useBitLinearChoice, layerAmountChoice, tab_nest])
+        return widgets.VBox([metricsChoice, seedChoice, layerAmountChoice, tab_nest])
 
 trainSamplesChoice = createIntSlider(2000, min=1, max=10, description="Train Samples")
 testSamplesChoice = createIntSlider(2000, min=1, max=10, description="Test Samples")
@@ -251,7 +254,6 @@ outputLayerSizeChoice=createRangeSliderChoice(max=10, description=f"Output Layer
 outputLayerActivationChoiceType=createBoolButtonChoice(description=f"Activation layer (ReLU)", tooltip="Include activation layer", disabled = True if outputActivationLayerChoice.value == "None" else False)
 layerChoice = [widgets.HBox([neuronChoice[i], activationLayerTypeChoice[i]]) for i in range(num_layers)] + [widgets.HBox([outputLayerSizeChoice, outputLayerActivationChoiceType])]
 customBox = widgets.VBox(children=layerChoice)
-useMetricsEvaluation = createBoolButtonChoice(description="Use Metrics Evaluation", tooltip="Use Metrics to evaluate the closest sources")
 evalSamplesChoice = createIntSlider(1, min=1, max=100, description="Evaluations")
 closestSourceTestLink = widgets.jslink((testSamplesChoice, 'value'), (evalSamplesChoice, 'max'))
 closestSourcesChoice = createIntSlider(42, min=1, max=10000, description="Closest Sources")
@@ -272,9 +274,10 @@ def updateVisualizationTab():
     closestSourceTrainingLink = widgets.jslink((trainSamplesChoice, 'value'), (closestSourcesChoice, 'max'))
     showClosestMostUsedSourcesChoice = createIntSlider(datasetMapping[datasetChoice.value]["show_closest_sources"], min=1, max=20, description="Show Closest Sources")
     showClosestMostUsedSourcesLink = widgets.jslink((trainSamplesChoice, 'value'), (showClosestMostUsedSourcesChoice, 'max'))
+    
 
     if(datasetChoice.value == "WikiText2 (GPT2)" or datasetChoice.value == "WikiText2 (LSTM)"):
-        return widgets.VBox([evalSamplesChoice, closestSourcesChoice, showClosestMostUsedSourcesChoice, useMetricsEvaluation])
+        return widgets.VBox([evalSamplesChoice, closestSourcesChoice, showClosestMostUsedSourcesChoice])
 
     if(visualizationChoice.value == "Custom"):
         num_layers = layerAmountChoice.value
@@ -285,9 +288,9 @@ def updateVisualizationTab():
                                      for i in range(num_layers)]
         layerChoice = [widgets.HBox([neuronChoice[i], activationLayerTypeChoice[i]]) for i in range(num_layers)] + [widgets.HBox([outputLayerSizeChoice, outputLayerActivationChoiceType])]
         customBox = widgets.VBox(children=layerChoice)
-        return widgets.VBox([evalSamplesChoice, closestSourcesChoice, showClosestMostUsedSourcesChoice, useMetricsEvaluation, visualizationChoice, customBox])
+        return widgets.VBox([evalSamplesChoice, closestSourcesChoice, showClosestMostUsedSourcesChoice, visualizationChoice, customBox])
     else:
-        return widgets.VBox([evalSamplesChoice, closestSourcesChoice, showClosestMostUsedSourcesChoice, useMetricsEvaluation, visualizationChoice])
+        return widgets.VBox([evalSamplesChoice, closestSourcesChoice, showClosestMostUsedSourcesChoice, visualizationChoice])
 
 def changeTab(change):
     if change['name'] == 'selected_index' and change['new'] == 3:

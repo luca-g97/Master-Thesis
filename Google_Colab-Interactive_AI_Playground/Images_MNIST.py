@@ -7,12 +7,13 @@ import Customizable_RENN as RENN
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.metrics import mean_squared_error, accuracy_score
 from scipy.stats import spearmanr, kendalltau, pearsonr
+import time
 
 mnist, to_categorical, nn, DataLoader, device, metricsEvaluation = "", "", "", "", "", True
 train_dataloader, test_dataloader, eval_dataloader, trainDataSet, testDataSet, trainSubset, testSubset, x_train, y_train, x_test, y_test, x_eval, y_eval = "", "", "", "", "", "", "", "", "", "", "", "", ""
 model, criterion_class, chosen_optimizer, layers = "", "", "", ""
 train_samples, eval_samples, test_samples = 1, 1, 1
-dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource = [], [], [], []
+dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, pcaDictionaryForSourceLayerNeuron, pcaDictionaryForLayerNeuronSource = [], [], [], [], [], []
 
 def initializePackages(mnistPackage, to_categoricalPackage, nnPackage, DataLoaderPackage, devicePackage):
     global mnist, to_categorical, nn, DataLoader, device
@@ -168,12 +169,13 @@ def showIndividualImagesPlotly(images, layer, closestSources, showClosestMostUse
     #fig.show()
     display(fig)
 
-def showImagesUnweighted(originalImage, blendedSourceImageActivation, blendedSourceImageSum, closestMostUsedSourceImagesActivation, closestMostUsedSourceImagesSum):
+def showImagesUnweighted(name, originalImage, blendedSourceImageActivation, blendedSourceImageSum, closestMostUsedSourceImagesActivation, closestMostUsedSourceImagesSum):
     fig, axes = plt.subplots(1, 5, figsize=(35, 35))
+    fig.suptitle(f"Blended Image Comparison for {name}", y=1.02, fontsize=16)
     plt.subplots_adjust(hspace=0.5)
 
     # Display original image
-    axes[0].set_title(f"BLENDED - Original: {originalImage[1]}")
+    axes[0].set_title(f"{name}: BLENDED -> Original: {originalImage[1]}")
     axes[0].imshow(Image.fromarray(originalImage[0].cpu().numpy()*255))
 
     # Display blendedSourceImageActivation
@@ -196,6 +198,7 @@ def showImagesUnweighted(originalImage, blendedSourceImageActivation, blendedSou
 
     # Display closestMostUsedSourceImagesActivation
     fig, axes = plt.subplots(1, len(closestMostUsedSourceImagesActivation)+2, figsize=(35, 35))
+    fig.suptitle(f"Non-Linear Activation Sources for '{name}'", y=1.02, fontsize=12)
     axes[0].set_title(f"NON-LINEAR - Original: {originalImage[1]}")
     axes[0].imshow(Image.fromarray(originalImage[0].cpu().numpy()*255))
     axes[1].set_title(f"A - Closest Sources/Neuron (Most Used)")
@@ -208,6 +211,7 @@ def showImagesUnweighted(originalImage, blendedSourceImageActivation, blendedSou
 
     # Display closestMostUsedSourceImagesSum
     fig, axes = plt.subplots(1, len(closestMostUsedSourceImagesSum)+2, figsize=(35, 35))
+    fig.suptitle(f"Linear Activation Sources for '{name}'", y=1.02, fontsize=12)
     axes[0].set_title(f"LINEAR - Original: {originalImage[1]}")
     axes[0].imshow(Image.fromarray(originalImage[0].cpu().numpy()*255))
     axes[1].set_title(f"S - Closest Sources/Neuron (Most Used)")
@@ -531,10 +535,10 @@ def blendActivations(mostUsed, evaluationActivations, layerNumbersToCheck):
     print(f"Pearson Correlation: {pearson_correlation:.4f}" if pearson_correlation is not None else "Pearson Correlation: N/A")
 
 def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
-    global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource
+    global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, pcaDictionaryForSourceLayerNeuron, pcaDictionaryForLayerNeuronSource
 
     #Make sure to set new dictionarys for the hooks to fill - they are global!
-    dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource = RENN.initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model)
+    dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource = RENN.initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model)
     
     mostUsedList = []
     mostUsedMetricsList = []
@@ -546,33 +550,39 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
         layersToCheck = []
 
         if(visualizationChoice == "Weighted"):
-            sourcesSum, metricSourcesSum, outputsSum, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], metricsDictionaryForSourceLayerNeuron[pos], "Sum")
-            mostUsedSourcesWithSum, mostUsedMetricSourcesWithSum = RENN.getMostUsedSources(sourcesSum, metricSourcesSum, closestSources, "Sum")
+            sourcesSum, metricSourcesSum, mtSourcesSum, outputsSum, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], metricsDictionaryForSourceLayerNeuron[pos], mtDictionaryForSourceLayerNeuron[pos], "Sum")
+            mostUsedSourcesWithSum, mostUsedMetricSourcesWithSum, mostUsedMMSourcesWithSum = RENN.getMostUsedSources(sourcesSum, metricSourcesSum, mtSourcesSum, closestSources, "Sum")
             #20 because otherwise the blending might not be visible anymore. Should be closestSources instead to be correct!
             blendedSourceImageSum = blendImagesTogether(mostUsedSourcesWithSum[:20], "Not Weighted")
             blendedMetricSourceImageSum = blendImagesTogether(mostUsedMetricSourcesWithSum[:20], "Not Weighted")
+            blendedMMSourceImageSum = blendImagesTogether(mostUsedMMSourcesWithSum[:20], "Not Weighted")
             layersToCheck = layerNumbersToCheck
 
-            sourcesActivation, metricSourcesActivation, outputsActivation, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], metricsDictionaryForSourceLayerNeuron[pos], "Activation")
-            mostUsedSourcesWithActivation, mostUsedMetricSourcesWithActivation = RENN.getMostUsedSources(sourcesActivation, metricSourcesActivation, closestSources, "Activation")
+            sourcesActivation, metricSourcesActivation, mtSourcesActivation, outputsActivation, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], metricsDictionaryForSourceLayerNeuron[pos], mtDictionaryForSourceLayerNeuron[pos], "Activation")
+            mostUsedSourcesWithActivation, mostUsedMetricSourcesWithActivation, mostUsedMMSourcesWithActivation = RENN.getMostUsedSources(sourcesActivation, metricSourcesActivation, mtSourcesActivation, closestSources, "Activation")
             #20 because otherwise the blending might not be visible anymore. Should be closestSources instead to be correct!
             blendedSourceImageActivation = blendImagesTogether(mostUsedSourcesWithActivation[:20], "Not Weighted")
             blendedMetricSourceImageActivation = blendImagesTogether(mostUsedMetricSourcesWithActivation[:20], "Not Weighted")
+            blendedMMSourceImageActivation = blendImagesTogether(mostUsedMMSourcesWithActivation[:20], "Not Weighted")
 
-            showImagesUnweighted(createImageWithPrediction(sample.reshape(28, 28), true, prediction), blendedSourceImageActivation, blendedSourceImageSum, mostUsedSourcesWithActivation[:showClosestMostUsedSources], mostUsedSourcesWithSum[:showClosestMostUsedSources])
-            showImagesUnweighted(createImageWithPrediction(sample.reshape(28, 28), true, prediction), blendedMetricSourceImageActivation, blendedMetricSourceImageSum, mostUsedMetricSourcesWithActivation[:showClosestMostUsedSources], mostUsedMetricSourcesWithSum[:showClosestMostUsedSources])
+            showImagesUnweighted("Per Neuron", createImageWithPrediction(sample.reshape(28, 28), true, prediction), blendedSourceImageActivation, blendedSourceImageSum, mostUsedSourcesWithActivation[:showClosestMostUsedSources], mostUsedSourcesWithSum[:showClosestMostUsedSources])
+            showImagesUnweighted("Metrics", createImageWithPrediction(sample.reshape(28, 28), true, prediction), blendedMetricSourceImageActivation, blendedMetricSourceImageSum, mostUsedMetricSourcesWithActivation[:showClosestMostUsedSources], mostUsedMetricSourcesWithSum[:showClosestMostUsedSources])
+            showImagesUnweighted("Magnitude Truncation", createImageWithPrediction(sample.reshape(28, 28), true, prediction), blendedMMSourceImageActivation, blendedMMSourceImageSum, mostUsedMMSourcesWithActivation[:showClosestMostUsedSources], mostUsedMMSourcesWithSum[:showClosestMostUsedSources])
         else:
-            sourcesSum, metricSourcesSum, outputsSum, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], metricsDictionaryForSourceLayerNeuron[pos], "Sum")
+            sourcesSum, metricSourcesSum, mtSourcesSum, outputsSum, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], metricsDictionaryForSourceLayerNeuron[pos], mtDictionaryForSourceLayerNeuron[pos], "Sum")
             mostUsedSourcesWithSum = getClosestSourcesPerNeuronAndLayer(sourcesSum, metricSourcesSum, layerNumbersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, "Sum")
 
-            sourcesActivation, metricSourcesActivation, outputsActivation, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], metricsDictionaryForSourceLayerNeuron[pos], "Activation")
+            sourcesActivation, metricSourcesActivation, outputsActivation, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], metricsDictionaryForSourceLayerNeuron[pos], mtDictionaryForSourceLayerNeuron[pos], "Activation")
             mostUsedSourcesWithActivation = getClosestSourcesPerNeuronAndLayer(sourcesActivation, metricSourcesActivation, layerNumbersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, "Activation")
             #RENN.analyzeData(closestSources, dictionaryForSourceLayerNeuron[pos])
-
+    
         if(analyze):
-            mostUsed, mostUsedMetrics = RENN.getMostUsedSources(sourcesSum, metricSourcesSum, closestSources)
+            mostUsed, mostUsedMetrics, mostUsedMM = RENN.getMostUsedSources(sourcesSum, metricSourcesSum, mtSourcesSum, closestSources)
             mostUsedList.append(mostUsed)
             blendActivations(mostUsed, dictionaryForSourceLayerNeuron[pos], layersToCheck)
             #evaluateImageSimilarity(sample, mostUsed)
+        
+        if pos % 10 == 0:
+            time.sleep(1)
 
     #print(f"Time passed since start: {time_since_start(startTime)}")
