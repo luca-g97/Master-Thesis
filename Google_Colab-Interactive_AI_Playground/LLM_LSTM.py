@@ -30,7 +30,7 @@ sent_len = 100
 topk = 5
 
 #Preinitialize
-device, DataLoader, nltk = "", "", ""
+device, DataLoader, nltk, tiktoken, tokenizer = "", "", "", "", ""
 word_to_idx, idx_to_word = {}, {}
 train_sources, cleaned_train_data, train_titles, train_sentences, train_source_structure = [], "", [], [], []
 test_sources, cleaned_test_data, test_titles, test_sentences, test_source_structure = [], "", [], [], []
@@ -38,10 +38,11 @@ train_samples, test_samples, eval_samples, train_loader, test_loader, eval_loade
 model, criterion_class, chosen_optimizer, layers, layersToCheck = "", "", "", "", []
 dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, eval_source_structure = [], [], []
 
-def initializePackages(devicePackage, DataLoaderPackage, nltkPackage):
-    global device, DataLoader, nltk
+def initializePackages(devicePackage, DataLoaderPackage, nltkPackage, tiktokenPackage):
+    global device, DataLoader, nltk, tiktoken, tokenizer
 
-    device, DataLoader, nltk = devicePackage, DataLoaderPackage, nltkPackage
+    device, DataLoader, nltk, tiktoken = devicePackage, DataLoaderPackage, nltkPackage, tiktokenPackage
+    tokenizer = tiktoken.get_encoding("gpt2")
 
 def get_hidden_sizes(num_layers, trainSamples):
     global model, layersToCheck

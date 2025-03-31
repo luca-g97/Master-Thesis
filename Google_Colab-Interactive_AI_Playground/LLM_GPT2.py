@@ -885,4 +885,4 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             trainSentence = trainSentencesStructure[sourceNumber][sentenceNumber].replace('\n', '').replace('<|endoftext|>', '')
             print(f"Source: {source}, Count: {count}, Sentence: {trainSentence}")
         print("Whole List: ", [(source, count, trainSentencesStructure[int(source.split(":")[0])][int(source.split(":")[1])].replace('\n', '').replace('<|endoftext|>', '')) for source, count in mostUsedGeneratedEvalSources], "\n")
-    #print(f"Time passed since start: {time_since_start(startTime)}")
+    #print(f"Time passed since start: {time_since_start(startTime)}"

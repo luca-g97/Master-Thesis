@@ -5,6 +5,8 @@ import concurrent.futures
 import threading
 import sys
 from collections import Counter
+from scipy.spatial import distance
+from scipy.stats import spearmanr
 from collections import defaultdict
 import heapq
 import LLM_Small1x1 as Small1x1
@@ -14,15 +16,15 @@ import scipy.sparse as sp
 import shutil
 import os
 
-layer, source, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, activationsBySources, activationsByLayers, totalLayers = "", "", "", "", "", "", ""
-llm, layerSizes, device, hidden_sizes, layers, currentLayer, relevantLayerIndices, useBitNet = "", "", "", "", [], 0, [], False
-sourceArray, fileName, contextLength, io, pd, pa, pq, zstd, chosenDataSet, baseDirectory = "", "", 1, "", "", "", "", "", "", "./LookUp"
-layersToCheck = []
+layer, source, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, activationsBySources, activationsByLayers, totalLayers = 0, 0, [], [], [], [], 0
+llm, metricsEvaluation, useBitNet, layerSizes, device, hidden_sizes, layers, currentLayer, relevantLayerIndices = False, False, False, [], "", [], 0, [], []
+sourceArray, fileName, contextLength, io, pd, pa, pq, zstd, levenshtein, chosenDataSet, baseDirectory = "", "", 1, "", "", "", "", "", "", "", "./LookUp"
+metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, metricsActivationsBySources, metricsActivationsByLayers, layersToCheck = [], [], [], [], []
 
-def initializePackages(devicePackage, ioPackage, pdPackage, paPackage, pqPackage, zstdPackage, chosenDataSetPackage, seed="", useBitLinear=False):
-    global device, useBitNet, io, pd, pa, pq, zstd, chosenDataSet
+def initializePackages(devicePackage, ioPackage, pdPackage, paPackage, pqPackage, zstdPackage, levenshteinPackage, chosenDataSetPackage, seed="", useBitLinear=False):
+    global device, useBitNet, io, pd, pa, pq, zstd, levenshtein, chosenDataSet
 
-    device, io, pd, pa, pq, zstd, chosenDataSet = devicePackage, ioPackage, pdPackage, paPackage, pqPackage, zstdPackage, chosenDataSetPackage
+    device, io, pd, pa, pq, zstd, levenshtein, chosenDataSet = devicePackage, ioPackage, pdPackage, paPackage, pqPackage, zstdPackage, levenshteinPackage, chosenDataSetPackage
     useBitNet = useBitLinear
 
     if(seed != ""):
@@ -149,8 +151,8 @@ class CustomizableRENN(nn.Module):
 
 # Forward hook
 def forward_hook(module, input, output):
-    global layer, source, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, sourceArray, hidden_sizes, llm, fileName, layersToCheck
-
+    global layer, source, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, sourceArray, hidden_sizes, llm, fileName, layersToCheck
+    
     #if not (isinstance(module, nn.Sequential) or isinstance(module, Small1x1.FeedForward) or isinstance(module, Small1x1.TransformerBlock) or isinstance(module, nn.Dropout) or isinstance(module, GPT2.FeedForward) or isinstance(module, GPT2.TransformerBlock)):
     if (llm):
         actualLayer = layer
@@ -168,7 +170,7 @@ def forward_hook(module, input, output):
         if (type(module) == activation_type or type(module) == layer_type):
             correctTypes = True
 
-    relevantOutput = output[0].cpu().numpy()
+    relevantOutput = output[0].cpu().numpy()      
 
     #print(layer, layers[layer], relevantOutput.shape)
 
@@ -185,6 +187,11 @@ def forward_hook(module, input, output):
 
         #Use for array structure like: [layer, neuron, source]
         output = relevantOutput if len(relevantOutput.shape) == 1 else relevantOutput[0]
+        if metricsEvaluation:
+            metricsArray = createMetricsArray(output) 
+            metricsDictionaryForSourceLayerNeuron[source][layer] = metricsArray
+            metricsDictionaryForLayerNeuronSource[layer][source] = metricsArray
+        
         if(llm):
             if(actualLayer in layersToCheck or layersToCheck == []):
                 sourceNumber, sentenceNumber = chosenDataSet.getSourceAndSentenceIndex(source, fileName)
@@ -247,7 +254,7 @@ def attachHooks(hookLoader, model, llmType = False, filename = "", sourceOffset=
         hook.remove()
 
 def createDictionaries(hidden_sizes, totalLayersParameter, train_samples, llmType = False):
-    global activationsBySources, activationsByLayers, totalLayers, layerSizes
+    global activationsBySources, activationsByLayers, metricsActivationsBySources, metricsActivationsByLayers, totalLayers, layerSizes
     totalLayers = totalLayersParameter
     layerSizes = [size[1] for size in hidden_sizes[:]]
     if not llmType:
@@ -257,10 +264,15 @@ def createDictionaries(hidden_sizes, totalLayersParameter, train_samples, llmTyp
         else:
             activationsBySources = np.zeros((train_samples, totalLayers, np.max(layerSizes)), dtype=np.float128)
             activationsByLayers = np.zeros((totalLayers, np.max(layerSizes), train_samples), dtype=np.float128)
+        
+        if metricsEvaluation:
+            metricsActivationsBySources = np.zeros((train_samples, totalLayers, len(METRICS)), dtype=np.float128)
+            metricsActivationsByLayers = np.zeros((totalLayers, train_samples, len(METRICS)), dtype=np.float128)
+        
     print("Hook-Dictionaries created")
 
 def runHooks(train_dataloader, model, layersParameter=layers, llmType=False, context_length=1, lstm=False, layersToCheckParameter=[]):
-    global layers, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, activationsBySources, activationsByLayers, llm, contextLength, layersToCheck
+    global layers, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, activationsBySources, activationsByLayers, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, metricsActivationsBySources, metricsActivationsByLayers, llm, contextLength, layersToCheck
 
     #Variables for usage within the hook
     llm = llmType
@@ -271,17 +283,23 @@ def runHooks(train_dataloader, model, layersParameter=layers, llmType=False, con
     if not llm:
         dictionaryForSourceLayerNeuron = activationsBySources
         dictionaryForLayerNeuronSource = activationsByLayers
+        metricsDictionaryForSourceLayerNeuron = metricsActivationsBySources
+        metricsDictionaryForLayerNeuronSource = metricsActivationsByLayers
 
     attachHooks(train_dataloader, model, llmType, filename="Training", sourceOffset=0, lstm=lstm)
 
     if not llm:
         activationsBySources = dictionaryForSourceLayerNeuron
         activationsByLayers = dictionaryForLayerNeuronSource
+        metricsActivationsBySources = metricsDictionaryForSourceLayerNeuron
+        metricsActivationsByLayers = metricsDictionaryForLayerNeuronSource
+        
     print("Hooks finished successfully")
 
-def initializeHook(train_dataloader, model, hidden_sizesParameter, train_samples):
-    global totalLayers, layer, hidden_sizes, source, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, activationsBySources, activationsByLayers
-
+def initializeHook(train_dataloader, model, hidden_sizesParameter, train_samples, metricsEvaluationParameter=False):
+    global totalLayers, hidden_sizes, metricsEvaluation
+    
+    metricsEvaluation = metricsEvaluationParameter
     print("Initializing Hooks")
     hidden_sizes = hidden_sizesParameter
     totalLayers = len(layers)*2
@@ -289,21 +307,24 @@ def initializeHook(train_dataloader, model, hidden_sizesParameter, train_samples
     runHooks(train_dataloader, model, layers)
 
 def initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model, filename="Evaluation", llmType = False, sourceOffset=0, lstm=False):
-    global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
+    global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource
 
     if not llm:
         dictionaryForSourceLayerNeuron = np.zeros((eval_samples, totalLayers, np.max(layerSizes)), dtype=np.float128)
         dictionaryForLayerNeuronSource = np.zeros((totalLayers, np.max(layerSizes), eval_samples), dtype=np.float128)
+        metricsDictionaryForSourceLayerNeuron = np.zeros((eval_samples, totalLayers, len(METRICS)), dtype=np.float128)
+        metricsDictionaryForLayerNeuronSource = np.zeros((totalLayers, eval_samples, len(METRICS)), dtype=np.float128)
 
     with torch.no_grad():
         model.eval()  # Set the model to evaluation mode
         attachHooks(eval_dataloader, model, llmType, filename, sourceOffset, lstm)
 
-    return dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
+    return dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource
 
-def identifyClosestSources(closestSources, outputs, mode=""):
+def identifyClosestSources(closestSources, outputs, metricsOutputs, mode=""):
     global layers
     dictionary = activationsByLayers
+    metricsDictionary = metricsActivationsByLayers
 
     if mode == "Sum":
         layerNumbersToCheck = [idx * 2 for idx, (name, layerNumber, activation) in enumerate(layers)]
@@ -319,7 +340,11 @@ def identifyClosestSources(closestSources, outputs, mode=""):
     outputsToCheck = outputs[layerNumbersToCheck]
     identifiedClosestSources = np.empty((len(layersToCheck), np.max(layerSizes), closestSources), dtype=tuple)
 
-    for currentLayer, layer in enumerate(layersToCheck):
+    metricsLayersToCheck = metricsDictionary[layerNumbersToCheck]
+    metricsOutputsToCheck = metricsOutputs[layerNumbersToCheck]
+    identifiedClosestMetricSources = np.empty((len(layersToCheck), closestSources), dtype=tuple)
+
+    for currentLayer, (layer, currentMetricsLayer) in enumerate(zip(layersToCheck, metricsLayersToCheck)):
         for currentNeuron, neuron in enumerate(layer):
             maxNeurons = layers[currentLayer][1]
             if not isinstance(maxNeurons, int):  # Ensure maxNeurons is an integer
@@ -334,21 +359,63 @@ def identifyClosestSources(closestSources, outputs, mode=""):
                     for i in range(closestSources)
                 )
                 identifiedClosestSources[currentLayer][currentNeuron] = tuples
-    return identifiedClosestSources, outputsToCheck, layerNumbersToCheck
+        if metricsEvaluation:
+            combined_scores, metric_diffs = get_combined_scores(currentMetricsLayer, metricsOutputsToCheck[currentLayer])
+            sortedSourceIndices = np.argsort(combined_scores)[:closestSources]
+            closestSourceIndices = sortedSourceIndices[:closestSources]
 
-def getMostUsed(sources, mode=""):
+            # Create tuples using the per-metric differences (metric_diffs) instead of combined_scores
+            tuples = tuple(
+                (closestSourceIndices[i],  # Indices of top samples
+                 currentMetricsLayer[closestSourceIndices[i]],  # Original values
+                 metric_diffs[closestSourceIndices[i]])  # Per-metric differences (not combined scores)
+                for i in range(closestSources)
+            )
+            identifiedClosestMetricSources[currentLayer] = tuples
+            
+        #Evaluate the best metrics here where everything is still known
+    return identifiedClosestSources, identifiedClosestMetricSources, outputsToCheck, layerNumbersToCheck
+
+def get_combined_scores(samples, reference):
+    """Calculate normalized combined metric scores"""
+    # Normalization
+    min_vals = samples.min(axis=0)
+    max_vals = samples.max(axis=0)
+    norm_samples = (samples - min_vals) / (max_vals - min_vals + 1e-10)
+    norm_ref = (reference - min_vals) / (max_vals - min_vals + 1e-10)
+
+    # Handle similarity metrics
+    similarity_metrics = {'Cosine Similarity', 'Pearson Correlation',
+                          'Spearman Correlation', 'Jaccard/Tanimoto', 'Sørensen–Dice'}
+    for i, name in enumerate(METRICS.keys()):
+        if name in similarity_metrics:
+            norm_samples[:, i] = 1 - norm_samples[:, i]
+            norm_ref[i] = 1 - norm_ref[i]
+
+    # Return combined scores and raw differences
+    combined = np.sum(np.abs(norm_samples - norm_ref), axis=1)
+    differences = np.abs(samples - reference)
+    return combined, differences
+
+def getMostUsed(sources, mode="", metrics=False):
     mostUsed = []
     sourceCounter = 0
     for currentLayer, layer in enumerate(sources):
-        for currentNeuron, neuron in enumerate(layer):
-            maxNeurons = layers[currentLayer][1] if mode == "" else layers[currentLayer][1].out_features
-            if not isinstance(maxNeurons, int):  # Ensure maxNeurons is an integer
-                maxNeurons = maxNeurons.out_features
-            if(currentNeuron < maxNeurons):
-                for sourceNumber, value, difference in neuron:
-                    if(sourceNumber != 'None'):
-                        mostUsed.append(sourceNumber)
-                        sourceCounter += 1
+        if metrics:
+            for sourceNumber, value, difference in layer:
+                if(sourceNumber != 'None'):
+                    mostUsed.append(sourceNumber)
+                    sourceCounter += 1
+        else:
+            for currentNeuron, neuron in enumerate(layer):
+                maxNeurons = layers[currentLayer][1] if mode == "" else layers[currentLayer][1].out_features
+                if not isinstance(maxNeurons, int):  # Ensure maxNeurons is an integer
+                    maxNeurons = maxNeurons.out_features
+                if(currentNeuron < maxNeurons):
+                    for sourceNumber, value, difference in neuron:
+                        if(sourceNumber != 'None'):
+                            mostUsed.append(sourceNumber)
+                            sourceCounter += 1
     return sourceCounter, mostUsed
 
 def getMostUsedFromDataFrame(df, evalSample, closestSources, weightedMode=""):
@@ -393,17 +460,22 @@ def getMostUsedFromDataFrame(df, evalSample, closestSources, weightedMode=""):
 
     return sourceCounter, mostUsed
 
-def getMostUsedSources(sources, closestSources, evalSample=0, weightedMode="", info=True):
-    weightedSources = []
+def getMostUsedSources(sources, metricsSources, closestSources, evalSample=0, weightedMode="", info=True):
+    metricsMostUsed, metricsSourceCounter = [], []
     if llm:
         sourceCounter, mostUsed = getMostUsedFromDataFrame(sources, evalSample, closestSources, weightedMode)
     else:
         sourceCounter, mostUsed = getMostUsed(sources, weightedMode)
+        if metricsEvaluation:
+            metricsSourceCounter, metricsMostUsed = getMostUsed(metricsSources, weightedMode, metrics=True)
     counter = Counter(mostUsed)
+    metricsCounter = Counter(metricsMostUsed)
     
     if(info):
         print("Total closest Sources :", sourceCounter, " | ", closestSources, " closest Sources (", weightedMode, ") in format: [SourceNumber, Occurances]: ", counter.most_common()[:closestSources])
-    return counter.most_common()[:closestSources]
+        if metricsEvaluation:
+            print("Total closest Sources :", metricsSourceCounter, " | ", closestSources, " closest Sources (", weightedMode, ") in format: [SourceNumber, Occurances]: ", metricsCounter.most_common()[:closestSources])
+    return counter.most_common()[:closestSources], metricsCounter.most_common()[:closestSources]
 
 # Normalize function to convert to integer range for sparse arrays
 def normalize_to_integer_sparse(sparse_data, min_val, max_val):
@@ -917,3 +989,94 @@ def analyzeData(closestSources, outputs, analyzeActivationsBySources = True):
     #getValueClusters(dictionary)
     #getMinimumPrecision(unique_values)
     print("\n")
+
+def createMetricsArray(data):
+    processor = MetricProcessor()
+    processor.preprocess(data)
+    results = processor.calculate(data)
+
+    return list(results.values())
+
+METRICS = {
+    # 1. L-family distances (vectorized)
+    'L2 norm (Euclidean)': lambda d, c: np.sqrt(np.sum((d - c)**2)),
+    'Squared Euclidean': lambda d, c: np.sum((d - c)**2),
+    'L1 norm (Manhattan)': lambda d, c: np.sum(np.abs(d - c)),
+    'Canberra': lambda d, c: np.sum(np.abs(d - c) / (np.abs(d) + np.abs(c) + 1e-10)),
+    'L∞ norm (Chebyshev)': lambda d, c: np.max(np.abs(d - c)),
+    'Lp norm (Minkowski p=3)': lambda d, c: np.sum(np.abs(d - c)**3)**(1/3),
+
+    # 2. Correlation measures (precomputed reference)
+    'Cosine Similarity': lambda d, c: (1 - distance.cosine(d, c) if (np.linalg.norm(d) > 1e-9 and np.linalg.norm(c) > 1e-9) else 0.0),
+    'Pearson Correlation': lambda d, ref: np.corrcoef(d, ref)[0, 1] if np.std(d) > 1e-9 else 0.0,
+    'Spearman Correlation': lambda d, ref: spearmanr(d, ref).correlation if np.std(d) > 1e-9 else 0.0,
+
+    # 3. Statistical distances (precomputed variances)
+    'Mahalanobis': lambda d, c, v: np.sqrt(np.sum((d - c)**2 / v)),
+    'Standardized Euclidean': lambda d, c, v: np.sqrt(np.sum((d - c)**2 / v)),
+    'Chi-square': lambda d, c: np.sum(np.where((d + c) > 0, (d - c)**2 / (d + c + 1e-10), 0)),
+    'Jensen-Shannon': lambda d, c: distance.jensenshannon(
+        (d - d.min() + 1e-10) / (d.sum() - d.min() + 1e-10),
+        (c - c.min() + 1e-10) / (c.sum() - c.min() + 1e-10)
+    ),
+
+    # 4. Discrete metrics (precomputed values)
+    'Levenshtein': lambda s1, s2: levenshtein(s1, s2),
+    'Hamming': lambda d, c: np.count_nonzero(np.round(d, 2) != np.round(c, 2)),
+    'Jaccard/Tanimoto': lambda s1, s2: len(s1 & s2) / max(len(s1 | s2), 1),
+    'Sørensen–Dice': lambda s1, s2: 2 * len(s1 & s2) / max((len(s1) + len(s2)), 1)
+}
+
+class MetricProcessor:
+    def __init__(self, comparison_value=0.5):
+        self.comparison = None
+        self.reference = None
+        self.variances = None
+        self.round_cache = {}
+
+    def preprocess(self, data):
+        """One-time preprocessing for all metrics"""
+        # Base arrays
+        self.comparison = np.full_like(data, 0.5)
+        self.reference = np.linspace(0, 1, len(data))
+
+        # Variance cache
+        self.variances = np.var(np.vstack([data, self.comparison]), axis=0) + 1e-10
+
+        # Discrete metric caches
+        self.round_cache = {
+            'lev1_d': [f"{x:.1f}" for x in np.round(data, 1)],
+            'lev1_c': [f"{x:.1f}" for x in np.round(self.comparison, 1)],
+            'round2_d': set(np.round(data, 2)),
+            'round2_c': set(np.round(self.comparison, 2))
+        }
+
+    def calculate(self, data):
+        """Calculate all metrics with preprocessed data"""
+        return {
+            # L-family
+            'L2 norm (Euclidean)': METRICS['L2 norm (Euclidean)'](data, self.comparison),
+            'Squared Euclidean': METRICS['Squared Euclidean'](data, self.comparison),
+            'L1 norm (Manhattan)': METRICS['L1 norm (Manhattan)'](data, self.comparison),
+            'Canberra': METRICS['Canberra'](data, self.comparison),
+            'L∞ norm (Chebyshev)': METRICS['L∞ norm (Chebyshev)'](data, self.comparison),
+            'Lp norm (Minkowski p=3)': METRICS['Lp norm (Minkowski p=3)'](data, self.comparison),
+
+            # Correlations
+            'Cosine Similarity': METRICS['Cosine Similarity'](data, self.comparison),
+            'Pearson Correlation': METRICS['Pearson Correlation'](data, self.reference),
+            'Spearman Correlation': METRICS['Spearman Correlation'](data, self.reference),
+
+            # Statistical
+            'Mahalanobis': METRICS['Mahalanobis'](data, self.comparison, self.variances),
+            'Standardized Euclidean': METRICS['Standardized Euclidean'](data, self.comparison, self.variances),
+            'Chi-square': METRICS['Chi-square'](data, self.comparison),
+            'Jensen-Shannon': METRICS['Jensen-Shannon'](data, self.comparison),
+
+            # Discrete
+            'Levenshtein': METRICS['Levenshtein'](''.join(self.round_cache['lev1_d']), ''.join(self.round_cache['lev1_c'])),
+            'Hamming': METRICS['Hamming'](data, self.comparison),
+            'Jaccard/Tanimoto': METRICS['Jaccard/Tanimoto'](self.round_cache['round2_d'], self.round_cache['round2_c']),
+            'Sørensen–Dice': METRICS['Sørensen–Dice'](self.round_cache['round2_d'], self.round_cache['round2_c'])
+        }
+    
