@@ -7,13 +7,15 @@ import Customizable_RENN as RENN
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.metrics import mean_squared_error, accuracy_score
 from scipy.stats import spearmanr, kendalltau, pearsonr
+from IPython.display import clear_output
 import time
+import math
 
 mnist, to_categorical, nn, DataLoader, device, metricsEvaluation = "", "", "", "", "", True
 train_dataloader, test_dataloader, eval_dataloader, trainDataSet, testDataSet, trainSubset, testSubset, x_train, y_train, x_test, y_test, x_eval, y_eval = "", "", "", "", "", "", "", "", "", "", "", "", ""
 model, criterion_class, chosen_optimizer, layers = "", "", "", ""
 train_samples, eval_samples, test_samples = 1, 1, 1
-dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, pcaDictionaryForSourceLayerNeuron, pcaDictionaryForLayerNeuronSource = [], [], [], [], [], []
+dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource = [], [], [], [], [], []
 
 def initializePackages(mnistPackage, to_categoricalPackage, nnPackage, DataLoaderPackage, devicePackage):
     global mnist, to_categorical, nn, DataLoader, device
@@ -171,7 +173,6 @@ def showIndividualImagesPlotly(images, layer, closestSources, showClosestMostUse
 
 def showImagesUnweighted(name, originalImage, blendedSourceImageActivation, blendedSourceImageSum, closestMostUsedSourceImagesActivation, closestMostUsedSourceImagesSum):
     fig, axes = plt.subplots(1, 5, figsize=(35, 35))
-    fig.suptitle(f"Blended Image Comparison for {name}", y=1.02, fontsize=16)
     plt.subplots_adjust(hspace=0.5)
 
     # Display original image
@@ -198,7 +199,6 @@ def showImagesUnweighted(name, originalImage, blendedSourceImageActivation, blen
 
     # Display closestMostUsedSourceImagesActivation
     fig, axes = plt.subplots(1, len(closestMostUsedSourceImagesActivation)+2, figsize=(35, 35))
-    fig.suptitle(f"Non-Linear Activation Sources for '{name}'", y=1.02, fontsize=12)
     axes[0].set_title(f"NON-LINEAR - Original: {originalImage[1]}")
     axes[0].imshow(Image.fromarray(originalImage[0].cpu().numpy()*255))
     axes[1].set_title(f"A - Closest Sources/Neuron (Most Used)")
@@ -211,7 +211,6 @@ def showImagesUnweighted(name, originalImage, blendedSourceImageActivation, blen
 
     # Display closestMostUsedSourceImagesSum
     fig, axes = plt.subplots(1, len(closestMostUsedSourceImagesSum)+2, figsize=(35, 35))
-    fig.suptitle(f"Linear Activation Sources for '{name}'", y=1.02, fontsize=12)
     axes[0].set_title(f"LINEAR - Original: {originalImage[1]}")
     axes[0].imshow(Image.fromarray(originalImage[0].cpu().numpy()*255))
     axes[1].set_title(f"S - Closest Sources/Neuron (Most Used)")
@@ -390,154 +389,168 @@ def evaluateImageSimilarity(sample, mostUsed):
     print(f"Hamming Distance: {hamming_distance:.4f}")
     print(f"Pearson Correlation: {pearson_correlation:.4f}" if pearson_correlation is not None else "Pearson Correlation: N/A")
 
-    # Initialize aggregates for overall metrics
-    aggregate_scores = {
-        "cosine": 0,
-        "euclidean": 0,
-        "manhattan": 0,
-        "jaccard": 0,
-        "hamming": 0,
-        "pearson": 0,
-    }
-    count_valid = {
-        "jaccard": 0,  # Count only valid Jaccard entries (non-zero denominator)
-        "pearson": 0,  # Count only valid Pearson correlations
-    }
+    # # Initialize aggregates for overall metrics
+    # aggregate_scores = {
+    #     "cosine": 0,
+    #     "euclidean": 0,
+    #     "manhattan": 0,
+    #     "jaccard": 0,
+    #     "hamming": 0,
+    #     "pearson": 0,
+    # }
+    # count_valid = {
+    #     "jaccard": 0,  # Count only valid Jaccard entries (non-zero denominator)
+    #     "pearson": 0,  # Count only valid Pearson correlations
+    # }
+    # 
+    # # Compute similarity for each training sample
+    # for pos, (train_sample, true) in enumerate(trainDataSet):
+    #     train_sample = np.asarray(train_sample.flatten().reshape(1, -1))
+    # 
+    #     cosine_similarity, euclidean_distance, manhattan_distance, jaccard_similarity, hamming_distance, pearson_correlation = computeSimilarity(sample, train_sample)
+    # 
+    #     # Accumulate aggregate scores
+    #     aggregate_scores["cosine"] += cosine_similarity
+    #     aggregate_scores["euclidean"] += euclidean_distance
+    #     aggregate_scores["manhattan"] += manhattan_distance
+    #     if jaccard_similarity is not None:
+    #         aggregate_scores["jaccard"] += jaccard_similarity
+    #         count_valid["jaccard"] += 1
+    #     aggregate_scores["hamming"] += hamming_distance
+    #     if pearson_correlation is not None:
+    #         aggregate_scores["pearson"] += pearson_correlation
+    #         count_valid["pearson"] += 1
+    # 
+    #     similarityList.append({
+    #         "pos": pos,
+    #         "cosine": cosine_similarity,
+    #         "euclidean": euclidean_distance,
+    #         "manhattan": manhattan_distance,
+    #         "jaccard": jaccard_similarity,
+    #         "hamming": hamming_distance,
+    #         "pearson": pearson_correlation,
+    #     })
+    # 
+    # # Normalize aggregate scores
+    # num_samples = len(trainDataSet)
+    # for key in ["cosine", "euclidean", "manhattan", "hamming"]:
+    #     aggregate_scores[key] /= num_samples
+    # if count_valid["jaccard"] > 0:
+    #     aggregate_scores["jaccard"] /= count_valid["jaccard"]
+    # else:
+    #     aggregate_scores["jaccard"] = None
+    # if count_valid["pearson"] > 0:
+    #     aggregate_scores["pearson"] /= count_valid["pearson"]
+    # else:
+    #     aggregate_scores["pearson"] = None
+    # 
+    # # Sort similarityList by cosine similarity in descending order
+    # similarityList.sort(key=lambda x: x["cosine"], reverse=True)
+    # 
+    # # Extract top sources from similarity list
+    # topSources = set(item["pos"] for item in similarityList[:len(mostUsed)])
+    # 
+    # # Extract most used sources
+    # mostUsedSources = set(source for source, _ in mostUsed)
+    # 
+    # # --- Metrics ---
+    # # Matches
+    # matches = len(topSources & mostUsedSources)
+    # 
+    # # Accuracy
+    # accuracy = matches / len(topSources) if topSources else 0
+    # 
+    # # Precision and Recall
+    # precision = matches / len(mostUsedSources) if mostUsedSources else 0
+    # recall = matches / len(topSources) if topSources else 0
+    # 
+    # # F1-Score
+    # f1_score = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+    # 
+    # # Weighted Accuracy
+    # total_weight = sum(count for _, count in mostUsed)
+    # weighted_matches = sum(
+    #     count for source, count in mostUsed if source in topSources
+    # )
+    # weighted_accuracy = weighted_matches / total_weight if total_weight else 0
+    # 
+    # # Kendall's Tau and Spearman's Rho
+    # topRanking = [item["pos"] for item in similarityList[:len(mostUsed)]]
+    # mostUsedRanking = [source for source, _ in mostUsed]
+    # kendall_tau, _ = kendalltau(topRanking, mostUsedRanking)
+    # spearman_rho, _ = spearmanr(topRanking, mostUsedRanking)
+    # 
+    # # Top-k Intersection
+    # top_k_intersection = len(topSources & mostUsedSources)
+    # 
+    # # --- Print Results ---
+    # print("\n--- Overall Metrics ---")
+    # print(f"Accuracy: {accuracy * 100:.2f}%")
+    # print(f"Precision: {precision * 100:.2f}%")
+    # print(f"Recall: {recall * 100:.2f}%")
+    # print(f"F1-Score: {f1_score * 100:.2f}%")
+    # print(f"Weighted Accuracy: {weighted_accuracy * 100:.2f}%")
+    # print(f"Kendall's Tau: {kendall_tau:.2f}")
+    # print(f"Spearman's Rho: {spearman_rho:.2f}")
+    # print(f"Top-{len(mostUsed)} Intersection: {top_k_intersection}/{len(mostUsed)}")
+    # 
+    # # --- Print Overall Similarity Scores ---
+    # print("\n--- Overall Similarity Scores ---")
+    # print(f"Cosine Similarity (Mean): {aggregate_scores['cosine']:.4f}")
+    # print(f"Euclidean Distance (Mean): {aggregate_scores['euclidean']:.4f}")
+    # print(f"Manhattan Distance (Mean): {aggregate_scores['manhattan']:.4f}")
+    # print(f"Jaccard Similarity (Mean): {aggregate_scores['jaccard']:.4f}" if aggregate_scores["jaccard"] is not None else "Jaccard Similarity: N/A")
+    # print(f"Hamming Distance (Mean): {aggregate_scores['hamming']:.4f}")
+    # print(f"Pearson Correlation (Mean): {aggregate_scores['pearson']:.4f}" if aggregate_scores["pearson"] is not None else "Pearson Correlation: N/A")
 
-    # Compute similarity for each training sample
-    for pos, (train_sample, true) in enumerate(trainDataSet):
-        train_sample = np.asarray(train_sample.flatten().reshape(1, -1))
+# Global storage (optional)
+all_similarity_results = []
 
-        cosine_similarity, euclidean_distance, manhattan_distance, jaccard_similarity, hamming_distance, pearson_correlation = computeSimilarity(sample, train_sample)
-
-        # Accumulate aggregate scores
-        aggregate_scores["cosine"] += cosine_similarity
-        aggregate_scores["euclidean"] += euclidean_distance
-        aggregate_scores["manhattan"] += manhattan_distance
-        if jaccard_similarity is not None:
-            aggregate_scores["jaccard"] += jaccard_similarity
-            count_valid["jaccard"] += 1
-        aggregate_scores["hamming"] += hamming_distance
-        if pearson_correlation is not None:
-            aggregate_scores["pearson"] += pearson_correlation
-            count_valid["pearson"] += 1
-
-        similarityList.append({
-            "pos": pos,
-            "cosine": cosine_similarity,
-            "euclidean": euclidean_distance,
-            "manhattan": manhattan_distance,
-            "jaccard": jaccard_similarity,
-            "hamming": hamming_distance,
-            "pearson": pearson_correlation,
-        })
-
-    # Normalize aggregate scores
-    num_samples = len(trainDataSet)
-    for key in ["cosine", "euclidean", "manhattan", "hamming"]:
-        aggregate_scores[key] /= num_samples
-    if count_valid["jaccard"] > 0:
-        aggregate_scores["jaccard"] /= count_valid["jaccard"]
-    else:
-        aggregate_scores["jaccard"] = None
-    if count_valid["pearson"] > 0:
-        aggregate_scores["pearson"] /= count_valid["pearson"]
-    else:
-        aggregate_scores["pearson"] = None
-
-    # Sort similarityList by cosine similarity in descending order
-    similarityList.sort(key=lambda x: x["cosine"], reverse=True)
-
-    # Extract top sources from similarity list
-    topSources = set(item["pos"] for item in similarityList[:len(mostUsed)])
-
-    # Extract most used sources
-    mostUsedSources = set(source for source, _ in mostUsed)
-
-    # --- Metrics ---
-    # Matches
-    matches = len(topSources & mostUsedSources)
-
-    # Accuracy
-    accuracy = matches / len(topSources) if topSources else 0
-
-    # Precision and Recall
-    precision = matches / len(mostUsedSources) if mostUsedSources else 0
-    recall = matches / len(topSources) if topSources else 0
-
-    # F1-Score
-    f1_score = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
-
-    # Weighted Accuracy
-    total_weight = sum(count for _, count in mostUsed)
-    weighted_matches = sum(
-        count for source, count in mostUsed if source in topSources
-    )
-    weighted_accuracy = weighted_matches / total_weight if total_weight else 0
-
-    # Kendall's Tau and Spearman's Rho
-    topRanking = [item["pos"] for item in similarityList[:len(mostUsed)]]
-    mostUsedRanking = [source for source, _ in mostUsed]
-    kendall_tau, _ = kendalltau(topRanking, mostUsedRanking)
-    spearman_rho, _ = spearmanr(topRanking, mostUsedRanking)
-
-    # Top-k Intersection
-    top_k_intersection = len(topSources & mostUsedSources)
-
-    # --- Print Results ---
-    print("\n--- Overall Metrics ---")
-    print(f"Accuracy: {accuracy * 100:.2f}%")
-    print(f"Precision: {precision * 100:.2f}%")
-    print(f"Recall: {recall * 100:.2f}%")
-    print(f"F1-Score: {f1_score * 100:.2f}%")
-    print(f"Weighted Accuracy: {weighted_accuracy * 100:.2f}%")
-    print(f"Kendall's Tau: {kendall_tau:.2f}")
-    print(f"Spearman's Rho: {spearman_rho:.2f}")
-    print(f"Top-{len(mostUsed)} Intersection: {top_k_intersection}/{len(mostUsed)}")
-
-    # --- Print Overall Similarity Scores ---
-    print("\n--- Overall Similarity Scores ---")
-    print(f"Cosine Similarity (Mean): {aggregate_scores['cosine']:.4f}")
-    print(f"Euclidean Distance (Mean): {aggregate_scores['euclidean']:.4f}")
-    print(f"Manhattan Distance (Mean): {aggregate_scores['manhattan']:.4f}")
-    print(f"Jaccard Similarity (Mean): {aggregate_scores['jaccard']:.4f}" if aggregate_scores["jaccard"] is not None else "Jaccard Similarity: N/A")
-    print(f"Hamming Distance (Mean): {aggregate_scores['hamming']:.4f}")
-    print(f"Pearson Correlation (Mean): {aggregate_scores['pearson']:.4f}" if aggregate_scores["pearson"] is not None else "Pearson Correlation: N/A")
-
-def blendActivations(mostUsed, evaluationActivations, layerNumbersToCheck):
+def blendActivations(mostUsed, evaluationActivations, layerNumbersToCheck, store_globally=False):
     totalSources = sum(count for _, count in mostUsed)
-
     blendedActivations = np.zeros_like(evaluationActivations[layerNumbersToCheck])
 
     for source, count in mostUsed:
         activationsBySources = RENN.activationsBySources[source]
-        for layerNumberToCheck, layerNumber in enumerate(layerNumbersToCheck):
+        for layerIdx, layerNumber in enumerate(layerNumbersToCheck):
             neurons = activationsBySources[layerNumber]
-            for neuronNumber, neuronActivation in enumerate(neurons):
-                blendedActivations[layerNumberToCheck][neuronNumber] += neuronActivation * (count / totalSources)
+            blendedActivations[layerIdx] += neurons * (count / totalSources)
 
-    evaluationActivations = np.asarray(evaluationActivations[layerNumbersToCheck].flatten().reshape(1, -1), dtype=np.float64)
-    blendedActivations = np.asarray(blendedActivations.flatten().reshape(1, -1), dtype=np.float64)
-    cosine_similarity, euclidean_distance, manhattan_distance, jaccard_similarity, hamming_distance, pearson_correlation = computeSimilarity(evaluationActivations, blendedActivations)
+    # Flatten and reshape for similarity computation
+    eval_flat = evaluationActivations[layerNumbersToCheck].flatten().reshape(1, -1).astype(np.float64)
+    blend_flat = blendedActivations.flatten().reshape(1, -1).astype(np.float64)
 
-    kendall_tau, _ = kendalltau(evaluationActivations, blendedActivations)
-    spearman_rho, _ = spearmanr(evaluationActivations, blendedActivations)
+    # --- Compute Metrics ---
+    cosine_sim, euclidean_dist, manhattan_dist, jaccard_sim, hamming_dist, pearson_corr = computeSimilarity(eval_flat, blend_flat)
+    kendall_tau, _ = kendalltau(eval_flat.squeeze(), blend_flat.squeeze())
+    spearman_rho, _ = spearmanr(eval_flat.squeeze(), blend_flat.squeeze())
+
+    # --- Store Results ---
+    results = {
+        "kendall_tau": kendall_tau,
+        "spearman_rho": spearman_rho,
+        "cosine_similarity": cosine_sim,
+        "euclidean_distance": euclidean_dist,
+        "manhattan_distance": manhattan_dist,
+        "jaccard_similarity": jaccard_sim if jaccard_sim is not None else np.nan,
+        "hamming_distance": hamming_dist,
+        "pearson_correlation": pearson_corr if pearson_corr is not None else np.nan,
+    }
+
+    if store_globally:
+        all_similarity_results.append(results)
 
     # --- Print Results ---
     print("\n--- Blended Activation Similarity Scores ---")
-    print(f"Kendall's Tau: {kendall_tau:.2f}")
-    print(f"Spearman's Rho: {spearman_rho:.2f}")
-    print(f"Cosine Similarity: {cosine_similarity:.4f}")
-    print(f"Euclidean Distance: {euclidean_distance:.4f}")
-    print(f"Manhattan Distance: {manhattan_distance:.4f}")
-    print(f"Jaccard Similarity: {jaccard_similarity:.4f}" if jaccard_similarity is not None else "Jaccard Similarity: N/A")
-    print(f"Hamming Distance: {hamming_distance:.4f}")
-    print(f"Pearson Correlation: {pearson_correlation:.4f}" if pearson_correlation is not None else "Pearson Correlation: N/A")
+    for metric, value in results.items():
+        print(f"{metric.replace('_', ' ').title()}: {value:.4f}")
+
+    return results  # Return for immediate use
 
 def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
-    global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, pcaDictionaryForSourceLayerNeuron, pcaDictionaryForLayerNeuronSource
+    global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource
 
-    #Make sure to set new dictionarys for the hooks to fill - they are global!
+    #Make sure to set new dictionaries for the hooks to fill - they are global!
     dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource = RENN.initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model)
     
     mostUsedList = []
@@ -556,11 +569,11 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             blendedSourceImageSum = blendImagesTogether(mostUsedSourcesWithSum[:20], "Not Weighted")
             blendedMetricSourceImageSum = blendImagesTogether(mostUsedMetricSourcesWithSum[:20], "Not Weighted")
             blendedMMSourceImageSum = blendImagesTogether(mostUsedMMSourcesWithSum[:20], "Not Weighted")
-            layersToCheck = layerNumbersToCheck
+            layersToCheck = layerNumbersToCheck # Switch to another variable to use correct layers for analyzation
 
             sourcesActivation, metricSourcesActivation, mtSourcesActivation, outputsActivation, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], metricsDictionaryForSourceLayerNeuron[pos], mtDictionaryForSourceLayerNeuron[pos], "Activation")
             mostUsedSourcesWithActivation, mostUsedMetricSourcesWithActivation, mostUsedMMSourcesWithActivation = RENN.getMostUsedSources(sourcesActivation, metricSourcesActivation, mtSourcesActivation, closestSources, "Activation")
-            #20 because otherwise the blending might not be visible anymore. Should be closestSources instead to be correct!
+            #20 sources only because otherwise the blending might not be visible anymore. Should be closestSources instead to be correct!
             blendedSourceImageActivation = blendImagesTogether(mostUsedSourcesWithActivation[:20], "Not Weighted")
             blendedMetricSourceImageActivation = blendImagesTogether(mostUsedMetricSourcesWithActivation[:20], "Not Weighted")
             blendedMMSourceImageActivation = blendImagesTogether(mostUsedMMSourcesWithActivation[:20], "Not Weighted")
@@ -577,12 +590,15 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             #RENN.analyzeData(closestSources, dictionaryForSourceLayerNeuron[pos])
     
         if(analyze):
-            mostUsed, mostUsedMetrics, mostUsedMM = RENN.getMostUsedSources(sourcesSum, metricSourcesSum, mtSourcesSum, closestSources)
-            mostUsedList.append(mostUsed)
-            blendActivations(mostUsed, dictionaryForSourceLayerNeuron[pos], layersToCheck)
-            #evaluateImageSimilarity(sample, mostUsed)
-        
-        if pos % 10 == 0:
-            time.sleep(1)
+            #mostUsed, mostUsedMetrics, mostUsedMM = #RENN.getMostUsedSources(sourcesSum, metricSourcesSum, mtSourcesSum, closestSources)
+            mostUsedList.append(mostUsedSourcesWithSum)
+            blendActivations(mostUsedSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layersToCheck, True)
+            evaluateImageSimilarity(sample, mostUsedSourcesWithSum)
+            evaluateImageSimilarity(sample, mostUsedMetricSourcesWithSum)
+            evaluateImageSimilarity(sample, mostUsedMMSourcesWithSum)
 
+        #if pos % 10 == 0:  # Clear every 10 samples
+        #    clear_output(wait=True)  # Keeps the last output visible
+        #    time.sleep(1)  # Prevents UI freezing
+    
     #print(f"Time passed since start: {time_since_start(startTime)}")

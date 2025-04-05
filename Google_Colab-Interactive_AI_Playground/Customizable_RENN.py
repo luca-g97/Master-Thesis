@@ -6,7 +6,7 @@ import threading
 import sys
 from collections import Counter
 from scipy.spatial import distance
-from scipy.stats import spearmanr, kendalltau, pearsonr
+from scipy.stats import spearmanr, kendalltau, pearsonr, skew, kurtosis
 from time import perf_counter
 from collections import defaultdict
 import heapq
@@ -27,7 +27,7 @@ metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, me
 mmDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource, mtActivationsBySources, mtActivationsByLayers = [], [], [], []
 
 METRICS = {
-    # 1. L-family distances (vectorized)
+     # 1. L-family distances (vectorized)
     'L2 norm (Euclidean)': lambda d, c: np.sqrt(np.sum((d - c)**2)),
     'Squared Euclidean': lambda d, c: np.sum((d - c)**2),
     'L1 norm (Manhattan)': lambda d, c: np.sum(np.abs(d - c)),
@@ -54,6 +54,23 @@ METRICS = {
     'Hamming': lambda d, c: np.count_nonzero(np.round(d, 2) != np.round(c, 2)),
     'Jaccard/Tanimoto': lambda s1, s2: len(s1 & s2) / max(len(s1 | s2), 1),
     'Sørensen–Dice': lambda s1, s2: 2 * len(s1 & s2) / max((len(s1) + len(s2)), 1)
+}
+
+USEFUL_METRICS = {
+    'L2 norm (Euclidean)': lambda d, c: np.sqrt(np.sum((d - c)**2)),
+    'L1 norm (Manhattan)': lambda d, c: np.sum(np.abs(d - c)),
+    'Canberra': lambda d, c: np.sum(np.abs(d - c) / (np.abs(d) + np.abs(c) + 1e-10)),
+    'L∞ norm (Chebyshev)': lambda d, c: np.max(np.abs(d - c)),
+    'Cosine Similarity': lambda d, c: (1 - distance.cosine(d, c) if (np.linalg.norm(d) > 1e-9 and np.linalg.norm(c) > 1e-9) else 0.0),
+    'Pearson Correlation': lambda d, c: pearsonr(d, c)[0] if (np.std(d) > 1e-9 and np.std(c) > 1e-9) else 0.0,
+    'Spearman Correlation': lambda d, c: spearmanr(d, c).correlation if (np.std(d) > 1e-9 and np.std(c) > 1e-9) else 0.0,
+    'Chi-square': lambda d, c: np.sum(np.where((d + c) > 0, (d - c)**2 / (d + c + 1e-10), 0)),
+    'FFT Complex L2': lambda d, target_fft_complex: np.linalg.norm(np.fft.fft(d)[:len(target_fft_complex)] - target_fft_complex), # Use target len
+    'Skewness': lambda d, _: skew(d) if np.std(d) > 1e-9 else 0.0,
+    'Kurtosis': lambda d, _: kurtosis(d, fisher=True) if np.std(d) > 1e-9 else 0.0,
+    'Median': lambda d, _: np.median(d),
+    'Mean': lambda d, _: np.mean(d),
+    'Diff L2 Norm': lambda d, _: np.linalg.norm(np.diff(d)) if len(d)>1 else 0.0,
 }
 
 def initializePackages(devicePackage, ioPackage, pdPackage, paPackage, pqPackage, zstdPackage, levenshteinPackage, chosenDataSetPackage, seed="", useBitLinear=False):
@@ -375,8 +392,12 @@ def initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model,
 
     return dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource
 
-# Global configuration
-METRIC_WEIGHTS = {name: 1.0 for name in METRICS.keys()}
+# Global configuration - tested with 10000 evaluation samples and 60000 trainSamples on Seed0
+#METRIC_WEIGHTS = {'L2 norm (Euclidean)': 0.84595279427617855154, 'Squared Euclidean': 0.83224573934538148085, 'L1 norm (Manhattan)': 0.7687561660244726608, 'Canberra': 0.96355450386131677833, 'L∞ norm (Chebyshev)': 0.85905570563456966126, 'Lp norm (Minkowski p=3)': 0.9605228998431233623, 'Cosine Similarity': 1.4085102017289147866, 'Pearson Correlation': 1.2791490776542367033, 'Spearman Correlation': 0.88216770387512854216, 'Mahalanobis': 0.88823148424610403, 'Standardized Euclidean': 0.88823148424610403, 'Chi-square': 0.7844054846319496534, 'Jensen-Shannon': 1.0729674415824971881, 'Levenshtein': 0.39255559509664496065, 'Hamming': 0.88822753562351450306, 'Jaccard/Tanimoto': 0.88822753562351450306, 'Sørensen–Dice': 0.88822753562351450306}
+# Global configuration - tested with 10000 evaluation samples and 60000 trainSamples on Seed0
+# Global configuration - tested with 100 evaluation samples and 10000 trainSamples on Seed0
+#METRIC_WEIGHTS = {'L2 norm (Euclidean)': 1.3113559725740969809, 'Squared Euclidean': 1.2101180209756891844, 'L1 norm (Manhattan)': 1.1251426462974175736, 'Canberra': 1.7421718881126872844, 'L∞ norm (Chebyshev)': 0.50953942577044365075, 'Lp norm (Minkowski p=3)': 1.3860242085827914397, 'Cosine Similarity': 0.8859925301938055847, 'Pearson Correlation': 0.9120567724775818127, 'Spearman Correlation': 1.4976966778957922496, 'Mahalanobis': 0.85707488088405925353, 'Standardized Euclidean': 0.85707488088405925353, 'Chi-square': 0.8520277648058949888, 'Jensen-Shannon': 0.9095651680450349729, 'Levenshtein': 1.1135734660492960539, 'Hamming': 1.1325316811990171291, 'Jaccard/Tanimoto': 0.7118675443837889661, 'Sørensen–Dice': 0.71295894304878325054}
+METRIC_WEIGHTS = {'L2 norm (Euclidean)': 1.0, 'Squared Euclidean': 1.0, 'L1 norm (Manhattan)': 1.0, 'Canberra': 1.0, 'L∞ norm (Chebyshev)': 1.0, 'Lp norm (Minkowski p=3)': 1.0, 'Cosine Similarity': 1.0, 'Pearson Correlation': 1.0, 'Spearman Correlation': 1.0, 'Mahalanobis': 1.0, 'Standardized Euclidean': 1.0, 'Chi-square': 1.0, 'Jensen-Shannon': 1.0, 'Levenshtein': 1.0, 'Hamming': 1.0, 'Jaccard/Tanimoto': 1.0, 'Sørensen–Dice': 1.0}
 metrics_optimizer = None  # Will be initialized on first call
 # Add to global initialization
 mt_component_optimizer = None
@@ -437,7 +458,7 @@ def identifyClosestSources(closestSources, outputs, metricsOutputs, mtOutputs, m
             if not isinstance(maxNeurons, int):
                 maxNeurons = maxNeurons.out_features
             if currentNeuron < maxNeurons:
-                differences = np.abs(neuron - np.full(len(neuron), outputsToCheck[currentLayer][currentNeuron]))
+                differences = np.abs(neuron - outputsToCheck[currentLayer][currentNeuron])
                 sorted_indices = np.argsort(differences)
                 closest_indices = sorted_indices[:closestSources]
                 layer_neuron_indices.append(sorted_indices)
@@ -479,12 +500,13 @@ def identifyClosestSources(closestSources, outputs, metricsOutputs, mtOutputs, m
             for i, name in enumerate(METRICS.keys()):
                 metric_scores[name] = np.abs(norm_samples[:, i] - norm_ref[i])
 
-            # Update weights using this sample
-            metrics_optimizer.update_weights(metric_scores, target_indices)
-            METRIC_WEIGHTS = metrics_optimizer.get_weights()
+            #if mode == "Sum":
+                # Update weights using this sample
+                #metrics_optimizer.update_weights(metric_scores, target_indices)
+                #METRIC_WEIGHTS = metrics_optimizer.get_weights()
 
             # Combine scores using optimized weights
-            combined_scores = np.sum([
+            combined_scores = np.mean([
                 metric_scores[name] * METRIC_WEIGHTS[name]
                 for name in METRICS.keys()
             ], axis=0)
@@ -519,6 +541,7 @@ def identifyClosestSources(closestSources, outputs, metricsOutputs, mtOutputs, m
     
 def getMostUsed(sources, mode="", evaluation=""):
     mostUsed = []
+    differences = []
     sourceCounter = 0
     for currentLayer, layer in enumerate(sources):
         if evaluation == "Metrics" or evaluation == "Magnitude Truncation":
@@ -526,6 +549,7 @@ def getMostUsed(sources, mode="", evaluation=""):
                 if(sourceNumber != 'None'):
                     mostUsed.append(sourceNumber)
                     sourceCounter += 1
+                    differences.append(difference)
         else:
             for currentNeuron, neuron in enumerate(layer):
                 maxNeurons = layers[currentLayer][1] if mode == "" else layers[currentLayer][1].out_features
@@ -536,7 +560,8 @@ def getMostUsed(sources, mode="", evaluation=""):
                         if(sourceNumber != 'None'):
                             mostUsed.append(sourceNumber)
                             sourceCounter += 1
-    return sourceCounter, mostUsed
+                            differences.append(difference)
+    return sourceCounter, mostUsed, differences
 
 def getMostUsedFromDataFrame(df, evalSample, closestSources, weightedMode=""):
     # Filter entries for the specific evalSample
@@ -580,18 +605,59 @@ def getMostUsedFromDataFrame(df, evalSample, closestSources, weightedMode=""):
 
     return sourceCounter, mostUsed
 
+def weighted_counter(mostUsed, sourceDifferences,
+                     freq_weight=0.5, prox_weight=0.5,
+                     prox_power=1.0, eps=1e-9):
+    """
+    Combines frequency and proximity into a robust weighted score.
+    
+    Args:
+        mostUsed: List of source indices (e.g., [1, 2, 1, 3]).
+        sourceDifferences: Corresponding distances (e.g., [0.1, 0.5, 0.2, 1.0]).
+        freq_weight: Importance of frequency (default: 0.5).
+        prox_weight: Importance of proximity (default: 0.5).
+        prox_power: Power to scale proximity (1=linear, 2=quadratic).
+        eps: Small value to avoid division by zero.
+    
+    Returns:
+        Counter with weighted scores.
+    """
+    # Convert to numpy arrays for vectorized ops
+    sources = np.array(mostUsed)
+    diffs = np.array(sourceDifferences)
+
+    # Normalize frequencies (softmax-style)
+    freq_counts = Counter(sources)
+    max_freq = max(freq_counts.values()) if freq_counts else 1
+    freq_scores = np.array([freq_counts[s] / max_freq for s in sources])
+
+    # Normalized proximity scores (smaller diffs = higher scores)
+    max_diff = np.max(diffs) if len(diffs) > 0 else 1
+    prox_scores = 1 - (diffs / (max_diff + eps)) ** prox_power
+
+    # Combined weighted score
+    combined_scores = (freq_weight * freq_scores +
+                       prox_weight * prox_scores)
+
+    # Build weighted Counter
+    counter = Counter()
+    for src, score in zip(sources, combined_scores):
+        counter[src] += score
+
+    return counter
+
 def getMostUsedSources(sources, metricsSources, mtSources, closestSources, evalSample=0, weightedMode="", info=True):
     metricsMostUsed, metricsSourceCounter = [], []
     mtMostUsed, mtSourceCounter = [], []
     if llm:
         sourceCounter, mostUsed = getMostUsedFromDataFrame(sources, evalSample, closestSources, weightedMode)
     else:
-        sourceCounter, mostUsed = getMostUsed(sources, weightedMode)
+        sourceCounter, mostUsed, sourceDifferences = getMostUsed(sources, weightedMode)
         if metricsEvaluation:
-            metricsSourceCounter, metricsMostUsed = getMostUsed(metricsSources, weightedMode, evaluation="Metrics")
+            metricsSourceCounter, metricsMostUsed, metricsDifferences = getMostUsed(metricsSources, weightedMode, evaluation="Metrics")
         if mtEvaluation:
-            mtSourceCounter, mtMostUsed = getMostUsed(mtSources, weightedMode, evaluation="Magnitude Truncation")
-    counter = Counter(mostUsed)
+            mtSourceCounter, mtMostUsed, mtDifferences = getMostUsed(mtSources, weightedMode, evaluation="Magnitude Truncation")
+    counter = weighted_counter(mostUsed, sourceDifferences)
     metricsCounter = Counter(metricsMostUsed)
     mtCounter = Counter(mtMostUsed)
     
@@ -1123,6 +1189,146 @@ def createMetricsArray(data):
 
     return list(results.values())
 
+class NeuronMetricProcessor:
+    def __init__(self, query):
+        """Initialize with proper handling of both scalar and vector inputs"""
+        # Convert input to 1D numpy array
+        self.query = np.asarray(query, dtype=np.float64).flatten()
+
+        # Handle scalar case (0-dim array)
+        if self.query.ndim == 0:
+            self.query = np.array([self.query.item()])
+
+        # Precompute string representations for discrete metrics
+        self.query_round_lev1_str = ''.join(f"{x:.1f}" for x in np.round(self.query, 1))
+        self.query_round2 = set(np.round(self.query, 2))
+
+        # Precompute norms and stats for efficiency
+        self.query_norm = self.query / (np.linalg.norm(self.query) + 1e-10)
+        self.query_sum = self.query.sum()
+        self.query_min = self.query.min()
+        self.query_max = self.query.max()
+
+    def calculate(self, data):
+        """Calculate all metrics for data against query, handling both scalars and vectors"""
+        # Convert input to 1D numpy array
+        data_array = np.asarray(data, dtype=np.float64).flatten()
+        if data_array.ndim == 0:
+            data_array = np.array([data_array.item()])
+
+        # Ensure compatible shapes
+        if data_array.shape != self.query.shape:
+            raise ValueError(f"Shape mismatch: query {self.query.shape} vs data {data_array.shape}")
+
+        # Precompute common values
+        diff = data_array - self.query
+        abs_diff = np.abs(diff)
+        data_round_lev1_str = ''.join(f"{x:.1f}" for x in np.round(data_array, 1))
+        data_round2 = set(np.round(data_array, 2))
+
+        # Variance between data and query
+        variances = np.var([data_array, self.query], axis=0, ddof=0) + 1e-10
+
+        # Calculate all metrics
+        metrics = {
+            # L-family distances
+            'L2': np.sqrt(np.sum(diff**2)),
+            'Squared L2': np.sum(diff**2),
+            'L1': np.sum(abs_diff),
+            'Canberra': np.sum(abs_diff / (np.abs(data_array) + np.abs(self.query) + 1e-10)),
+            'Chebyshev': np.max(abs_diff),
+            'Minkowski3': np.sum(abs_diff**3)**(1/3),
+
+            # Correlation measures
+            'Cosine': 1 - distance.cosine(data_array, self.query),
+            'Pearson': np.corrcoef(data_array, self.query)[0, 1] if np.std(data_array) > 1e-9 else 0,
+            'Spearman': spearmanr(data_array, self.query).correlation if np.std(data_array) > 1e-9 else 0,
+
+            # Statistical distances
+            'Mahalanobis': np.sqrt(np.sum(diff**2 / variances)),
+            'Std Euclidean': np.sqrt(np.sum(diff**2 / variances)),
+            'Chi-square': np.sum(np.where((data_array + self.query) > 0, diff**2 / (data_array + self.query + 1e-10), 0)),
+            'Jensen-Shannon': distance.jensenshannon(
+                (data_array - self.query_min) / (self.query_max - self.query_min + 1e-10),
+                (self.query - self.query_min) / (self.query_max - self.query_min + 1e-10)
+            ),
+
+            # Discrete metrics
+            'Levenshtein': levenshtein(data_round_lev1_str, self.query_round_lev1_str),
+            'Hamming': np.count_nonzero(np.round(data_array, 2) != np.round(self.query, 2)),
+            'Jaccard': len(data_round2 & self.query_round2) / max(len(data_round2 | self.query_round2), 1),
+            'Sørensen': 2 * len(data_round2 & self.query_round2) / max(len(data_round2) + len(self.query_round2), 1)
+        }
+
+        return metrics
+
+def sort_vectors(query, vectors, weights=None):
+    """
+    Sort vectors by similarity to query using composite metric score
+    Args:
+        query: scalar or vector to compare against
+        vectors: list/array of scalars or vectors
+        weights: optional dict of metric weights
+    Returns:
+        Tuple of (sorted_indices, composite_scores)
+    """
+    # Convert all vectors to arrays and check shapes
+    processor = NeuronMetricProcessor(query)
+    processed_vectors = []
+
+    for v in vectors:
+        vec = np.asarray(v, dtype=np.float64).flatten()
+        if vec.ndim == 0:
+            vec = np.array([vec.item()])
+        if vec.shape != processor.query.shape:
+            raise ValueError(f"Vector shape {vec.shape} doesn't match query shape {processor.query.shape}")
+        processed_vectors.append(vec)
+
+    # Calculate all metrics
+    metrics = [processor.calculate(vec) for vec in processed_vectors]
+
+    # Normalization parameters
+    metric_names = list(metrics[0].keys())
+    is_similarity = {
+        'Cosine': True, 'Pearson': True, 'Spearman': True,
+        'Jaccard': True, 'Sørensen': True
+    }
+
+    # Convert to distance space and normalize
+    normalized = {}
+    for name in metric_names:
+        values = [m[name] for m in metrics]
+
+        # Convert similarities to distances
+        if is_similarity.get(name, False):
+            if name in ['Cosine', 'Pearson', 'Spearman']:
+                values = [(1 - v)/2 for v in values]  # Convert [-1,1] to [0,1]
+            else:
+                values = [1 - v for v in values]  # Convert [0,1] to [0,1]
+
+        # Robust normalization using IQR
+        q25, q75 = np.percentile(values, [25, 75])
+        iqr = max(q75 - q25, 1e-9)
+        normalized[name] = (values - np.median(values)) / iqr
+
+    # Create weighted composite score
+    default_weights = {
+        'L2': 1.0, 'Squared L2': 0.8, 'L1': 1.0, 'Canberra': 0.9,
+        'Chebyshev': 0.7, 'Minkowski3': 0.8, 'Cosine': 1.0,
+        'Pearson': 1.0, 'Spearman': 1.0, 'Mahalanobis': 0.9,
+        'Std Euclidean': 0.8, 'Chi-square': 0.8, 'Jensen-Shannon': 0.9,
+        'Levenshtein': 0.7, 'Hamming': 0.6, 'Jaccard': 0.8, 'Sørensen': 0.8
+    }
+
+    weights = weights or default_weights
+    composite = np.zeros(len(processed_vectors))
+    for name in metric_names:
+        composite += normalized[name] * weights.get(name, 1.0)
+
+    # Return sorted indices and scores
+    sorted_indices = np.argsort(composite)
+    return sorted_indices, composite[sorted_indices]
+
 class MetricProcessor:
     def __init__(self, comparison_value=0.5):
         self.comparison = None
@@ -1177,76 +1383,168 @@ class MetricProcessor:
         }
 
 class MetricWeightOptimizer:
-    def __init__(self, metric_names, top_k=10, learning_rate=0.2, reg_strength=0.01):
-        self.weights = {name: 1.0 for name in metric_names}
+    def __init__(self, metric_names, top_k=10, learning_rate=0.01, # Reduced default LR for Adam
+                 reg_strength=0.01, beta1=0.9, beta2=0.999, epsilon=1e-8):
+        self.metric_names = list(metric_names)
+        self.weights = {name: 1.0 / len(self.metric_names) for name in self.metric_names} # Start normalized
         self.top_k = top_k
-        self.base_lr = learning_rate
+        # Adam parameters
+        self.lr = learning_rate
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.epsilon = epsilon
+        self.m = {name: 0.0 for name in self.metric_names} # Adam 1st moment vector
+        self.v = {name: 0.0 for name in self.metric_names} # Adam 2nd moment vector
+
         self.reg_strength = reg_strength
         self.iteration = 0
         self.margin = 0.05  # Minimum score difference margin
-        self.best_weights = None
+        self.best_weights = self.weights.copy() # Initialize best with starting weights
         self.best_score = -np.inf
-        self.gradient_history = {name: [] for name in metric_names}
+        # self.gradient_history = {name: [] for name in self.metric_names} # Can keep if needed for debugging
 
     def _calculate_gradient(self, metric_scores, target_indices):
-        gradients = {name: 0.0 for name in self.weights}
+        # Ensure metric_scores keys match self.metric_names order if calculation relies on implicit order
+        # Using explicit lookup by name is safer
+        gradients = {name: 0.0 for name in self.metric_names}
         combined = np.sum([self.weights[name] * metric_scores[name]
-                           for name in self.weights], axis=0)
+                           for name in self.metric_names if name in metric_scores], axis=0) # Check key exists
 
-        predicted_ranking = np.argsort(combined)[:self.top_k]
-        target_set = set(target_indices[:self.top_k])
+        # Ensure combined is not empty if metric_scores was missing keys
+        if combined.size == 0:
+            print("Warning: combined score is empty in gradient calculation.")
+            return gradients # Return zero gradients
 
-        # Calculate pairwise gradients
+        predicted_ranking = np.argsort(combined)
+        # Ensure target_indices is not longer than available scores
+        k_target = min(self.top_k, len(target_indices))
+        k_pred = min(self.top_k, len(predicted_ranking))
+
+        predicted_top_k = predicted_ranking[:k_pred]
+        target_set = set(target_indices[:k_target])
+
+        # --- Calculate pairwise gradients (User's original logic) ---
+        # Note: This logic assumes lower 'combined' score is better
         for target_idx in target_set:
-            for pred_idx in predicted_ranking:
+            # Ensure target_idx is a valid index for metric_scores arrays
+            if target_idx >= combined.shape[0]: continue
+
+            for pred_idx in predicted_top_k:
+                # Ensure pred_idx is a valid index
+                if pred_idx >= combined.shape[0]: continue
+
                 if pred_idx == target_idx:
                     continue
 
                 # Margin-based gradient calculation
                 score_diff = combined[pred_idx] - combined[target_idx]
-                if score_diff > -self.margin:
-                    for name in self.weights:
-                        feature_diff = metric_scores[name][pred_idx] - metric_scores[name][target_idx]
-                        gradients[name] += feature_diff * (1 if pred_idx not in target_set else -1)
 
-        # Apply regularization
-        for name in self.weights:
+                # If prediction is worse than target (higher score) or not better by margin
+                if score_diff > -self.margin:
+                    # This pair violates the desired ranking or margin
+                    direction = (1 if pred_idx not in target_set else -1)
+                    for name in self.metric_names:
+                        if name in metric_scores: # Check key exists
+                            # Ensure indices are valid for this metric's score array
+                            if pred_idx < len(metric_scores[name]) and target_idx < len(metric_scores[name]):
+                                feature_diff = metric_scores[name][pred_idx] - metric_scores[name][target_idx]
+                                gradients[name] += feature_diff * direction
+                            else:
+                                print(f"Warning: Index out of bounds for metric '{name}' in gradient calc.")
+                        # else: Metric score missing, gradient remains 0
+
+        # Apply L2 regularization (gradient ascent maximizes score, reg minimizes weight magnitude)
+        for name in self.metric_names:
             gradients[name] -= 2 * self.reg_strength * self.weights[name]
 
         return gradients
+        # --- End User's original gradient logic ---
+
 
     def update_weights(self, metric_scores, target_indices):
+        # Input validation basic check
+        if not metric_scores or target_indices is None or len(target_indices) == 0:
+            print("Warning: Skipping weight update due to empty scores or targets.")
+            return # Skip update if inputs are invalid
+
         gradients = self._calculate_gradient(metric_scores, target_indices)
-
-        # Adaptive learning rate with decay
-        lr = self.base_lr / (1 + 0.001 * self.iteration)
-
-        # Update weights with gradient clipping
-        for name in self.weights:
-            grad = np.clip(gradients[name], -1.0, 1.0)
-            self.weights[name] += lr * grad
-            self.gradient_history[name].append(grad)
-
-        # Apply constraints
-        for name in self.weights:
-            self.weights[name] = np.clip(self.weights[name], 0.5, 3.0)
-
         self.iteration += 1
 
-        # Track best weights
+        updated_weights = {}
+        # --- Adam Update ---
+        for name in self.metric_names:
+            # Clip gradient to prevent extreme values before Adam update
+            grad = np.clip(gradients.get(name, 0.0), -1.0, 1.0) # Use .get for safety
+
+            # Update biased first moment estimate
+            self.m[name] = self.beta1 * self.m[name] + (1 - self.beta1) * grad
+            # Update biased second raw moment estimate
+            self.v[name] = self.beta2 * self.v[name] + (1 - self.beta2) * (grad**2)
+            # Compute bias-corrected first moment estimate
+            m_hat = self.m[name] / (1 - self.beta1**self.iteration)
+            # Compute bias-corrected second raw moment estimate
+            v_hat = self.v[name] / (1 - self.beta2**self.iteration)
+            # Update weights
+            updated_weights[name] = self.weights[name] + self.lr * m_hat / (np.sqrt(v_hat) + self.epsilon)
+            # --- End Adam Update ---
+
+
+        # --- Apply Constraints: Non-negativity and Sum-to-One Normalization ---
+        total_weight = 0.0
+        for name in self.metric_names:
+            # Ensure weights don't die completely, set a small floor
+            updated_weights[name] = max(updated_weights.get(name, 0.0), 1e-5)
+            total_weight += updated_weights[name]
+
+        # Normalize to sum to 1
+        if total_weight > 0:
+            for name in self.metric_names:
+                self.weights[name] = updated_weights[name] / total_weight
+        else:
+            # Fallback: Reinitialize to equal weights if total becomes zero (shouldn't happen with floor)
+            print("Warning: Total weight became zero, reinitializing.")
+            num_metrics = len(self.metric_names)
+            self.weights = {name: 1.0 / num_metrics for name in self.metric_names}
+        # --- End Constraints ---
+
+
+        # Track best weights based on evaluation on the *current* data
+        # Note: Evaluating on the training sample might lead to overfitting tracking
         current_score = self._evaluate(metric_scores, target_indices)
         if current_score > self.best_score:
             self.best_score = current_score
             self.best_weights = self.weights.copy()
+            # print(f"Iter {self.iteration}: New best score: {self.best_score:.4f}") # Optional debug
 
     def _evaluate(self, metric_scores, target_indices):
-        combined = np.sum([self.weights[name] * metric_scores[name]
-                           for name in self.weights], axis=0)
-        predicted = set(np.argsort(combined)[:self.top_k])
-        target = set(target_indices[:self.top_k])
-        return len(predicted & target) / self.top_k
+        # Check if weights exist before combining
+        if not self.weights: return 0.0
+
+        combined = np.sum([self.weights.get(name, 0) * metric_scores.get(name, np.array([np.inf])) # Handle missing scores/weights
+                           for name in self.metric_names], axis=0)
+
+        if combined.size == 0: return 0.0 # Handle empty combined array
+
+        # Ensure target_indices is not longer than available scores
+        num_available = combined.shape[0]
+        k_target = min(self.top_k, len(target_indices), num_available)
+        k_pred = min(self.top_k, num_available)
+
+        if k_target == 0 or k_pred == 0: return 0.0 # Cannot evaluate if no targets/predictions
+
+        predicted_indices = np.argsort(combined)[:k_pred]
+        predicted_set = set(predicted_indices)
+        target_set = set(target_indices[:k_target])
+
+        # Calculate Precision@k style score (Jaccard Index of top K sets)
+        intersection = len(predicted_set & target_set)
+        union = len(predicted_set | target_set) # Or use self.top_k for denominator? Let's use union for Jaccard.
+        # return intersection / self.top_k # Classic Precision@K
+        return intersection / union if union > 0 else 0.0 # Jaccard Index
+
 
     def get_weights(self):
+        # Return the best weights found so far based on evaluation
         return self.best_weights if self.best_weights else self.weights.copy()
 
 class ComponentOptimizer:
