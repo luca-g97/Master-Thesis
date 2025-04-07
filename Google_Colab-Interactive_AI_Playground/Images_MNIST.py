@@ -362,7 +362,7 @@ def computeSimilarity(sample, train_sample):
 
     return cosine_similarity, euclidean_distance, manhattan_distance, jaccard_similarity, hamming_distance, pearson_correlation
 
-def evaluateImageSimilarity(sample, mostUsed):
+def evaluateImageSimilarity(name, sample, mostUsed):
     similarityList = []
 
     # Flatten and reshape the sample
@@ -379,7 +379,7 @@ def evaluateImageSimilarity(sample, mostUsed):
     spearman_rho, _ = spearmanr(sample, blended_image_flat)
 
     # --- Print Results ---
-    print("\n--- Blended Image Similarity Scores ---")
+    print(f"\n--- Blended Image Similarity Scores ({name})---")
     print(f"Kendall's Tau: {kendall_tau:.2f}")
     print(f"Spearman's Rho: {spearman_rho:.2f}")
     print(f"Cosine Similarity: {cosine_similarity:.4f}")
@@ -578,9 +578,9 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             blendedMetricSourceImageActivation = blendImagesTogether(mostUsedMetricSourcesWithActivation[:20], "Not Weighted")
             blendedMMSourceImageActivation = blendImagesTogether(mostUsedMMSourcesWithActivation[:20], "Not Weighted")
 
-            showImagesUnweighted("Per Neuron", createImageWithPrediction(sample.reshape(28, 28), true, prediction), blendedSourceImageActivation, blendedSourceImageSum, mostUsedSourcesWithActivation[:showClosestMostUsedSources], mostUsedSourcesWithSum[:showClosestMostUsedSources])
-            showImagesUnweighted("Metrics", createImageWithPrediction(sample.reshape(28, 28), true, prediction), blendedMetricSourceImageActivation, blendedMetricSourceImageSum, mostUsedMetricSourcesWithActivation[:showClosestMostUsedSources], mostUsedMetricSourcesWithSum[:showClosestMostUsedSources])
-            showImagesUnweighted("Magnitude Truncation", createImageWithPrediction(sample.reshape(28, 28), true, prediction), blendedMMSourceImageActivation, blendedMMSourceImageSum, mostUsedMMSourcesWithActivation[:showClosestMostUsedSources], mostUsedMMSourcesWithSum[:showClosestMostUsedSources])
+            #showImagesUnweighted("Per Neuron", createImageWithPrediction(sample.reshape(28, 28), true, prediction), blendedSourceImageActivation, blendedSourceImageSum, mostUsedSourcesWithActivation[:showClosestMostUsedSources], mostUsedSourcesWithSum[:showClosestMostUsedSources])
+            #showImagesUnweighted("Metrics", createImageWithPrediction(sample.reshape(28, 28), true, prediction), blendedMetricSourceImageActivation, blendedMetricSourceImageSum, mostUsedMetricSourcesWithActivation[:showClosestMostUsedSources], mostUsedMetricSourcesWithSum[:showClosestMostUsedSources])
+            #showImagesUnweighted("Magnitude Truncation", createImageWithPrediction(sample.reshape(28, 28), true, prediction), blendedMMSourceImageActivation, blendedMMSourceImageSum, mostUsedMMSourcesWithActivation[:showClosestMostUsedSources], mostUsedMMSourcesWithSum[:showClosestMostUsedSources])
         else:
             sourcesSum, metricSourcesSum, mtSourcesSum, outputsSum, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], metricsDictionaryForSourceLayerNeuron[pos], mtDictionaryForSourceLayerNeuron[pos], "Sum")
             mostUsedSourcesWithSum = getClosestSourcesPerNeuronAndLayer(sourcesSum, metricSourcesSum, layerNumbersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, "Sum")
@@ -593,9 +593,9 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             #mostUsed, mostUsedMetrics, mostUsedMM = #RENN.getMostUsedSources(sourcesSum, metricSourcesSum, mtSourcesSum, closestSources)
             mostUsedList.append(mostUsedSourcesWithSum)
             blendActivations(mostUsedSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layersToCheck, True)
-            evaluateImageSimilarity(sample, mostUsedSourcesWithSum)
-            evaluateImageSimilarity(sample, mostUsedMetricSourcesWithSum)
-            evaluateImageSimilarity(sample, mostUsedMMSourcesWithSum)
+            #evaluateImageSimilarity("", sample, mostUsedSourcesWithSum)
+            #evaluateImageSimilarity("Metrics", sample, mostUsedMetricSourcesWithSum)
+            #evaluateImageSimilarity("MT", sample, mostUsedMMSourcesWithSum)
 
         #if pos % 10 == 0:  # Clear every 10 samples
         #    clear_output(wait=True)  # Keeps the last output visible
