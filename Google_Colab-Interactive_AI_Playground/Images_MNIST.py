@@ -541,9 +541,9 @@ def blendActivations(mostUsed, evaluationActivations, layerNumbersToCheck, store
         all_similarity_results.append(results)
 
     # --- Print Results ---
-    print("\n--- Blended Activation Similarity Scores ---")
-    for metric, value in results.items():
-        print(f"{metric.replace('_', ' ').title()}: {value:.4f}")
+    #print("\n--- Blended Activation Similarity Scores ---")
+    #for metric, value in results.items():
+    #    print(f"{metric.replace('_', ' ').title()}: {value:.4f}")
 
     return results  # Return for immediate use
 
