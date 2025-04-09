@@ -578,9 +578,9 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             blendedMetricSourceImageActivation = blendImagesTogether(mostUsedMetricSourcesWithActivation[:20], "Not Weighted")
             blendedMMSourceImageActivation = blendImagesTogether(mostUsedMMSourcesWithActivation[:20], "Not Weighted")
 
-            #showImagesUnweighted("Per Neuron", createImageWithPrediction(sample.reshape(28, 28), true, prediction), blendedSourceImageActivation, blendedSourceImageSum, mostUsedSourcesWithActivation[:showClosestMostUsedSources], mostUsedSourcesWithSum[:showClosestMostUsedSources])
-            #showImagesUnweighted("Metrics", createImageWithPrediction(sample.reshape(28, 28), true, prediction), blendedMetricSourceImageActivation, blendedMetricSourceImageSum, mostUsedMetricSourcesWithActivation[:showClosestMostUsedSources], mostUsedMetricSourcesWithSum[:showClosestMostUsedSources])
-            #showImagesUnweighted("Magnitude Truncation", createImageWithPrediction(sample.reshape(28, 28), true, prediction), blendedMMSourceImageActivation, blendedMMSourceImageSum, mostUsedMMSourcesWithActivation[:showClosestMostUsedSources], mostUsedMMSourcesWithSum[:showClosestMostUsedSources])
+            showImagesUnweighted("Per Neuron", createImageWithPrediction(sample.reshape(28, 28), true, prediction), blendedSourceImageActivation, blendedSourceImageSum, mostUsedSourcesWithActivation[:showClosestMostUsedSources], mostUsedSourcesWithSum[:showClosestMostUsedSources])
+            showImagesUnweighted("Metrics", createImageWithPrediction(sample.reshape(28, 28), true, prediction), blendedMetricSourceImageActivation, blendedMetricSourceImageSum, mostUsedMetricSourcesWithActivation[:showClosestMostUsedSources], mostUsedMetricSourcesWithSum[:showClosestMostUsedSources])
+            showImagesUnweighted("Magnitude Truncation", createImageWithPrediction(sample.reshape(28, 28), true, prediction), blendedMMSourceImageActivation, blendedMMSourceImageSum, mostUsedMMSourcesWithActivation[:showClosestMostUsedSources], mostUsedMMSourcesWithSum[:showClosestMostUsedSources])
         else:
             sourcesSum, metricSourcesSum, mtSourcesSum, outputsSum, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], metricsDictionaryForSourceLayerNeuron[pos], mtDictionaryForSourceLayerNeuron[pos], "Sum")
             mostUsedSourcesWithSum = getClosestSourcesPerNeuronAndLayer(sourcesSum, metricSourcesSum, layerNumbersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, "Sum")
@@ -593,9 +593,9 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             #mostUsed, mostUsedMetrics, mostUsedMM = #RENN.getMostUsedSources(sourcesSum, metricSourcesSum, mtSourcesSum, closestSources)
             mostUsedList.append(mostUsedSourcesWithSum)
             blendActivations(mostUsedSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layersToCheck, True)
-            #evaluateImageSimilarity("", sample, mostUsedSourcesWithSum)
-            #evaluateImageSimilarity("Metrics", sample, mostUsedMetricSourcesWithSum)
-            #evaluateImageSimilarity("MT", sample, mostUsedMMSourcesWithSum)
+            evaluateImageSimilarity("", sample, mostUsedSourcesWithSum)
+            evaluateImageSimilarity("Metrics", sample, mostUsedMetricSourcesWithSum)
+            evaluateImageSimilarity("MT", sample, mostUsedMMSourcesWithSum)
 
         #if pos % 10 == 0:  # Clear every 10 samples
         #    clear_output(wait=True)  # Keeps the last output visible
