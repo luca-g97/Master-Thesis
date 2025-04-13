@@ -17,7 +17,10 @@ from PIL import Image
 import plotly.graph_objects as go
 import plotly.subplots as sp
 
-paretoEvaluation, weightTuning = True, True
+paretoEvaluation, weightTuning = False, False
+if paretoEvaluation or weightTuning: 
+    RENN.useOnlyBestMetrics = False
+    
 mnist, to_categorical, nn, DataLoader, pd, optuna, device, metricsEvaluation = "", "", "", "", "", "", "", True
 train_dataloader, test_dataloader, eval_dataloader, trainDataSet, testDataSet, trainSubset, testSubset, x_train, y_train, x_test, y_test, x_eval, y_eval = "", "", "", "", "", "", "", "", "", "", "", "", ""
 model, criterion_class, chosen_optimizer, layers = "", "", "", ""
@@ -137,10 +140,10 @@ def trainModel(hidden_sizes, loss_function, optimizer, learning_rate, epochs):
     print("Training finished")
 
 def initializeHook(hidden_sizes, train_samples):
-  global trainSubset
+    global trainSubset
 
-  hookDataLoader = DataLoader(trainSubset, batch_size=1, shuffle=False)
-  RENN.initializeHook(hookDataLoader, model, hidden_sizes, train_samples, metricsEvaluation)
+    hookDataLoader = DataLoader(trainSubset, batch_size=1, shuffle=False)
+    RENN.initializeHook(hookDataLoader, model, hidden_sizes, train_samples, metricsEvaluation)
 
 def showIndividualImagesPlotly(images, layer, closestSources, showClosestMostUsedSources, mode):
     num_images = len(images)
@@ -223,8 +226,8 @@ def showImagesUnweighted(name, originalImage, blendedSourceImageActivation, blen
 from dataclasses import dataclass
 @dataclass(order=True)
 class WeightedSource:
-  source: int
-  difference: float
+    source: int
+    difference: float
 
 def getMostUsedPerLayer(sources):
     mostUsed = []
@@ -283,7 +286,7 @@ def blendImagesTogether(mostUsedSources, mode):
         for sourceNumber, counter in mostUsedSources:
             image_numpy += (counter/total) * x_train[sourceNumber].numpy()*255
             weights.append(counter/total)
-    
+
     image = Image.fromarray(image_numpy).convert("RGBA")
     return (image, weights)
 
@@ -553,24 +556,24 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
 
     #Make sure to set new dictionaries for the hooks to fill - they are global!
     dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource = RENN.initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model)
-    
+
     if analyze and paretoEvaluation:
-        METRICS_COMBINATION = RENN.create_global_metric_combinations(3, 3, True)
-    
+        METRICS_COMBINATIONS = RENN.create_global_metric_combinations(3, 3, True)
+
     mostUsedList = []
     mostUsedMetricsList = []
-    
+
     for pos, (sample, true) in enumerate(eval_dataloader):
         sample = sample.float()
         prediction = predict(sample)
         mostUsedSourcesWithSum = ""
         layersToCheck = []
-        
-        
+
+
         if(visualizationChoice == "Weighted"):
             sourcesSum, metricSourcesSum, mtSourcesSum, outputsSum, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], metricsDictionaryForSourceLayerNeuron[pos], mtDictionaryForSourceLayerNeuron[pos], "Sum")
             mostUsedSourcesWithSum, mostUsedMetricSourcesWithSum, mostUsedMMSourcesWithSum = RENN.getMostUsedSources(sourcesSum, metricSourcesSum, mtSourcesSum, closestSources, "Sum")
-                
+
             #20 because otherwise the blending might not be visible anymore. Should be closestSources instead to be correct!
             blendedSourceImageSum = blendImagesTogether(mostUsedSourcesWithSum, "Not Weighted")
             blendedMetricSourceImageSum = blendImagesTogether(mostUsedMetricSourcesWithSum, "Not Weighted")
@@ -594,29 +597,33 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             sourcesActivation, metricSourcesActivation, outputsActivation, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], metricsDictionaryForSourceLayerNeuron[pos], mtDictionaryForSourceLayerNeuron[pos], "Activation")
             mostUsedSourcesWithActivation = getClosestSourcesPerNeuronAndLayer(sourcesActivation, metricSourcesActivation, layerNumbersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, "Activation")
             #RENN.analyzeData(closestSources, dictionaryForSourceLayerNeuron[pos])
-    
+
         if(analyze):
             #mostUsed, mostUsedMetrics, mostUsedMM = #RENN.getMostUsedSources(sourcesSum, metricSourcesSum, mtSourcesSum, closestSources)
             mostUsedList.append(mostUsedSourcesWithSum)
-            
+            blendActivations(mostUsedSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layersToCheck, True)
+            evaluateImageSimilarity("", sample, mostUsedSourcesWithSum)
+            evaluateImageSimilarity("Metrics", sample, mostUsedMetricSourcesWithSum)
+            evaluateImageSimilarity("MT", sample, mostUsedMMSourcesWithSum)
+
             if paretoEvaluation:
-                for metric_combination in METRICS_COMBINATION:
+                for metric_combination in METRICS_COMBINATIONS:
                     metricSourcesSum, layerNumbersToCheck = RENN.identifyClosestSourcesByMetricCombination(closestSources, metricsDictionaryForSourceLayerNeuron[pos], metric_combination, mode="Sum")
                     mostUsedMetricSourcesWithSum = RENN.getMostUsedSourcesByMetrics(metricSourcesSum, closestSources, weightedMode="Sum")
-    
-                    evaluateImageSimilarityByMetrics("Metrics", metric_combination, sample, mostUsedMetricSourcesWithSum)
-                evaluate_pareto() 
 
-    if analyze and weightTuning:
-        results, combinations = optimize_weights_of_best_combinations(closestSources)
-        synthesize_overall_weights(results)
-        pareto_df, weight_stats_df, study, union_combination_names = find_overall_weights_via_moo(closestSources, combinations)
-        find_best_metric_weights(pareto_df, closestSources)
+                    evaluateImageSimilarityByMetrics("Metrics", metric_combination, sample, mostUsedMetricSourcesWithSum)
+    if analyze:          
+        if weightTuning and paretoEvaluation:
+            optimizations_to_run = evaluate_pareto()
+            results, combinations = optimize_weights_of_best_combinations(closestSources, optimizations_to_run)
+            synthesize_overall_weights(results)
+            pareto_df, weight_stats_df, study, union_combination_names = find_overall_weights_via_moo(closestSources, combinations)
+            find_best_metric_weights(pareto_df, closestSources)
 
     #if pos % 10 == 0:  # Clear every 10 samples
-        #    clear_output(wait=True)  # Keeps the last output visible
-        #    time.sleep(1)  # Prevents UI freezing
-    
+    #    clear_output(wait=True)  # Keeps the last output visible
+    #    time.sleep(1)  # Prevents UI freezing
+
     #print(f"Time passed since start: {time_since_start(startTime)}")
 
 best_image_similarity = []
@@ -686,34 +693,125 @@ def evaluateImageSimilarityByMetrics(name, combination, sample, mostUsed):
 
     return results_dict
 
-# --- Indices of metrics in the tuple (must match evaluateImageSimilarityByMetrics) ---
-IDX_COMBO = 0
-IDX_COS_SIM = 1
-IDX_EUC_DIST = 2
-IDX_MAN_DIST = 3
-IDX_JAC_SIM = 4
-IDX_HAM_DIST = 5
-IDX_PEARSON = 6
-IDX_KENDALL = 7
-IDX_SPEARMAN = 8
-
-# --- Configuration for Pareto Analysis ---
-
-# 1. Define Objectives: Map metric index to 'higher_better' or 'lower_better'
-#    *** ADJUST THIS DICTIONARY based on the metrics YOU want to consider ***
-objectives = {
-    IDX_COS_SIM: 'higher_better',
-    IDX_EUC_DIST: 'lower_better',
-    IDX_MAN_DIST: 'lower_better',
-    # IDX_JAC_SIM: 'higher_better', # Uncomment if relevant & reliable
-    # IDX_HAM_DIST: 'lower_better', # Uncomment if relevant & reliable
-    IDX_PEARSON: 'higher_better',
-    IDX_KENDALL: 'higher_better',
-    IDX_SPEARMAN: 'higher_better'
-}
-objective_indices = list(objectives.keys())
-
 def evaluate_pareto():
+    # --- Indices of metrics in the tuple (must match evaluateImageSimilarityByMetrics) ---
+    IDX_COMBO = 0
+    IDX_COS_SIM = 1
+    IDX_EUC_DIST = 2
+    IDX_MAN_DIST = 3
+    IDX_JAC_SIM = 4
+    IDX_HAM_DIST = 5
+    IDX_PEARSON = 6
+    IDX_KENDALL = 7
+    IDX_SPEARMAN = 8
+    
+    # --- Configuration for Pareto Analysis ---
+    
+    # 1. Define Objectives: Map metric index to 'higher_better' or 'lower_better'
+    #    *** ADJUST THIS DICTIONARY based on the metrics YOU want to consider ***
+    objectives = {
+        IDX_COS_SIM: 'higher_better',
+        IDX_EUC_DIST: 'lower_better',
+        IDX_MAN_DIST: 'lower_better',
+        # IDX_JAC_SIM: 'higher_better', # Uncomment if relevant & reliable
+        # IDX_HAM_DIST: 'lower_better', # Uncomment if relevant & reliable
+        IDX_PEARSON: 'higher_better',
+        IDX_KENDALL: 'higher_better',
+        IDX_SPEARMAN: 'higher_better'
+    }
+    objective_indices = list(objectives.keys())
+    
+    def dominates(result_a, result_b, objectives):
+        """Checks if result_a dominates result_b based on the defined objectives."""
+        a_is_strictly_better_on_any = False
+        for idx, type in objectives.items():
+            try:
+                val_a = result_a[idx]
+                val_b = result_b[idx]
+            except IndexError:
+                return False # Data malformed
+    
+            if val_a is None and val_b is None:
+                continue # Equal Nones, proceed
+            elif val_a is None: # 'a' has None, 'b' does not. 'a' cannot be >= 'b'.
+                return False
+            elif val_b is None: # 'b' has None, 'a' does not. Proceed checking others.
+                pass
+    
+            # Check if 'a' is WORSE than 'b'
+            is_worse = False
+            if type == 'higher_better' and (val_a is None or (val_b is not None and val_a < val_b)):
+                is_worse = True
+            elif type == 'lower_better' and (val_a is None or (val_b is not None and val_a > val_b)):
+                is_worse = True
+    
+            # Handle case where only val_b is None (a is better if higher_better, worse if lower_better)
+            if val_b is None and val_a is not None:
+                if type == 'higher_better': # a is better than None
+                    is_strictly_better = True
+                else: # a is worse than None (lower should be better)
+                    is_worse = True # Treat non-None as worse than None for lower_better objective
+    
+            if is_worse:
+                return False
+    
+            # Check if 'a' is STRICTLY BETTER than 'b' (only if both not None)
+            is_strictly_better = False
+            if val_a is not None and val_b is not None:
+                if type == 'higher_better' and val_a > val_b:
+                    is_strictly_better = True
+                elif type == 'lower_better' and val_a < val_b:
+                    is_strictly_better = True
+    
+            if is_strictly_better:
+                a_is_strictly_better_on_any = True
+    
+        return a_is_strictly_better_on_any
+
+    # --- Find the Pareto Front Directly from best_image_similarity ---
+    
+    def find_pareto_front(results_list, objectives_def):
+        # 1. Filter out basic errors if necessary (e.g., if strings were added)
+        #    Adjust this check based on how errors might appear in your list.
+        valid_results = [res for res in results_list if isinstance(res[1], (int, float, type(None)))]
+        # Or if errors are marked differently:
+        # valid_results = [res for res in results_list if res[0] != 'ERROR_MARKER']
+    
+        if not valid_results:
+            print("No valid results found in the input list.")
+            return []
+    
+        num_results = len(valid_results)
+        is_non_dominated = [True] * num_results # Assume all are non-dominated initially
+    
+        print(f"\n--- Finding Pareto Front ({len(objectives_def)} objectives) ---")
+        print(f"Objectives (Index: Type): {objectives_def}")
+        print(f"Processing {num_results} valid combinations...")
+    
+        for i in range(num_results):
+            # Optimization: if i is already known to be dominated, it can't dominate others effectively
+            # if not is_non_dominated[i]:
+            #     continue
+    
+            for j in range(num_results):
+                if i == j:
+                    continue
+    
+                # Check if solution j dominates solution i
+                try:
+                    if dominates(valid_results[j], valid_results[i], objectives_def):
+                        is_non_dominated[i] = False # Solution i is dominated
+                        break # No need to check other potential dominators for i
+                except Exception as e:
+                    print(f"Error during dominance check between {valid_results[j][0]} and {valid_results[i][0]}: {e}")
+                    # Decide how to handle comparison errors - e.g., assume i is not dominated by j here
+                    pass
+    
+    
+        # Collect the results that are non-dominated
+        pareto_front_results = [valid_results[i] for i in range(num_results) if is_non_dominated[i]]
+        return pareto_front_results
+    
     # Make sure best_image_similarity is populated before calling this
     if 'best_image_similarity' in globals() and best_image_similarity:
         pareto_front = find_pareto_front(best_image_similarity, objectives)
@@ -725,189 +823,131 @@ def evaluate_pareto():
         else:
             print("These combinations represent the best trade-offs based on the selected objectives:")
             # Sort alphabetically by combo name for consistent output (optional)
-            pareto_front.sort(key=lambda x: x[IDX_COMBO])
-            metric_keys_list = list(RENN.METRICS.keys())
-            for i, result in enumerate(pareto_front):
-                optimization = {}
-                found_metrics = []
-                for index in result[IDX_COMBO]:
-                    metric_key = metric_keys_list[index]
-                    found_metrics.append(metric_key)
-                print(f"\n{i+1}. Combination: {found_metrics}\n")
-                print("   Metrics (Objectives):")
-                for idx, type in objectives.items(): # Iterate through defined objectives
-                    metric_name = f"Metric@{idx}" # Generic name
-                    # Try to get more descriptive names (optional)
-                    if idx == IDX_COS_SIM: metric_name = "Cosine Sim"
-                    elif idx == IDX_EUC_DIST: metric_name = "Euclidean Dst"
-                    elif idx == IDX_MAN_DIST: metric_name = "Manhattan Dst"
-                    elif idx == IDX_JAC_SIM: metric_name = "Jaccard Sim"
-                    elif idx == IDX_HAM_DIST: metric_name = "Hamming Dst"
-                    elif idx == IDX_PEARSON: metric_name = "Pearson Corr"
-                    elif idx == IDX_KENDALL: metric_name = "Kendall Tau"
-                    elif idx == IDX_SPEARMAN: metric_name = "Spearman Rho"
+            # Prepare mappings needed (assuming constants and RENN.POTENTIAL_METRICS are available globally)
+        metric_keys_list = list(RENN.POTENTIAL_METRICS.keys())
 
-                    try:
-                        value = result[idx]
-                        value_str = f"{value:.4f}" if isinstance(value, (int, float)) else str(value)
-                    except IndexError:
-                        value_str = "N/A (Index Error)"
-                    print(f"     - {metric_name:<15}: {value_str}") # Removed type display here for cleaner look                      
+        # Create a reverse map from index to name (needed for output dict)
+        # Also map index to simple direction string
+        index_to_metric_name = {}
+        index_to_direction = {}
+
+        # Use objectives dictionary as the source of targets
+        for idx, direction_type in objectives.items():
+            # Find the name corresponding to the index (requires checking all IDX_* constants)
+            # This is a bit verbose but necessary without a predefined reverse map
+            name = f"Unknown Metric {idx}" # Default
+            if idx == IDX_COS_SIM: name = "Cosine Sim"
+            elif idx == IDX_EUC_DIST: name = "Euclidean Dst"
+            elif idx == IDX_MAN_DIST: name = "Manhattan Dst"
+            elif idx == IDX_JAC_SIM: name = "Jaccard Sim"
+            elif idx == IDX_HAM_DIST: name = "Hamming Dst"
+            elif idx == IDX_PEARSON: name = "Pearson Corr"
+            elif idx == IDX_KENDALL: name = "Kendall Tau"
+            elif idx == IDX_SPEARMAN: name = "Spearman Rho"
+            # Add more elif branches if you have other IDX_* constants
+
+            index_to_metric_name[idx] = name
+
+            # Convert 'higher_better'/'lower_better' to 'maximize'/'minimize'
+            if direction_type == 'higher_better':
+                index_to_direction[idx] = 'maximize'
+            elif direction_type == 'lower_better':
+                index_to_direction[idx] = 'minimize'
+            else:
+                index_to_direction[idx] = 'unknown' # Handle unexpected values
+
+        # --- Generate New Optimizations List ---
+        # This list will contain the newly generated optimization configs
+        generated_optimizations_to_run = []
+
+        # Iterate through each objective defined for the Pareto analysis
+        for target_idx, direction_type in objectives.items():
+
+            target_metric_name = index_to_metric_name.get(target_idx, f"Unknown Metric {target_idx}")
+            direction = index_to_direction.get(target_idx, 'unknown')
+
+            if direction == 'unknown':
+                print(f"Warning: Skipping objective index {target_idx} due to unknown direction type '{direction_type}'")
+                continue
+
+            best_solution_for_target = None
+            best_value = None
+
+            # Set initial best value based on optimization direction
+            if direction == "maximize":
+                best_value = -float('inf')
+            else: # Minimize
+                best_value = float('inf')
+
+            # Find the best solution IN THE PARETO FRONT for this specific objective index
+            for solution in pareto_front:
+                # Direct access, assuming valid solution structure and index
+                # Ignoring detailed checks as requested
+                try:
+                    current_value = solution[target_idx]
+
+                    # Determine if current solution is better
+                    is_better = False
+                    if direction == "maximize" and current_value > best_value:
+                        is_better = True
+                    elif direction == "minimize" and current_value < best_value:
+                        is_better = True
+
+                    # Update best if current is better
+                    if is_better:
+                        best_value = current_value
+                        best_solution_for_target = solution
+                except (IndexError, TypeError):
+                    # Minimal handling if direct access fails
+                    pass # Continue to next solution
+
+            # --- Format the result dictionary if a best solution was found ---
+            if best_solution_for_target:
+                # Extract combination indices from the best found solution
+                combo_indices = best_solution_for_target[IDX_COMBO]
+                # Map indices to names (assuming indices are valid)
+                try:
+                    found_combination_names = [metric_keys_list[i] for i in combo_indices]
+                except IndexError:
+                    # Basic error handling for invalid indices in the combo
+                    print(f"Warning: Invalid index found in combination {combo_indices} for target {target_metric_name}. Skipping this target.")
+                    continue # Skip appending this flawed entry
+
+
+                # Create the dictionary in the specified format
+                # Using the metric index (target_idx) as the 'id' for traceability
+                optimization_dict = {
+                    "id": target_idx,
+                    "target_metric": target_metric_name,
+                    "direction": direction, # 'maximize' or 'minimize'
+                    "combination_names": found_combination_names
+                }
+                # Add the generated optimization config to the list
+                generated_optimizations_to_run.append(optimization_dict)
+            # else: If no best solution found (e.g., errors, empty pareto_front),
+            # simply no dictionary is added for this objective index.
+
+        # The variable 'generated_optimizations_to_run' now holds the list
+        # of dictionaries, formatted as requested, based on the best performers
+        # from the Pareto front for each objective.
+        # You can now use this list for your next steps.
+
+        # Example: Print the generated list
+        print("\n--- Generated Optimizations based on Best Pareto Solutions ---")
+        print(generated_optimizations_to_run)
+
+        return generated_optimizations_to_run
 
     else:
         print("The global list 'best_image_similarity' is not defined or is empty.")
         print("Please run 'evaluateImageSimilarityByMetrics' first to populate it.")
 
-
-# --- Dominance Check Function (same as before) ---
-def dominates(result_a, result_b, objectives):
-    """Checks if result_a dominates result_b based on the defined objectives."""
-    a_is_strictly_better_on_any = False
-    for idx, type in objectives.items():
-        try:
-            val_a = result_a[idx]
-            val_b = result_b[idx]
-        except IndexError:
-            return False # Data malformed
-
-        if val_a is None and val_b is None:
-            continue # Equal Nones, proceed
-        elif val_a is None: # 'a' has None, 'b' does not. 'a' cannot be >= 'b'.
-            return False
-        elif val_b is None: # 'b' has None, 'a' does not. Proceed checking others.
-            pass
-
-        # Check if 'a' is WORSE than 'b'
-        is_worse = False
-        if type == 'higher_better' and (val_a is None or (val_b is not None and val_a < val_b)):
-            is_worse = True
-        elif type == 'lower_better' and (val_a is None or (val_b is not None and val_a > val_b)):
-            is_worse = True
-
-        # Handle case where only val_b is None (a is better if higher_better, worse if lower_better)
-        if val_b is None and val_a is not None:
-            if type == 'higher_better': # a is better than None
-                is_strictly_better = True
-            else: # a is worse than None (lower should be better)
-                is_worse = True # Treat non-None as worse than None for lower_better objective
-
-        if is_worse:
-            return False
-
-        # Check if 'a' is STRICTLY BETTER than 'b' (only if both not None)
-        is_strictly_better = False
-        if val_a is not None and val_b is not None:
-            if type == 'higher_better' and val_a > val_b:
-                is_strictly_better = True
-            elif type == 'lower_better' and val_a < val_b:
-                is_strictly_better = True
-
-        if is_strictly_better:
-            a_is_strictly_better_on_any = True
-
-    return a_is_strictly_better_on_any
-
-# --- Find the Pareto Front Directly from best_image_similarity ---
-
-def find_pareto_front(results_list, objectives_def):
-    """
-    Analyzes a list of results to find the Pareto optimal set.
-
-    Args:
-        results_list (list): The list containing result tuples
-                             (e.g., best_image_similarity).
-        objectives_def (dict): Mapping metric index to 'higher_better'/'lower_better'.
-
-    Returns:
-        list: A list containing the tuples from results_list that form the Pareto front.
-    """
-    # 1. Filter out basic errors if necessary (e.g., if strings were added)
-    #    Adjust this check based on how errors might appear in your list.
-    valid_results = [res for res in results_list if isinstance(res[1], (int, float, type(None)))]
-    # Or if errors are marked differently:
-    # valid_results = [res for res in results_list if res[0] != 'ERROR_MARKER']
-
-    if not valid_results:
-        print("No valid results found in the input list.")
-        return []
-
-    num_results = len(valid_results)
-    is_non_dominated = [True] * num_results # Assume all are non-dominated initially
-
-    print(f"\n--- Finding Pareto Front ({len(objectives_def)} objectives) ---")
-    print(f"Objectives (Index: Type): {objectives_def}")
-    print(f"Processing {num_results} valid combinations...")
-
-    for i in range(num_results):
-        # Optimization: if i is already known to be dominated, it can't dominate others effectively
-        # if not is_non_dominated[i]:
-        #     continue
-
-        for j in range(num_results):
-            if i == j:
-                continue
-
-            # Check if solution j dominates solution i
-            try:
-                if dominates(valid_results[j], valid_results[i], objectives_def):
-                    is_non_dominated[i] = False # Solution i is dominated
-                    break # No need to check other potential dominators for i
-            except Exception as e:
-                print(f"Error during dominance check between {valid_results[j][0]} and {valid_results[i][0]}: {e}")
-                # Decide how to handle comparison errors - e.g., assume i is not dominated by j here
-                pass
-
-
-    # Collect the results that are non-dominated
-    pareto_front_results = [valid_results[i] for i in range(num_results) if is_non_dominated[i]]
-    return pareto_front_results
-
 def optimize_weights_of_best_combinations(closestSources, optimizations_to_run):
-    optimizations_to_run = [
-        {
-            "id": 53,
-            "target_metric": "Cosine Sim",
-            "direction": "maximize",
-            "combination_names": ['Cosine Similarity', 'L1 norm (Manhattan)', 'L∞ norm (Chebyshev)', 'Pearson Correlation', 'Spearman Correlation']
-        },
-        {
-            "id": 45,
-            "target_metric": "Euclidean Dst",
-            "direction": "minimize",
-            "combination_names": ['Cosine Similarity', 'L1 norm (Manhattan)', 'L2 norm (Euclidean)', 'Lp norm (Minkowski p=3)', 'L∞ norm (Chebyshev)', 'Mahalanobis', 'Median', 'Peak-to-Peak Range', 'Pearson Correlation', 'Spearman Correlation', 'Standardized Euclidean', 'Variance']
-        },
-        {
-            "id": 11, # Tied with 15 for Manhattan Dst
-            "target_metric": "Manhattan Dst",
-            "direction": "minimize",
-            "combination_names": ['Chi-square', 'Cosine Similarity', 'L1 norm (Manhattan)', 'L2 norm (Euclidean)', 'Lp norm (Minkowski p=3)', 'L∞ norm (Chebyshev)', 'Mahalanobis', 'Median', 'Peak-to-Peak Range', 'Pearson Correlation', 'Spearman Correlation', 'Variance']
-        },
-        # Note: Combination 15 could also be run for Manhattan Dst if desired, results might differ slightly due to optimization path.
-        {
-            "id": 53, # Same combination as Cosine Sim, but optimizing for Pearson
-            "target_metric": "Pearson Corr",
-            "direction": "maximize",
-            "combination_names": ['Cosine Similarity', 'L1 norm (Manhattan)', 'L∞ norm (Chebyshev)', 'Pearson Correlation', 'Spearman Correlation']
-        },
-        {
-            "id": 54,
-            "target_metric": "Kendall Tau",
-            "direction": "maximize",
-            "combination_names": ['Cosine Similarity', 'L1 norm (Manhattan)', 'Lp norm (Minkowski p=3)', 'Pearson Correlation', 'Spearman Correlation']
-        },
-        {
-            "id": 54, # Same combination as Kendall Tau, but optimizing for Spearman
-            "target_metric": "Spearman Rho",
-            "direction": "maximize",
-            "combination_names": ['Cosine Similarity', 'L1 norm (Manhattan)', 'Lp norm (Minkowski p=3)', 'Pearson Correlation', 'Spearman Correlation']
-        }
-    ]
-
     # Get the ordered list of all metric names once
-    if not hasattr(RENN, 'METRICS') or not isinstance(RENN.METRICS, dict):
-        print("Error: RENN.METRICS is not defined or not a dictionary.")
+    if not hasattr(RENN, 'POTENTIAL_METRICS') or not isinstance(RENN.POTENTIAL_METRICS, dict):
+        print("Error: RENN.POTENTIAL_METRICS is not defined or not a dictionary.")
         return None # Or raise an error
-    all_metric_names_list = list(RENN.METRICS.keys())
+    all_metric_names_list = list(RENN.POTENTIAL_METRICS.keys())
 
     # Convert combination names to indices
     for config in optimizations_to_run:
@@ -1012,7 +1052,7 @@ def optimize_weights_of_best_combinations(closestSources, optimizations_to_run):
     # --- 3. Run the Optimization Loop ---
     N_TRIALS = 100
     all_best_results = {}
-    print(f"\nStarting optimization runs ({N_TRIALS} trials each)...")
+    #print(f"\nStarting optimization runs ({N_TRIALS} trials each)...")
 
     for config in optimizations_to_run:
         if config["combination_indices"] is None:
@@ -1073,7 +1113,7 @@ def optimize_weights_of_best_combinations(closestSources, optimizations_to_run):
             for name, weight in best_weights_clean.items():
                 print(f"  {name}: {weight:.4f}")
             # === V V V === PRINT CORRECTED COUNTS === V V V ===
-            print(f"Trials: {len(completed_trials)} Complete, {len(pruned_trials)} Pruned, {len(failed_trials)} Failed.")
+            #print(f"Trials: {len(completed_trials)} Complete, {len(pruned_trials)} Pruned, {len(failed_trials)} Failed.")
             # === ^ ^ ^ === PRINT CORRECTED COUNTS === ^ ^ ^ ===
 
         except Exception as e:
@@ -1272,14 +1312,14 @@ def find_overall_weights_via_moo(
 
     # --- 3. Prepare Combination Indices for the Union Combo ---
     study = None
-    if not hasattr(RENN, 'METRICS') or not isinstance(RENN.METRICS, dict):
-        print("Error: RENN.METRICS is not defined or not a dictionary.")
+    if not hasattr(RENN, 'POTENTIAL_METRICS') or not isinstance(RENN.POTENTIAL_METRICS, dict):
+        print("Error: RENN.POTENTIAL_METRICS is not defined or not a dictionary.")
         return None, None, None, None
-    all_metric_names_list = list(RENN.METRICS.keys())
+    all_metric_names_list = list(RENN.POTENTIAL_METRICS.keys())
     try:
         union_combination_indices = tuple(all_metric_names_list.index(name) for name in union_combination_names)
     except ValueError as e:
-        print(f"Error: Metric name '{e}' (from union combination) not found in RENN.METRICS keys.")
+        print(f"Error: Metric name '{e}' (from union combination) not found in RENN.POTENTIAL_METRICS keys.")
         return None, None, None, None
 
     metric_names_to_weight = union_combination_names
@@ -1404,21 +1444,6 @@ def find_overall_weights_via_moo(
     return pareto_df, weight_stats_df, study, union_combination_names
 
 def select_balanced_solution_from_pareto(pareto_df, target_metrics, directions):
-    """
-    Selects a single 'balanced' solution from a Pareto front DataFrame
-    by finding the solution closest to the ideal point in normalized space.
-
-    Args:
-        pareto_df (pd.DataFrame): DataFrame containing Pareto optimal solutions
-                                  (must have 'Score_[metric_name]' columns).
-        target_metrics (list): List of objective metric names (e.g., 'Cosine Sim').
-        directions (list): List of corresponding directions ('maximize' or 'minimize').
-
-    Returns:
-        dict or None: A dictionary containing the weights of the selected balanced
-                      solution, or None if input is invalid or no solution found.
-        int or None: The index (from pareto_df) of the selected solution row.
-    """
     if pareto_df is None or pareto_df.empty:
         print("Error: Input Pareto DataFrame is empty or None.")
         return None, None
@@ -1494,28 +1519,12 @@ def select_balanced_solution_from_pareto(pareto_df, target_metrics, directions):
     for metric, weight in sorted(final_weights.items(), key=lambda item: item[1], reverse=True):
         print(f"  {metric}: {weight:.4f}")
 
-    return final_weights, closest_idx
+    return final_weights, closest_idx 
 
 def evaluate_metric_importance_via_ablation(
         closestSources,
         base_combination_names, # List of metric names in the starting combination
 ):
-    """
-    Evaluates the importance of each metric within a base combination
-    by measuring the performance change when that metric is removed (ablation).
-
-    Args:
-        closestSources (int): Parameter for RENN functions.
-        base_combination_names (list): List of metric names in the base combination to evaluate.
-
-    Returns:
-        tuple: Contains:
-            - dict or None: Baseline scores for the full base combination.
-            - pd.DataFrame or None: DataFrame showing the performance scores for each
-                                    target metric when each individual metric is removed.
-            - pd.DataFrame or None: DataFrame showing the *change* in performance
-                                    (vs baseline) when each metric is removed.
-    """
     print(f"\n--- Running Ablation Study for Combination: {base_combination_names} ---")
 
     # --- 1. Define Target Metrics for Evaluation ---
@@ -1595,11 +1604,11 @@ def evaluate_metric_importance_via_ablation(
 
         return average_scores
 
-    # --- 3. Check RENN.METRICS and Get All Names ---
-    if not hasattr(RENN, 'METRICS') or not isinstance(RENN.METRICS, dict):
-        print("Error: RENN.METRICS is not defined or not a dictionary.")
+    # --- 3. Check RENN.POTENTIAL_METRICS and Get All Names ---
+    if not hasattr(RENN, 'POTENTIAL_METRICS') or not isinstance(RENN.POTENTIAL_METRICS, dict):
+        print("Error: RENN.POTENTIAL_METRICS is not defined or not a dictionary.")
         return None, None, None
-    all_metric_names_list = list(RENN.METRICS.keys())
+    all_metric_names_list = list(RENN.POTENTIAL_METRICS.keys())
 
     # --- 4. Evaluate Baseline Performance ---
     print(f"\nCalculating baseline performance for full combination ({len(base_combination_names)} metrics)...")
@@ -1712,14 +1721,14 @@ def run_multi_objective_weight_optimization(
 
     # --- 2. Prepare Combination Indices ---
     study = None
-    if not hasattr(RENN, 'METRICS') or not isinstance(RENN.METRICS, dict):
-        print("Error: RENN.METRICS is not defined or not a dictionary.")
+    if not hasattr(RENN, 'POTENTIAL_METRICS') or not isinstance(RENN.POTENTIAL_METRICS, dict):
+        print("Error: RENN.POTENTIAL_METRICS is not defined or not a dictionary.")
         return None, None, None
-    all_metric_names_list = list(RENN.METRICS.keys())
+    all_metric_names_list = list(RENN.POTENTIAL_METRICS.keys())
     try:
         combination_indices = tuple(all_metric_names_list.index(name) for name in combination_names_to_optimize)
     except ValueError as e:
-        print(f"Error: Metric name '{e}' (from combination_names_to_optimize) not found in RENN.METRICS keys.")
+        print(f"Error: Metric name '{e}' (from combination_names_to_optimize) not found in RENN.POTENTIAL_METRICS keys.")
         return None, None, None
 
     metric_names_to_weight = combination_names_to_optimize
@@ -1918,7 +1927,7 @@ def find_best_metric_weights(pareto_df, closestSources):
                 # use the combination_indices corresponding to 'pruned_combination_names'.
 
                 # Example: Get indices for the pruned combo
-                # all_metric_names_list = list(RENN.METRICS.keys())
+                # all_metric_names_list = list(RENN.POTENTIAL_METRICS.keys())
                 # pruned_indices = tuple(all_metric_names_list.index(name) for name in pruned_combination_names)
                 # print("\nIndices for pruned combination:", pruned_indices)
 

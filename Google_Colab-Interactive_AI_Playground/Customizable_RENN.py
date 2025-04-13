@@ -30,6 +30,7 @@ llm: bool = False                  # Use LLM specific logic
 metricsEvaluation: bool = False    # Perform metrics evaluation
 mtEvaluation: bool = True          # Perform magnitude truncation evaluation
 useBitNet: bool = False            # Use BitNet specific logic/model
+useOnlyBestMetrics: bool = True
 
 # --- Environment, Data & File Paths ---
 device: str = ""                   # Computation device (e.g., "cuda", "cpu")
@@ -69,7 +70,7 @@ activationsByLayers: list = []            # List to store activations grouped by
 # --- Metrics-Specific Data Storage ---
 NumberOfComponents: int = 45 # Optimally between 44 and 47 (tested over various tries)
 layersToCheck: list = []
-metricsDictionaryForSourceLayerNeuron: list = [] 
+metricsDictionaryForSourceLayerNeuron: list = []
 metricsDictionaryForLayerNeuronSource: list = []
 metricsActivationsBySources: list = []
 metricsActivationsByLayers: list = []
@@ -100,7 +101,7 @@ def _normalize_safe(arr):
     else:
         return shifted_arr / arr_sum
 
-METRICS = {
+POTENTIAL_METRICS = {
     # === 3. Statistical distances (implicitly vs baseline comparison vector) ===
     # Note: Mahalanobis/Std Euclidean use variance computed relative to the baseline vector 'c'
     'Mahalanobis': lambda d, c, v: np.sqrt(np.sum((d - c)**2 / v)),
@@ -468,13 +469,15 @@ def initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model,
 
     return dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource
 
-METRIC_WEIGHTS = {name: 0.0 for name in METRICS.keys()}
-METRICS_TO_USE = {name: 1.0 for name in METRICS.keys()}
-#METRICS_TO_USE = {'L1 norm (Manhattan)': 1.8958, 'Cosine Similarity': 1.6606, 'Pearson Correlation': 1.5584, 'Peak-to-Peak Range': 1.4232,
-#  'Variance': 1.1584, 'Spearman Correlation': 0.7941, 'L∞ norm (Chebyshev)': 0.6925, 'L2 norm (Euclidean)': 0.3569, 'Median': 0.1315}
+METRIC_WEIGHTS = {name: 0.0 for name in POTENTIAL_METRICS.keys()}
+#NEEDS TO BE CHANGED BEFORE PARETO_EVALUATION!!!! Comment the initialization of EVAlUATION_METRICS to use all metrics instead
+EVALUATION_METRICS = {'L1 norm (Manhattan)': 0.4550, 'Cosine Similarity': 1.3947, 'Pearson Correlation': 1.7145, 'Peak-to-Peak Range': 1.6832,
+                     'Variance': 0.7049, 'Spearman Correlation': 1.3736, 'L∞ norm (Chebyshev)': 0.8470, 'L2 norm (Euclidean)': 1.7258, 'Median': 0.7801}
+METRICS_TO_USE = EVALUATION_METRICS if (len(EVALUATION_METRICS) > 0 and useOnlyBestMetrics) else {name: 1.0 for name in POTENTIAL_METRICS.keys()}
 
 for metric in METRICS_TO_USE.keys():
     METRIC_WEIGHTS[metric] = METRICS_TO_USE[metric]
+    
 # Add to global initialization
 mt_component_optimizer = None
 optimal_components_overall = 46
@@ -1324,109 +1327,158 @@ def analyzeData(closestSources, outputs, analyzeActivationsBySources = True):
 
 class MetricProcessor:
     def __init__(self, comparison_value=0.5, round1_prec=1, round2_prec=2):
+        # Ensure metrics_to_use is a set for efficient lookups
+        self.metrics_to_calculate = set(METRICS_TO_USE)
         self.comparison_value = comparison_value
         self.round1_prec = round1_prec
         self.round2_prec = round2_prec
 
         self.comparison = None # Fixed comparison vector (e.g., all 0.5)
-        self.reference = None  # Fixed reference vector (e.g., linspace)
-        self.variances = None  # For Mahalanobis/Std Euclidean
-        self.round_cache = {}  # For discrete metrics
+        self.reference = None  # Fixed reference vector (e.g., linspace) - Calculated if needed
+        self.variances = None  # For Mahalanobis/Std Euclidean - Calculated if needed
+        self.round_cache = {}  # For discrete metrics - Calculated if needed
+
+    def _ensure_float_array(self, data):
+        """Helper to ensure data is a numpy float array."""
+        if not isinstance(data, np.ndarray):
+            return np.array(data, dtype=float)
+        elif data.dtype != float:
+            return data.astype(float)
+        return data
 
     def preprocess(self, data):
-        """One-time preprocessing for all metrics for a given data vector"""
-        if not isinstance(data, np.ndarray):
-            data = np.array(data, dtype=float) # Ensure data is a numpy float array
-        elif data.dtype != float:
-            data = data.astype(float) # Ensure float for calculations
+        """One-time preprocessing for metrics for a given data vector"""
+        data = self._ensure_float_array(data)
 
-        # Base reference arrays
+        # Base comparison array (needed by most metrics)
         self.comparison = np.full_like(data, self.comparison_value, dtype=float)
-        self.reference = np.linspace(0, 1, len(data))
 
-        # Variance cache (for Mahalanobis/Std Euclidean)
-        # Variance is calculated for each dimension across the two values (data[i] and comparison[i])
-        self.variances = np.var(np.vstack([data, self.comparison]), axis=0) + 1e-10
+        # --- Conditional Preprocessing ---
 
-        # Discrete metric caches (using specified precision)
+        # Calculate reference only if needed
+        if 'Pearson Correlation' in self.metrics_to_calculate or 'Spearman Correlation' in self.metrics_to_calculate:
+            self.reference = np.linspace(0, 1, len(data))
+        else:
+            self.reference = None # Ensure it's None if not calculated
+
+        # Calculate variances only if needed
+        if 'Mahalanobis' in self.metrics_to_calculate or 'Standardized Euclidean' in self.metrics_to_calculate:
+            # Variance is calculated for each dimension across the two values (data[i] and comparison[i])
+            self.variances = np.var(np.vstack([data, self.comparison]), axis=0) + 1e-10
+        else:
+            self.variances = None
+
+        # Discrete metric caches (only calculate what's needed)
+        self.round_cache = {} # Reset cache
         fmt1 = f"{{:.{self.round1_prec}f}}"
-        self.round_cache = {
-            # Level 1 cache (strings for Levenshtein)
-            'lev1_d_str': "".join([fmt1.format(x) for x in data]),
-            'lev1_c_str': "".join([fmt1.format(x) for x in self.comparison]),
 
-            # Level 2 cache (sets for Jaccard/Dice)
-            'round2_d_set': set(np.round(data, self.round2_prec)),
-            'round2_c_set': set(np.round(self.comparison, self.round2_prec)),
+        # Level 1 cache (strings for Levenshtein) - Only if Levenshtein needed
+        if 'Levenshtein (Rounded Strings)' in self.metrics_to_calculate:
+            self.round_cache['lev1_d_str'] = "".join([fmt1.format(x) for x in data])
+            self.round_cache['lev1_c_str'] = "".join([fmt1.format(x) for x in self.comparison])
 
-            # Level 2 cache (arrays for Hamming)
-            'round2_d_arr': np.round(data, self.round2_prec),
-            'round2_c_arr': np.round(self.comparison, self.round2_prec),
-        }
+        # Check if any level 2 discrete metric is needed
+        needs_round2_sets = 'Jaccard (Rounded Sets)' in self.metrics_to_calculate or \
+                            'Sørensen–Dice (Rounded Sets)' in self.metrics_to_calculate
+        needs_round2_arrays = 'Hamming (Rounded Values)' in self.metrics_to_calculate
+
+        if needs_round2_sets or needs_round2_arrays:
+            # Perform rounding once if any L2 metric needs it
+            round2_d_arr = np.round(data, self.round2_prec)
+            round2_c_arr = np.round(self.comparison, self.round2_prec)
+
+            # Cache arrays for Hamming if needed
+            if needs_round2_arrays:
+                self.round_cache['round2_d_arr'] = round2_d_arr
+                self.round_cache['round2_c_arr'] = round2_c_arr
+            # Cache sets for Jaccard/Dice if needed
+            if needs_round2_sets:
+                self.round_cache['round2_d_set'] = set(round2_d_arr)
+                self.round_cache['round2_c_set'] = set(round2_c_arr)
+
 
     def calculate(self, data):
-        """Calculate all metrics with preprocessed data"""
+        """Calculate requested metrics with preprocessed data"""
+        # Ensure preprocess has been called. A simple check:
         if self.comparison is None:
-            # Ensure preprocess has been called if calculate is called directly
-            # This also ensures data is converted to numpy float array
             self.preprocess(data)
-            # Need to re-assign data in case preprocess converted it
-            if not isinstance(data, np.ndarray) or data.dtype != float:
-                data = np.array(data, dtype=float) if not isinstance(data, np.ndarray) else data.astype(float)
-
-        elif not isinstance(data, np.ndarray) or data.dtype != float:
+            # Re-ensure data is float array after preprocess might have created a new one
+            data = self._ensure_float_array(data) # Get the potentially converted array
+        else:
             # Ensure data is float array even if preprocess was called separately
-            data = np.array(data, dtype=float) if not isinstance(data, np.ndarray) else data.astype(float)
+            data = self._ensure_float_array(data)
+
+        results = {}
+        metrics = self.metrics_to_calculate # Local reference to the set
+
+        # Helper function to add metric if requested
+        def add_metric(name, func, *args):
+            if name in metrics:
+                try:
+                    results[name] = func(*args)
+                except Exception as e:
+                    # Optional: Handle potential errors during calculation gracefully
+                    print(f"Warning: Could not calculate metric '{name}'. Error: {e}")
+                    results[name] = np.nan # Or None, or skip
+
+        # === 1. Statistical distances ===
+        add_metric('Mahalanobis', POTENTIAL_METRICS['Mahalanobis'], data, self.comparison, self.variances)
+        add_metric('Standardized Euclidean', POTENTIAL_METRICS['Standardized Euclidean'], data, self.comparison, self.variances)
+        add_metric('Chi-square', POTENTIAL_METRICS['Chi-square'], data, self.comparison)
+        add_metric('Jensen-Shannon', POTENTIAL_METRICS['Jensen-Shannon'], data, self.comparison)
+        add_metric('KL Divergence', POTENTIAL_METRICS['KL Divergence'], data, self.comparison)
+        add_metric('KL Divergence Reversed', POTENTIAL_METRICS['KL Divergence Reversed'], data, self.comparison)
+        add_metric('Wasserstein', POTENTIAL_METRICS['Wasserstein'], data, self.comparison)
+
+        # === 2. Discrete metrics ===
+        # Check if cache exists before trying to access it
+        if 'lev1_d_str' in self.round_cache:
+            add_metric('Levenshtein (Rounded Strings)', POTENTIAL_METRICS['Levenshtein (Rounded Strings)'], self.round_cache['lev1_d_str'], self.round_cache['lev1_c_str'])
+        if 'round2_d_arr' in self.round_cache:
+            add_metric('Hamming (Rounded Values)', POTENTIAL_METRICS['Hamming (Rounded Values)'], self.round_cache['round2_d_arr'], self.round_cache['round2_c_arr'])
+        if 'round2_d_set' in self.round_cache:
+            add_metric('Jaccard (Rounded Sets)', POTENTIAL_METRICS['Jaccard (Rounded Sets)'], self.round_cache['round2_d_set'], self.round_cache['round2_c_set'])
+            add_metric('Sørensen–Dice (Rounded Sets)', POTENTIAL_METRICS['Sørensen–Dice (Rounded Sets)'], self.round_cache['round2_d_set'], self.round_cache['round2_c_set'])
+
+        # === 3. Intrinsic Statistical Properties ===
+        add_metric('Mean', POTENTIAL_METRICS['Mean'], data, self.comparison)
+        add_metric('Median', POTENTIAL_METRICS['Median'], data, self.comparison)
+        add_metric('Variance', POTENTIAL_METRICS['Variance'], data, self.comparison)
+        add_metric('Standard Deviation', POTENTIAL_METRICS['Standard Deviation'], data, self.comparison)
+        add_metric('Skewness', POTENTIAL_METRICS['Skewness'], data, self.comparison)
+        add_metric('Kurtosis', POTENTIAL_METRICS['Kurtosis'], data, self.comparison)
+        add_metric('Min', POTENTIAL_METRICS['Min'], data, self.comparison)
+        add_metric('Max', POTENTIAL_METRICS['Max'], data, self.comparison)
+        add_metric('Peak-to-Peak Range', POTENTIAL_METRICS['Peak-to-Peak Range'], data, self.comparison)
+        add_metric('Shannon Entropy', POTENTIAL_METRICS['Shannon Entropy'], data, self.comparison)
+
+        # === 4. Intrinsic Norms & Sparsity ===
+        add_metric('L2 Norm', POTENTIAL_METRICS['L2 Norm'], data, self.comparison)
+        add_metric('L1 Norm', POTENTIAL_METRICS['L1 Norm'], data, self.comparison)
+        add_metric('L_inf Norm', POTENTIAL_METRICS['L_inf Norm'], data, self.comparison)
+        add_metric('L0 Norm (eps=1e-6)', POTENTIAL_METRICS['L0 Norm (eps=1e-6)'], data, self.comparison)
+        add_metric('L1/L2 Ratio', POTENTIAL_METRICS['L1/L2 Ratio'], data, self.comparison)
+
+        # === 5. L-family distances ===
+        add_metric('L2 norm (Euclidean)', POTENTIAL_METRICS['L2 norm (Euclidean)'], data, self.comparison)
+        add_metric('Squared Euclidean', POTENTIAL_METRICS['Squared Euclidean'], data, self.comparison)
+        add_metric('L1 norm (Manhattan)', POTENTIAL_METRICS['L1 norm (Manhattan)'], data, self.comparison)
+        add_metric('Canberra', POTENTIAL_METRICS['Canberra'], data, self.comparison)
+        add_metric('L∞ norm (Chebyshev)', POTENTIAL_METRICS['L∞ norm (Chebyshev)'], data, self.comparison)
+        add_metric('Lp norm (Minkowski p=3)', POTENTIAL_METRICS['Lp norm (Minkowski p=3)'], data, self.comparison)
+
+        # === 6. Correlation measures ===
+        add_metric('Cosine Similarity', POTENTIAL_METRICS['Cosine Similarity'], data, self.comparison)
+        # Ensure reference exists if needed
+        if self.reference is not None:
+            add_metric('Pearson Correlation', POTENTIAL_METRICS['Pearson Correlation'], data, self.reference)
+            add_metric('Spearman Correlation', POTENTIAL_METRICS['Spearman Correlation'], data, self.reference)
+        else:
+            # Explicitly check if they were requested but reference is missing (shouldn't happen with conditional preprocess)
+            if 'Pearson Correlation' in metrics: print("Warning: Pearson Correlation requested but reference vector not available.")
+            if 'Spearman Correlation' in metrics: print("Warning: Spearman Correlation requested but reference vector not available.")
 
 
-        results = {
-            # === 3. Statistical distances ===
-            'Mahalanobis': METRICS['Mahalanobis'](data, self.comparison, self.variances),
-            'Standardized Euclidean': METRICS['Standardized Euclidean'](data, self.comparison, self.variances),
-            'Chi-square': METRICS['Chi-square'](data, self.comparison),
-            'Jensen-Shannon': METRICS['Jensen-Shannon'](data, self.comparison),
-            'KL Divergence': METRICS['KL Divergence'](data, self.comparison),
-            'KL Divergence Reversed': METRICS['KL Divergence Reversed'](data, self.comparison),
-            'Wasserstein': METRICS['Wasserstein'](data, self.comparison),
-
-            # === 4. Discrete metrics ===
-            'Levenshtein (Rounded Strings)': METRICS['Levenshtein (Rounded Strings)'](self.round_cache['lev1_d_str'], self.round_cache['lev1_c_str']),
-            'Hamming (Rounded Values)': METRICS['Hamming (Rounded Values)'](self.round_cache['round2_d_arr'], self.round_cache['round2_c_arr']),
-            'Jaccard (Rounded Sets)': METRICS['Jaccard (Rounded Sets)'](self.round_cache['round2_d_set'], self.round_cache['round2_c_set']),
-            'Sørensen–Dice (Rounded Sets)': METRICS['Sørensen–Dice (Rounded Sets)'](self.round_cache['round2_d_set'], self.round_cache['round2_c_set']),
-
-            # === 5. Intrinsic Statistical Properties ===
-            'Mean': METRICS['Mean'](data, self.comparison),
-            'Median': METRICS['Median'](data, self.comparison),
-            'Variance': METRICS['Variance'](data, self.comparison),
-            'Standard Deviation': METRICS['Standard Deviation'](data, self.comparison),
-            'Skewness': METRICS['Skewness'](data, self.comparison),
-            'Kurtosis': METRICS['Kurtosis'](data, self.comparison),
-            'Min': METRICS['Min'](data, self.comparison),
-            'Max': METRICS['Max'](data, self.comparison),
-            'Peak-to-Peak Range': METRICS['Peak-to-Peak Range'](data, self.comparison),
-            'Shannon Entropy': METRICS['Shannon Entropy'](data, self.comparison),
-
-            # === 6. Intrinsic Norms & Sparsity ===
-            'L2 Norm': METRICS['L2 Norm'](data, self.comparison),
-            'L1 Norm': METRICS['L1 Norm'](data, self.comparison),
-            'L_inf Norm': METRICS['L_inf Norm'](data, self.comparison),
-            'L0 Norm (eps=1e-6)': METRICS['L0 Norm (eps=1e-6)'](data, self.comparison),
-            'L1/L2 Ratio': METRICS['L1/L2 Ratio'](data, self.comparison),
-
-            # === 1. L-family distances ===
-            'L2 norm (Euclidean)': METRICS['L2 norm (Euclidean)'](data, self.comparison),
-            'Squared Euclidean': METRICS['Squared Euclidean'](data, self.comparison),
-            'L1 norm (Manhattan)': METRICS['L1 norm (Manhattan)'](data, self.comparison),
-            'Canberra': METRICS['Canberra'](data, self.comparison),
-            'L∞ norm (Chebyshev)': METRICS['L∞ norm (Chebyshev)'](data, self.comparison),
-            'Lp norm (Minkowski p=3)': METRICS['Lp norm (Minkowski p=3)'](data, self.comparison),
-
-            # === 2. Correlation measures ===
-            'Cosine Similarity': METRICS['Cosine Similarity'](data, self.comparison),
-            'Pearson Correlation': METRICS['Pearson Correlation'](data, self.reference),
-            'Spearman Correlation': METRICS['Spearman Correlation'](data, self.reference),
-        }
         return results
 
 processor = MetricProcessor()
@@ -2116,7 +2168,7 @@ def calculate_average_rank_of_relevant(retrieved_item_indices, target_set):
 def optimize_feature_subset_local_search(
         k_for_ndcg, # k is now required
         seed_metric_names=['Cosine Similarity', 'L1 norm (Manhattan)', 'L2 norm (Euclidean)', 'Lp norm (Minkowski p=3)', 'L∞ norm (Chebyshev)', 'Pearson Correlation', 'Spearman Correlation'],
-        all_metric_names_list=METRICS,
+        all_metric_names_list=POTENTIAL_METRICS,
         eval_dataset_original=OPTIMIZER_EVAL_DATA_CACHE,
         final_optimizer_method='Nelder-Mead',
         final_optimizer_options=None,
@@ -2513,9 +2565,9 @@ def optimize_metrics_and_weights_scipy_mrr(
     main_start_time = time.time()
 
     # --- Initial Setup & Validation --- (Same as NDCG version)
-    if not METRICS: print("Error: METRICS dictionary is empty."); return None, None, 0.0
+    if not POTENTIAL_METRICS: print("Error: METRICS dictionary is empty."); return None, None, 0.0
     if not OPTIMIZER_EVAL_DATA_CACHE: print("Error: eval_dataset_original argument is empty."); return None, None, 0.0
-    all_metric_names = sorted(list(METRICS.keys()))
+    all_metric_names = sorted(list(POTENTIAL_METRICS.keys()))
     metric_index_map = {name: i for i, name in enumerate(all_metric_names)}
     num_all_metrics = len(all_metric_names)
     try:
@@ -2802,8 +2854,8 @@ class ComponentOptimizer:
 def create_global_metric_combinations(max_metrics_to_add, max_metrics_to_remove, getIndices=False):
 
     # 1. Get all available metric names from the METRICS dictionary
-    all_available_metrics_set = set(METRICS.keys())
-    print(f"Total available metrics: {len(all_available_metrics_set)}")
+    all_available_metrics_set = set(POTENTIAL_METRICS.keys())
+    #print(f"Total available metrics: {len(all_available_metrics_set)}")
 
     # 2. Define the current best combination as the baseline
     current_best_metrics_tuple = ('L1 norm (Manhattan)', 'Cosine Similarity', 'Pearson Correlation', 'Peak-to-Peak Range', 'Variance',
@@ -2827,8 +2879,8 @@ def create_global_metric_combinations(max_metrics_to_add, max_metrics_to_remove,
     # 4. Define the set of metrics available to be added
     other_metrics_set = all_available_metrics_set - baseline_metrics_set
 
-    print(f"Defined baseline set with {len(baseline_metrics_set)} metrics.")
-    print(f"Defined 'other' set with {len(other_metrics_set)} metrics available to add.")
+    #print(f"Defined baseline set with {len(baseline_metrics_set)} metrics.")
+    #print(f"Defined 'other' set with {len(other_metrics_set)} metrics available to add.")
 
     # --- Generate Combinations ---
     # Use a set to store combinations to automatically handle duplicates
@@ -2839,13 +2891,13 @@ def create_global_metric_combinations(max_metrics_to_add, max_metrics_to_remove,
     baseline_tuple = tuple(sorted(list(baseline_metrics_set)))
     if baseline_tuple: # Ensure baseline is not empty after validation
         combinations_to_evaluate.add(baseline_tuple)
-        print(f"\nAdded baseline combination: {baseline_tuple}")
+        #print(f"\nAdded baseline combination: {baseline_tuple}")
     else:
         print("\nBaseline combination is empty after validation, cannot add.")
 
 
     # 2. Generate combinations by ADDING metrics to the baseline
-    print(f"\nGenerating combinations by adding up to {max_metrics_to_add} metrics from the 'other' set ({len(other_metrics_set)} available)...")
+    #print(f"\nGenerating combinations by adding up to {max_metrics_to_add} metrics from the 'other' set ({len(other_metrics_set)} available)...")
     count_before_add = len(combinations_to_evaluate)
     for k in range(1, max_metrics_to_add + 1):
         if k > len(other_metrics_set):
@@ -2860,14 +2912,14 @@ def create_global_metric_combinations(max_metrics_to_add, max_metrics_to_remove,
                 combinations_to_evaluate.add(new_tuple)
                 added_in_step += 1
 
-        if added_in_step > 0:
-            print(f"  Added {added_in_step} new unique combinations by adding {k} metric(s). Total unique combos: {len(combinations_to_evaluate)}")
-        else:
-            print(f"  No new unique combinations generated by adding {k} metric(s).")
+        #if added_in_step > 0:
+        #    print(f"  Added {added_in_step} new unique combinations by adding {k} metric(s). Total unique combos: {len(combinations_to_evaluate)}")
+        #else:
+        #    print(f"  No new unique combinations generated by adding {k} metric(s).")
 
 
     # 3. Generate combinations by REMOVING metrics from the baseline
-    print(f"\nGenerating combinations by removing up to {max_metrics_to_remove} metrics from the baseline set ({len(baseline_metrics_set)} available)...")
+    #print(f"\nGenerating combinations by removing up to {max_metrics_to_remove} metrics from the baseline set ({len(baseline_metrics_set)} available)...")
     count_before_remove = len(combinations_to_evaluate)
     for k in range(1, max_metrics_to_remove + 1):
         if k >= len(baseline_metrics_set): # Use >= because removing all baseline metrics is usually not desired
@@ -2883,32 +2935,32 @@ def create_global_metric_combinations(max_metrics_to_add, max_metrics_to_remove,
                     combinations_to_evaluate.add(new_tuple)
                     removed_in_step += 1
 
-        if removed_in_step > 0:
-            print(f"  Added {removed_in_step} new unique combinations by removing {k} metric(s). Total unique combos: {len(combinations_to_evaluate)}")
-        else:
-            print(f"  No new unique combinations generated by removing {k} metric(s).")
+        #if removed_in_step > 0:
+        #    print(f"  Added {removed_in_step} new unique combinations by removing {k} metric(s). Total unique combos: {len(combinations_to_evaluate)}")
+        #else:
+        #    print(f"  No new unique combinations generated by removing {k} metric(s).")
 
 
     # 4. Convert the set of tuples to a list and assign to global variable
     final_combinations_list = list(combinations_to_evaluate)
-    
+
     if getIndices:
         final_combinations_list_indices = []
         for currentTuple in final_combinations_list:
             found_indices = []
             for metric in currentTuple:
-                index = list(METRICS.keys()).index(metric)
+                index = list(POTENTIAL_METRICS.keys()).index(metric)
                 found_indices.append(index)
             final_combinations_list_indices.append(tuple(found_indices))
         final_combinations_list = list(final_combinations_list_indices)
 
     print(f"\n--- Generated a total of {len(final_combinations_list)} unique metric combinations to evaluate ---")
-    
+
     return final_combinations_list
 
 def identifyClosestSourcesByMetricCombination(closestSources, metricsOutputs, metrics_indices, metric_weights=METRIC_WEIGHTS, mode=""):
-    global layers 
-
+    global layers
+    
     metricsDictionary = metricsActivationsByLayers
 
     # Layer selection logic
@@ -2928,7 +2980,7 @@ def identifyClosestSourcesByMetricCombination(closestSources, metricsOutputs, me
 
     for currentLayer, currentMetricsLayer in enumerate(metricsLayersToCheck):
         currentMetricsLayer = currentMetricsLayer[:, metrics_indices]
-        
+
         metric_scores = {}
         metric_calculation_successful_overall = True # Flag to track if all metrics were processed
 
@@ -2936,7 +2988,7 @@ def identifyClosestSourcesByMetricCombination(closestSources, metricsOutputs, me
         num_samples = currentMetricsLayer.shape[0]
 
         currentMetricsLayerToCheck = np.array([metricsOutputsToCheck[currentLayer][idx] for idx in metrics_indices])
-        
+
         if currentMetricsLayer.shape[1] != num_metrics:
             print(f"Warning: Shape mismatch - currentMetricsLayer columns ({currentMetricsLayer.shape[1]}) != num_metrics ({num_metrics}).")
             metric_calculation_successful_overall = False
@@ -2961,13 +3013,13 @@ def identifyClosestSourcesByMetricCombination(closestSources, metricsOutputs, me
             # Apply same normalization to the reference point
             norm_ref = (currentMetricsLayerToCheck - min_vals) / safe_range
 
-            metric_keys_list = list(METRICS.keys())
+            metric_keys_list = list(POTENTIAL_METRICS.keys())
             metrics_to_use = {metric_keys_list[index]: 1.0 for index in metrics_indices}
             # Handle similarity metrics - flip scores so lower is better universally
             # Use names matching the keys in your METRICS dictionary
             similarity_metric_names = {'Cosine Similarity', 'Pearson Correlation', 'Spearman Correlation',
                                        'Jaccard (Rounded Sets)', 'Sørensen–Dice (Rounded Sets)'}
-            
+
             metric_name_list = list(metrics_to_use)
 
             for i, name in enumerate(metric_name_list):
@@ -3068,8 +3120,8 @@ def getMostUsedByMetrics(sources, mode="", evaluation=""):
     mostUsed = []
     sourceCounter = 0
     for currentLayer, layer in enumerate(sources):
-            for sourceNumber in layer:
-                if(sourceNumber != 'None'):
-                    mostUsed.append(sourceNumber)
-                    sourceCounter += 1
+        for sourceNumber in layer:
+            if(sourceNumber != 'None'):
+                mostUsed.append(sourceNumber)
+                sourceCounter += 1
     return sourceCounter, mostUsed
