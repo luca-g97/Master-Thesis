@@ -67,7 +67,7 @@ activationsBySources: list = []           # List to store activations grouped by
 activationsByLayers: list = []            # List to store activations grouped by layer
 
 # --- Metrics-Specific Data Storage ---
-NumberOfComponents: int = 20
+NumberOfComponents: int = 45 # Optimally between 44 and 47 (tested over various tries)
 layersToCheck: list = []
 metricsDictionaryForSourceLayerNeuron: list = [] 
 metricsDictionaryForLayerNeuronSource: list = []
@@ -101,19 +101,6 @@ def _normalize_safe(arr):
         return shifted_arr / arr_sum
 
 METRICS = {
-    # === 1. L-family distances (implicitly vs baseline comparison vector) ===
-    'L2 norm (Euclidean)': lambda d, c: np.sqrt(np.sum((d - c)**2)),
-    'Squared Euclidean': lambda d, c: np.sum((d - c)**2),
-    'L1 norm (Manhattan)': lambda d, c: np.sum(np.abs(d - c)),
-    'Canberra': lambda d, c: np.sum(np.abs(d - c) / (np.abs(d) + np.abs(c) + 1e-10)),
-    'L∞ norm (Chebyshev)': lambda d, c: np.max(np.abs(d - c)),
-    'Lp norm (Minkowski p=3)': lambda d, c: np.sum(np.abs(d - c)**3)**(1/3),
-
-    # === 2. Correlation measures (implicitly vs baseline reference vectors) ===
-    'Cosine Similarity': lambda d, c: (1 - distance.cosine(d, c) if (np.linalg.norm(d) > 1e-9 and np.linalg.norm(c) > 1e-9) else 0.0),
-    'Pearson Correlation': lambda d, ref: np.corrcoef(d, ref)[0, 1] if np.std(d) > 1e-9 else 0.0,
-    'Spearman Correlation': lambda d, ref: spearmanr(d, ref).correlation if np.std(d) > 1e-9 else 0.0,
-
     # === 3. Statistical distances (implicitly vs baseline comparison vector) ===
     # Note: Mahalanobis/Std Euclidean use variance computed relative to the baseline vector 'c'
     'Mahalanobis': lambda d, c, v: np.sqrt(np.sum((d - c)**2 / v)),
@@ -148,6 +135,19 @@ METRICS = {
     'L_inf Norm': lambda d, c: np.linalg.norm(d, ord=np.inf), # Max abs value in data vector
     'L0 Norm (eps=1e-6)': lambda d, c: np.count_nonzero(np.abs(d) > 1e-6),
     'L1/L2 Ratio': lambda d, c: np.linalg.norm(d, ord=1) / (np.linalg.norm(d, ord=2) + 1e-10), # Sparsity measure
+
+    # === 1. L-family distances (implicitly vs baseline comparison vector) ===
+    'L2 norm (Euclidean)': lambda d, c: np.sqrt(np.sum((d - c)**2)),
+    'Squared Euclidean': lambda d, c: np.sum((d - c)**2),
+    'L1 norm (Manhattan)': lambda d, c: np.sum(np.abs(d - c)),
+    'Canberra': lambda d, c: np.sum(np.abs(d - c) / (np.abs(d) + np.abs(c) + 1e-10)),
+    'L∞ norm (Chebyshev)': lambda d, c: np.max(np.abs(d - c)),
+    'Lp norm (Minkowski p=3)': lambda d, c: np.sum(np.abs(d - c)**3)**(1/3),
+
+    # === 2. Correlation measures (implicitly vs baseline reference vectors) ===
+    'Cosine Similarity': lambda d, c: (1 - distance.cosine(d, c) if (np.linalg.norm(d) > 1e-9 and np.linalg.norm(c) > 1e-9) else 0.0),
+    'Pearson Correlation': lambda d, ref: np.corrcoef(d, ref)[0, 1] if np.std(d) > 1e-9 else 0.0,
+    'Spearman Correlation': lambda d, ref: spearmanr(d, ref).correlation if np.std(d) > 1e-9 else 0.0,
 }
 
 def initializePackages(devicePackage, ioPackage, pdPackage, paPackage, pqPackage, zstdPackage, levenshteinPackage, cmaPackage, chosenDataSetPackage, seed="", useBitLinear=False):
@@ -401,8 +401,8 @@ def createDictionaries(hidden_sizes, totalLayersParameter, train_samples, llmTyp
             activationsByLayers = np.zeros((totalLayers, np.max(layerSizes), train_samples), dtype=np.float128)
 
         if metricsEvaluation:
-            metricsActivationsBySources = np.zeros((train_samples, totalLayers, len(METRICS)), dtype=np.float128)
-            metricsActivationsByLayers = np.zeros((totalLayers, train_samples, len(METRICS)), dtype=np.float128)
+            metricsActivationsBySources = np.zeros((train_samples, totalLayers, len(METRICS_TO_USE)), dtype=np.float128)
+            metricsActivationsByLayers = np.zeros((totalLayers, train_samples, len(METRICS_TO_USE)), dtype=np.float128)
 
         if mtEvaluation:
             mtActivationsBySources = np.zeros((train_samples, totalLayers, NumberOfComponents), dtype=np.float128)
@@ -457,8 +457,8 @@ def initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model,
     if not llm:
         dictionaryForSourceLayerNeuron = np.zeros((eval_samples, totalLayers, np.max(layerSizes)), dtype=np.float128)
         dictionaryForLayerNeuronSource = np.zeros((totalLayers, np.max(layerSizes), eval_samples), dtype=np.float128)
-        metricsDictionaryForSourceLayerNeuron = np.zeros((eval_samples, totalLayers, len(METRICS)), dtype=np.float128)
-        metricsDictionaryForLayerNeuronSource = np.zeros((totalLayers, eval_samples, len(METRICS)), dtype=np.float128)
+        metricsDictionaryForSourceLayerNeuron = np.zeros((eval_samples, totalLayers, len(METRICS_TO_USE)), dtype=np.float128)
+        metricsDictionaryForLayerNeuronSource = np.zeros((totalLayers, eval_samples, len(METRICS_TO_USE)), dtype=np.float128)
         mtDictionaryForSourceLayerNeuron = np.zeros((eval_samples, totalLayers, NumberOfComponents), dtype=np.float128)
         mtDictionaryForLayerNeuronSource = np.zeros((totalLayers, eval_samples, NumberOfComponents), dtype=np.float128)
 
@@ -468,10 +468,13 @@ def initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model,
 
     return dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource
 
-METRIC_WEIGHTS = {name: 1.0 for name in METRICS.keys()}
+METRIC_WEIGHTS = {name: 0.0 for name in METRICS.keys()}
+METRICS_TO_USE = {name: 1.0 for name in METRICS.keys()}
+for metric in METRICS_TO_USE.keys():
+    METRIC_WEIGHTS[metric] = METRICS_TO_USE[metric]
 # Add to global initialization
 mt_component_optimizer = None
-optimal_components_overall = 0
+optimal_components_overall = 46
 
 OPTIMIZER_EVAL_DATA_CACHE = []
 
@@ -549,7 +552,7 @@ def identifyClosestSources(closestSources, outputs, metricsOutputs, mtOutputs, m
             metric_scores = {}
             metric_calculation_successful_overall = True # Flag to track if all metrics were processed
 
-            num_metrics = len(METRICS)
+            num_metrics = len(METRICS_TO_USE)
             num_samples = currentMetricsLayer.shape[0]
             if currentMetricsLayer.shape[1] != num_metrics:
                 print(f"Warning: Shape mismatch - currentMetricsLayer columns ({currentMetricsLayer.shape[1]}) != num_metrics ({num_metrics}).")
@@ -579,7 +582,7 @@ def identifyClosestSources(closestSources, outputs, metricsOutputs, mtOutputs, m
                 # Use names matching the keys in your METRICS dictionary
                 similarity_metric_names = {'Cosine Similarity', 'Pearson Correlation', 'Spearman Correlation',
                                            'Jaccard (Rounded Sets)', 'Sørensen–Dice (Rounded Sets)'}
-                metric_name_list = list(METRICS.keys()) # Get a fixed order
+                metric_name_list = list(METRICS_TO_USE.keys()) # Get a fixed order
 
                 for i, name in enumerate(metric_name_list):
                     if name in similarity_metric_names:
@@ -1374,19 +1377,6 @@ class MetricProcessor:
 
 
         results = {
-            # === 1. L-family distances ===
-            'L2 norm (Euclidean)': METRICS['L2 norm (Euclidean)'](data, self.comparison),
-            'Squared Euclidean': METRICS['Squared Euclidean'](data, self.comparison),
-            'L1 norm (Manhattan)': METRICS['L1 norm (Manhattan)'](data, self.comparison),
-            'Canberra': METRICS['Canberra'](data, self.comparison),
-            'L∞ norm (Chebyshev)': METRICS['L∞ norm (Chebyshev)'](data, self.comparison),
-            'Lp norm (Minkowski p=3)': METRICS['Lp norm (Minkowski p=3)'](data, self.comparison),
-
-            # === 2. Correlation measures ===
-            'Cosine Similarity': METRICS['Cosine Similarity'](data, self.comparison),
-            'Pearson Correlation': METRICS['Pearson Correlation'](data, self.reference),
-            'Spearman Correlation': METRICS['Spearman Correlation'](data, self.reference),
-
             # === 3. Statistical distances ===
             'Mahalanobis': METRICS['Mahalanobis'](data, self.comparison, self.variances),
             'Standardized Euclidean': METRICS['Standardized Euclidean'](data, self.comparison, self.variances),
@@ -1420,6 +1410,19 @@ class MetricProcessor:
             'L_inf Norm': METRICS['L_inf Norm'](data, self.comparison),
             'L0 Norm (eps=1e-6)': METRICS['L0 Norm (eps=1e-6)'](data, self.comparison),
             'L1/L2 Ratio': METRICS['L1/L2 Ratio'](data, self.comparison),
+
+            # === 1. L-family distances ===
+            'L2 norm (Euclidean)': METRICS['L2 norm (Euclidean)'](data, self.comparison),
+            'Squared Euclidean': METRICS['Squared Euclidean'](data, self.comparison),
+            'L1 norm (Manhattan)': METRICS['L1 norm (Manhattan)'](data, self.comparison),
+            'Canberra': METRICS['Canberra'](data, self.comparison),
+            'L∞ norm (Chebyshev)': METRICS['L∞ norm (Chebyshev)'](data, self.comparison),
+            'Lp norm (Minkowski p=3)': METRICS['Lp norm (Minkowski p=3)'](data, self.comparison),
+
+            # === 2. Correlation measures ===
+            'Cosine Similarity': METRICS['Cosine Similarity'](data, self.comparison),
+            'Pearson Correlation': METRICS['Pearson Correlation'](data, self.reference),
+            'Spearman Correlation': METRICS['Spearman Correlation'](data, self.reference),
         }
         return results
 
@@ -1429,7 +1432,7 @@ def createMetricsArray(data):
     results_dict = processor.calculate(data)
 
     # Return results in a fixed order (based on the METRICS dictionary order)
-    return [results_dict[key] for key in METRICS]
+    return [results_dict[key] for key in METRICS_TO_USE.keys()]
 
 # Use float32 for potentially large score arrays to save memory if precision allows
 SCORE_DTYPE = np.float32
@@ -1820,14 +1823,14 @@ def optimize_metrics_and_weights_scipy(
     main_start_time = time.time()
 
     # --- Initial Setup & Validation ---
-    if not METRICS:
-        print("Error: METRICS dictionary is empty.")
+    if not METRICS_TO_USE:
+        print("Error: METRICS_TO_USE dictionary is empty.")
         return None, None, -1.0
     if not OPTIMIZER_EVAL_DATA_CACHE:
         print("Error: eval_dataset_original argument is empty.")
         return None, None, -1.0
 
-    all_metric_names = sorted(list(METRICS.keys()))
+    all_metric_names = sorted(list(METRICS_TO_USE.keys()))
     metric_index_map = {name: i for i, name in enumerate(all_metric_names)}
     num_all_metrics = len(all_metric_names)
 
@@ -2084,6 +2087,663 @@ def optimize_metrics_and_weights_scipy(
     # Return names, dict, and the NDCG score
     return final_best_metrics, final_best_weights, best_overall_ndcg
 
+def calculate_average_rank_of_relevant(retrieved_item_indices, target_set):
+    """
+    Calculates the average rank of relevant items found in the list.
+    Lower is better. Returns a penalty if no relevant items are found.
+    """
+    if not target_set: return float('inf') # No targets to find
+
+    total_rank = 0
+    relevant_found_count = 0
+    max_possible_rank = len(retrieved_item_indices)
+
+    for i, idx in enumerate(retrieved_item_indices):
+        rank = i + 1
+        if idx in target_set:
+            total_rank += rank
+            relevant_found_count += 1
+
+    if relevant_found_count == 0:
+        # Assign a penalty rank worse than the worst possible average rank
+        return float(max_possible_rank + 1)
+    else:
+        return total_rank / relevant_found_count
+
+def optimize_feature_subset_local_search(
+        k_for_ndcg, # k is now required
+        seed_metric_names=['Cosine Similarity', 'L1 norm (Manhattan)', 'L2 norm (Euclidean)', 'Lp norm (Minkowski p=3)', 'L∞ norm (Chebyshev)', 'Pearson Correlation', 'Spearman Correlation'],
+        all_metric_names_list=METRICS,
+        eval_dataset_original=OPTIMIZER_EVAL_DATA_CACHE,
+        final_optimizer_method='Nelder-Mead',
+        final_optimizer_options=None,
+        max_add=5,
+        max_remove=5,
+        verbose=False # Default to False
+):
+    """
+    Selects best feature subset near a seed set based on MIN AVG RANK of relevant items
+    (using equal weights), then optimizes weights and calculates final NDCG@k score
+    for that single best subset.
+    """
+    main_start_time = time.time()
+    # Scores/results related to Avg Rank stage (Lower is better)
+    rank_eval_goal = 'Average Rank'
+    # Scores/results related to final NDCG stage
+    final_metric_goal = 'NDCG'
+    default_bad_ndcg_score = -1.0 # Represents failed NDCG optimization
+
+    # --- Initial Setup & Validation ---
+    if not all_metric_names_list or not seed_metric_names or not eval_dataset_original or k_for_ndcg is None:
+        print("Error: Invalid arguments (all_metric_names_list, seed_metrics, dataset, k_for_ndcg required).")
+        return None, None, default_bad_ndcg_score
+    all_metric_names_set = set(all_metric_names_list)
+    all_metric_names_sorted = sorted(list(all_metric_names_set))
+    metric_index_map = {name: i for i, name in enumerate(all_metric_names_sorted)}
+    validated_seed_names = [name for name in seed_metric_names if name in all_metric_names_set]
+    if len(validated_seed_names) != len(seed_metric_names): print("Warning: Some seed metrics ignored (not in all_metric_names_list).")
+    if not validated_seed_names: print("Error: No valid seed metrics."); return None, None, default_bad_ndcg_score
+    seed_metric_names = validated_seed_names
+    seed_indices = frozenset(metric_index_map[name] for name in seed_metric_names)
+    other_metric_names = [name for name in all_metric_names_sorted if name not in seed_metric_names]
+    other_indices = frozenset(metric_index_map[name] for name in other_metric_names)
+
+    print(f"Starting two-stage search: Seed size={len(seed_indices)}, Explore=+/-{max_add}/{max_remove}, Subset Eval=EqualWeightAvgRank, Final Eval=OptimizedNDCG@{k_for_ndcg}")
+
+    # --- Preprocess Dataset ---
+    preprocessed_eval_dataset = preprocess_dataset(eval_dataset_original, all_metric_names_sorted, metric_index_map)
+    if not preprocessed_eval_dataset: print("Error: Preprocessing failed."); return None, None, default_bad_ndcg_score
+
+    # --- Generate Candidate Subsets ---
+    candidate_subsets_indices = set()
+    candidate_subsets_indices.add(seed_indices)
+    # (Same generation logic using itertools.combinations)
+    for r in range(1, max_remove + 1):
+        if r >= len(seed_indices):
+            if r == len(seed_indices) and r > 0: candidate_subsets_indices.add(frozenset())
+            break
+        for combo_indices in itertools.combinations(seed_indices, len(seed_indices) - r):
+            candidate_subsets_indices.add(frozenset(combo_indices))
+    for a in range(1, max_add + 1):
+        if a > len(other_indices): break
+        for combo_indices in itertools.combinations(other_indices, a):
+            new_set = seed_indices.union(frozenset(combo_indices))
+            candidate_subsets_indices.add(new_set)
+    candidate_subsets_indices.discard(frozenset()) # Discard empty set
+    num_subsets_to_eval = len(candidate_subsets_indices)
+    print(f"Generated {num_subsets_to_eval} unique candidate subsets to evaluate.")
+    if num_subsets_to_eval == 0: print("Error: No candidate subsets generated."); return None, None, default_bad_ndcg_score
+    if num_subsets_to_eval > 5000: print(f"*** WARNING: Evaluating {num_subsets_to_eval} subsets (equal weights, AvgRank) may take time! ***")
+
+    # --- Stage 1: Evaluate Subsets using EQUAL WEIGHTS and Average Rank ---
+    rank_results = {} # Store { frozenset(indices) -> avg_rank_score }
+    evaluated_count = 0
+    eval_start_time = time.time()
+    print(f"Stage 1: Evaluating {num_subsets_to_eval} subsets using Equal Weight Average Rank...")
+
+    for indices_set in candidate_subsets_indices:
+        evaluated_count += 1
+        current_subset_indices = sorted(list(indices_set))
+        num_current_metrics = len(current_subset_indices)
+        if num_current_metrics == 0: continue
+
+        # Minimal progress print
+        if evaluated_count % 10000 == 0: print(f"  Evaluated {evaluated_count}/{num_subsets_to_eval} subsets (Equal Weight AvgRank)...")
+
+        equal_weights_array = np.full(num_current_metrics, 1.0 / num_current_metrics, dtype=float)
+        active_indices_mask = np.zeros(len(all_metric_names_sorted), dtype=bool)
+        # Handle potential index out of bounds if map is wrong
+        try:
+            active_indices_mask[current_subset_indices] = True
+        except IndexError:
+            print(f"Error: Invalid indices found in subset {evaluated_count}. Skipping.")
+            rank_results[indices_set] = float('inf') # Assign worst possible rank
+            continue
+
+
+        # Calculate Average Rank for this subset with equal weights
+        total_avg_rank_sum = 0.0
+        sample_evaluated_count = 0
+        overall_avg_rank_for_subset = float('inf') # Default to worst rank
+
+        for sample_data in preprocessed_eval_dataset:
+            scores_array_sample, target_set = sample_data
+            num_items = scores_array_sample.shape[1]
+            if num_items == 0: continue
+
+            combined_score = calculate_combined_score_optimized(scores_array_sample, equal_weights_array, active_indices_mask)
+            if combined_score is None: continue
+            if not isinstance(combined_score, np.ndarray) or combined_score.ndim != 1 or len(combined_score) != num_items: continue
+            try: sorted_item_indices = np.argsort(combined_score)
+            except Exception: continue
+
+            try:
+                # *** Use calculate_average_rank_of_relevant helper ***
+                avg_rank_sample = calculate_average_rank_of_relevant(sorted_item_indices, target_set)
+                # Check for Inf explicitly - skip samples where subset found no relevant items
+                if math.isinf(avg_rank_sample): continue
+
+                total_avg_rank_sum += avg_rank_sample
+                sample_evaluated_count += 1
+            except Exception: continue
+
+        if sample_evaluated_count > 0:
+            overall_avg_rank_for_subset = total_avg_rank_sum / sample_evaluated_count
+
+        rank_results[indices_set] = overall_avg_rank_for_subset # Store positive AvgRank score (lower is better)
+
+    eval_duration = time.time() - eval_start_time
+    print(f"Stage 1 finished in {eval_duration:.2f} seconds.")
+
+    # --- Find Best Subset Based on Equal Weight Average Rank Score ---
+    if not rank_results: print("Error: No subsets evaluated in Stage 1."); return None, None, default_bad_ndcg_score
+    # Find the key (frozenset of indices) corresponding to the MINIMUM Average Rank score
+    best_indices_set_via_rank = min(rank_results, key=rank_results.get)
+    best_avg_rank_equal_weights = rank_results[best_indices_set_via_rank]
+
+    # Check if even the best rank is infinite (means no subset found relevant items)
+    if math.isinf(best_avg_rank_equal_weights):
+        print("Error: All evaluated subsets failed to find any relevant items in the dataset.")
+        return None, None, default_bad_ndcg_score
+
+    best_subset_indices_final = sorted(list(best_indices_set_via_rank))
+    best_metric_names_final = [all_metric_names_sorted[i] for i in best_subset_indices_final]
+
+    print(f"\nBest subset identified via Equal Weight Avg Rank ({len(best_metric_names_final)} metrics):")
+    print(f"  Equal Weight Avg Rank Score: {best_avg_rank_equal_weights:.6f} (Lower is better)")
+    print(f"--- Stage 2: Optimizing weights & getting final NDCG@{k_for_ndcg} for this best subset ---")
+
+    # --- Stage 2: Get Final Weights and Score (NDCG) for the BEST Subset Found ---
+    num_best_metrics = len(best_subset_indices_final)
+    final_weights_dict = None
+    final_optimized_ndcg_score = default_bad_ndcg_score
+
+    if best_subset_indices_final: # If the best subset is not empty
+        stage2_start_time = time.time()
+        initial_guess_array = np.full(num_best_metrics, 1.0 / num_best_metrics, dtype=float)
+        bounds = [(0, None) for _ in best_subset_indices_final] if final_optimizer_method in ['L-BFGS-B', 'TNC', 'SLSQP'] else None
+        opt_options = {'maxiter': 150, 'disp': False}
+        if final_optimizer_method in ['Nelder-Mead']: opt_options['adaptive'] = True
+        if final_optimizer_options: opt_options.update(opt_options)
+        # Args for the FINAL objective function (NDCG)
+        args_for_objective = (
+            best_subset_indices_final, metric_index_map, all_metric_names_sorted,
+            preprocessed_eval_dataset, k_for_ndcg
+        )
+
+        try:
+            # *** Run full optimization ONCE using NDCG objective ***
+            final_opt_result = minimize(
+                evaluate_average_ndcg_optimized, # Use NDCG objective here
+                x0=initial_guess_array, args=args_for_objective,
+                method=final_optimizer_method, bounds=bounds, options=opt_options
+            )
+            stage2_duration = time.time() - stage2_start_time
+            print(f"Stage 2 optimization finished in {stage2_duration:.2f} seconds.")
+
+            if final_opt_result.success:
+                # Check if objective function returned error code
+                if final_opt_result.fun >= 1.0:
+                    print("Warning: Final optimization run succeeded but objective returned error code. Weights not available.")
+                else:
+                    final_raw_weights = final_opt_result.x
+                    final_weights = np.maximum(0.0, final_raw_weights)
+                    final_sum = np.sum(final_weights)
+                    if final_sum > 0: final_weights /= final_sum
+                    else: final_weights = np.full(num_best_metrics, 1.0 / num_best_metrics, dtype=float)
+                    final_weights_dict = {name: weight for name, weight in zip(best_metric_names_final, final_weights)}
+                    # Final score is the optimized NDCG
+                    final_optimized_ndcg_score = -float(final_opt_result.fun)
+                    final_optimized_ndcg_score = max(0.0, min(1.0, final_optimized_ndcg_score)) # Clamp actual NDCG to [0, 1]
+            else:
+                print("Warning: Final optimization run (NDCG) failed. Weights not available. No final NDCG score.")
+
+        except Exception as e:
+            print(f"Error during final optimization run (NDCG): {type(e).__name__}")
+
+    # --- Final Report ---
+    main_duration = time.time() - main_start_time
+    print(f"\n--- Two-Stage Optimization Finished ({main_duration:.2f} seconds) ---")
+    if best_metric_names_final:
+        print(f"Best subset found (selected via Equal Weight AvgRank, final score is Optimized NDCG):")
+        print(f"  Metrics ({len(best_metric_names_final)}): {sorted(best_metric_names_final)}")
+        print(f"  Final Optimized NDCG@{k_for_ndcg} Score: {final_optimized_ndcg_score:.6f}")
+        if final_weights_dict:
+            print(f"  Optimized Weights (for NDCG): {{ {', '.join([f'{repr(n)}: {w:.4f}' for n, w in sorted(final_weights_dict.items())])} }}")
+        else: print("  Optimized Weights: Not available (final optimization failed).")
+        # Add context about the score used for selection
+        if not math.isinf(best_avg_rank_equal_weights):
+            print(f"  (Equal Weight Avg Rank score for this subset was: {best_avg_rank_equal_weights:.6f})")
+    else:
+        # This case should only be hit if generation failed or all subsets had infinite avg rank
+        print("No suitable subset found during local search.")
+        final_optimized_ndcg_score = default_bad_ndcg_score
+
+    return best_metric_names_final, final_weights_dict, final_optimized_ndcg_score
+
+
+# MRR-Test
+def calculate_reciprocal_rank(retrieved_item_indices, target_set):
+    """
+    Calculates the Reciprocal Rank (RR) for a single ranked list.
+    RR = 1 / rank of the first relevant item. Returns 0 if no relevant item is found.
+
+    Args:
+        retrieved_item_indices: np.array or list of item indices, sorted by relevance (best first).
+        target_set: set containing the relevant item indices.
+
+    Returns:
+        float: The Reciprocal Rank (1/rank) or 0.0.
+    """
+    if not target_set: # Handle case where target set is empty
+        return 0.0
+
+    for i, idx in enumerate(retrieved_item_indices):
+        rank = i + 1
+        if idx in target_set:
+            return 1.0 / rank # Return 1/rank of the first relevant item found
+
+    # If no relevant item was found in the retrieved list
+    return 0.0
+
+# evaluate_average_ndcg_optimized -> evaluate_average_mrr
+def evaluate_average_mrr(weights_array, # Corresponds to active_metric_indices
+                         active_metric_indices, # List of integer indices
+                         metric_index_map, # Not strictly needed here, but passed for consistency
+                         all_metric_names, # Needed for num_all_metrics
+                         preprocessed_eval_dataset, # List: [(scores_np_array, target_set), ...]
+                         # k is not typically used in MRR, but we might keep it if needed elsewhere
+                         # For now, we calculate RR based on the full sorted list
+                         k=None # k parameter ignored for MRR calculation itself
+                         ):
+    """
+    Calculates -1 * Avg MRR for a given weight vector using preprocessed data.
+    Designed to be robust and ALWAYS return a float/int for optimization.
+    """
+    # --- Top-level Try-Except for utmost safety ---
+    try:
+        # --- Input Validation --- (Same as NDCG version)
+        if not isinstance(weights_array, np.ndarray):
+            weights_array = np.array(weights_array, dtype=float)
+        if not isinstance(active_metric_indices, list) or \
+                len(weights_array) != len(active_metric_indices):
+            print("ERROR evaluate_average_mrr: Invalid input types/lengths.")
+            return 1.0 # Worst score (representing +inf objective value)
+
+        if not preprocessed_eval_dataset:
+            return 1.0
+
+        # --- Create mask and ensure non-negative weights --- (Same as NDCG version)
+        num_all_metrics = len(all_metric_names)
+        active_indices_mask = np.zeros(num_all_metrics, dtype=bool)
+        valid_indices = [idx for idx in active_metric_indices if 0 <= idx < num_all_metrics]
+        if len(valid_indices) != len(active_metric_indices):
+            print("ERROR evaluate_average_mrr: Contains invalid metric indices.")
+            return 1.0
+        active_indices_mask[valid_indices] = True
+        if np.sum(active_indices_mask) != len(weights_array):
+            print("ERROR evaluate_average_mrr: Mismatch between active index count and weights array length.")
+            return 1.0
+        current_weights = np.maximum(0.0, weights_array)
+
+        total_rr = 0.0
+        evaluated_count = 0
+
+        # --- Loop through preprocessed evaluation data ---
+        for sample_idx, sample_data in enumerate(preprocessed_eval_dataset):
+            # --- Validate sample structure --- (Same as NDCG version)
+            if not isinstance(sample_data, tuple) or len(sample_data) != 2: continue
+            scores_array_sample, target_set = sample_data
+            if not isinstance(scores_array_sample, np.ndarray) or not isinstance(target_set, set): continue
+            if scores_array_sample.ndim != 2 or scores_array_sample.shape[0] != num_all_metrics: continue
+            # No need to check target_set here, calculate_reciprocal_rank handles empty set
+
+            num_items = scores_array_sample.shape[1]
+            if num_items == 0: continue
+
+            # --- Calculate combined score for this sample --- (Same as NDCG version)
+            combined_score = None
+            try:
+                combined_score = calculate_combined_score_optimized(
+                    scores_array_sample, current_weights, active_indices_mask
+                )
+                if combined_score is None: continue
+                if not isinstance(combined_score, np.ndarray) or combined_score.ndim != 1: continue
+                if len(combined_score) != num_items:
+                    print(f"ERROR evaluate_average_mrr: Combined score length mismatch sample {sample_idx}.")
+                    continue
+
+                # --- Get ranking --- (Same as NDCG version)
+                sorted_item_indices = np.argsort(combined_score)
+
+            except Exception as score_e:
+                # print(f"Error evaluate_average_mrr: Score/Sort failed Sample {sample_idx}. Error: {type(score_e).__name__}. Skipping.")
+                continue
+
+            # --- Calculate Reciprocal Rank (RR) --- (DIFFERENT PART)
+            try:
+                rr = calculate_reciprocal_rank(sorted_item_indices, target_set)
+                if not isinstance(rr, (float, int, np.number)) or np.isnan(rr) or np.isinf(rr):
+                    print(f"Warning: Invalid RR value ({rr}) calculated for sample {sample_idx}. Skipping.")
+                    continue
+
+                total_rr += rr
+                evaluated_count += 1
+            except Exception as rr_e:
+                # print(f"Error evaluate_average_mrr: calculate_rr failed Sample {sample_idx}. Error: {type(rr_e).__name__}. Skipping.")
+                continue
+
+        # --- Calculate final return value ---
+        if evaluated_count == 0:
+            # print("Warning evaluate_average_mrr: No samples evaluated successfully.")
+            return_value = 1.0 # Max penalty (worst objective score)
+        else:
+            average_mrr = total_rr / evaluated_count
+            if np.isnan(average_mrr) or np.isinf(average_mrr):
+                print(f"CRITICAL ERROR evaluate_average_mrr: Average MRR is NaN/Inf ({average_mrr}). Returning 1.0")
+                return_value = 1.0
+            else:
+                # We want to MAXIMIZE MRR, so return NEGATIVE MRR for minimization
+                return_value = -average_mrr
+
+        # --- Final type check --- (Same as NDCG version)
+        if isinstance(return_value, (float, int, np.number)):
+            return float(return_value)
+        else:
+            print(f"CRITICAL ERROR evaluate_average_mrr: Final return value non-numeric! Type: {type(return_value)}. Returning 1.0")
+            return 1.0
+
+    # --- Catch ANY unexpected exception --- (Same as NDCG version)
+    except Exception as e:
+        print(f"CRITICAL ERROR evaluate_average_mrr: Uncaught exception! Error: {type(e).__name__} - {e}.")
+        return 1.0
+
+# _evaluate_ablation_task -> _evaluate_ablation_task_mrr
+def _evaluate_ablation_task_mrr(metric_index_to_remove,
+                                current_metric_indices,
+                                weights_for_ablation_array,
+                                all_metric_names,
+                                preprocessed_eval_dataset):
+    """
+    Wrapper function to evaluate MRR when one metric is removed.
+    Runs evaluate_average_mrr for the subset of metrics.
+    Returns tuple: (metric_index_to_remove, resulting_objective_score)
+                   Objective score is -MRR, or 1.0 if evaluation fails.
+    """
+    try:
+        temp_indices = [idx for idx in current_metric_indices if idx != metric_index_to_remove]
+        if not temp_indices:
+            return metric_index_to_remove, 1.0
+
+        original_pos_map = {idx: i for i, idx in enumerate(current_metric_indices)}
+        weight_indices_to_keep = [original_pos_map[idx] for idx in temp_indices]
+
+        if max(weight_indices_to_keep) >= len(weights_for_ablation_array):
+            print(f"CRITICAL ERROR Ablation Task MRR: Index out of bounds for weights.")
+            return metric_index_to_remove, 1.0
+
+        temp_weights_array = weights_for_ablation_array[weight_indices_to_keep]
+
+        # Call the MRR objective function
+        objective_score = evaluate_average_mrr(
+            weights_array=temp_weights_array,
+            active_metric_indices=temp_indices,
+            metric_index_map=None,
+            all_metric_names=all_metric_names,
+            preprocessed_eval_dataset=preprocessed_eval_dataset,
+            k=None # k ignored by MRR objective
+        )
+        return metric_index_to_remove, objective_score
+
+    except Exception as e:
+        print(f"CRITICAL ERROR during MRR ablation task for index {metric_index_to_remove}: {type(e).__name__} - {e}")
+        return metric_index_to_remove, 1.0 # Return worst score on error
+
+# optimize_metrics_and_weights_scipy -> optimize_metrics_and_weights_scipy_mrr
+def optimize_metrics_and_weights_scipy_mrr(
+        min_metrics=5,
+        optimizer_method='Powell',
+        optimizer_options=None,
+        verbose=True,
+        num_threads=NUM_ABLATION_THREADS
+):
+    main_start_time = time.time()
+
+    # --- Initial Setup & Validation --- (Same as NDCG version)
+    if not METRICS: print("Error: METRICS dictionary is empty."); return None, None, 0.0
+    if not OPTIMIZER_EVAL_DATA_CACHE: print("Error: eval_dataset_original argument is empty."); return None, None, 0.0
+    all_metric_names = sorted(list(METRICS.keys()))
+    metric_index_map = {name: i for i, name in enumerate(all_metric_names)}
+    num_all_metrics = len(all_metric_names)
+    try:
+        _scores, _targets = OPTIMIZER_EVAL_DATA_CACHE[0]
+        if not isinstance(_scores, dict) or not hasattr(_targets, '__iter__'): raise ValueError("Invalid structure.")
+    except (IndexError, TypeError, ValueError) as e: print(f"Error: Invalid structure: {e}"); return None, None, 0.0
+
+    # --- Preprocess Dataset --- (Same as NDCG version)
+    preprocessed_eval_dataset = preprocess_dataset(OPTIMIZER_EVAL_DATA_CACHE, all_metric_names, metric_index_map)
+    if not preprocessed_eval_dataset: print("Error: Preprocessing failed."); return None, None, 0.0
+
+    # --- Initialize State --- (Same as NDCG version)
+    current_metric_indices = list(range(num_all_metrics))
+    initial_weight_val = 1.0 / num_all_metrics if num_all_metrics > 0 else 1.0
+    current_weights_array = np.full(len(current_metric_indices), initial_weight_val, dtype=float)
+
+    # --- Track Best MRR Score --- (DIFFERENT)
+    best_overall_mrr = 0.0 # Initialize MRR score (0 is minimum possible)
+    best_overall_indices = None
+    best_overall_weights_array = None
+
+    # --- SciPy Optimizer Defaults --- (Same as NDCG version)
+    default_optimizer_options = {'maxiter': 100, 'disp': False}
+    if optimizer_method in ['Nelder-Mead']: default_optimizer_options['adaptive'] = True
+    if optimizer_options: default_optimizer_options.update(optimizer_options)
+
+    # --- Iterative Optimization and Pruning ---
+    iteration = 0
+    max_iterations = num_all_metrics - min_metrics
+
+    while len(current_metric_indices) > min_metrics:
+        iteration += 1
+        iter_start_time = time.time()
+        if iteration > max_iterations + 5: print("Warning: Exceeded max iterations."); break
+
+        num_current_metrics = len(current_metric_indices)
+        if verbose: print(f"\n--- Iteration {iteration}/{max_iterations + 1}: Optimizing {num_current_metrics} metrics for MRR ---")
+
+        # 1. Optimize weights for MRR (using negative MRR objective)
+        initial_guess_array = current_weights_array
+        initial_guess_sum = np.sum(initial_guess_array)
+        if initial_guess_sum > 0: initial_guess_array /= initial_guess_sum
+        else: initial_guess_array = np.full(num_current_metrics, 1.0 / num_current_metrics if num_current_metrics > 0 else 1.0)
+
+        optimized_objective_score_this_iter = 1.0 # Default worst objective (-MRR=1 -> MRR=-1)
+        optimization_successful_this_iter = False
+        optimized_weights_array_this_iter = None
+        bounds = [(0, None) for _ in current_metric_indices] if optimizer_method in ['L-BFGS-B', 'TNC', 'SLSQP'] else None
+
+        try:
+            if verbose: print(f"DEBUG Iter {iteration}: Calling scipy.optimize.minimize (objective: -MRR, method={optimizer_method})...")
+            opt_start_time = time.time()
+
+            # *** CALL MRR OBJECTIVE FUNCTION ***
+            opt_result = minimize(
+                evaluate_average_mrr, # Use the MRR objective
+                x0=initial_guess_array,
+                args=(current_metric_indices, metric_index_map, all_metric_names, preprocessed_eval_dataset), # k is ignored
+                method=optimizer_method,
+                bounds=bounds,
+                options=default_optimizer_options
+            )
+            opt_duration = time.time() - opt_start_time
+            if verbose: print(f"DEBUG Iter {iteration}: SciPy minimize call took {opt_duration:.2f} seconds.")
+
+            if opt_result.success:
+                raw_optimized_weights = opt_result.x
+                optimized_weights_array_this_iter = np.maximum(0.0, raw_optimized_weights)
+                opt_sum = np.sum(optimized_weights_array_this_iter)
+                if opt_sum > 0: optimized_weights_array_this_iter /= opt_sum
+                else: optimized_weights_array_this_iter = np.full(num_current_metrics, 1.0 / num_current_metrics if num_current_metrics > 0 else 1.0)
+
+                # Re-evaluate with final weights to get definitive MRR score
+                final_score_check = evaluate_average_mrr( # Call MRR objective again
+                    optimized_weights_array_this_iter, current_metric_indices,
+                    metric_index_map, all_metric_names,
+                    preprocessed_eval_dataset)
+
+                # Objective returns -MRR. Score check is valid if between -1 and 0 (MRR is 0 to 1)
+                if isinstance(final_score_check, (float, int, np.number)) and -1.0 <= final_score_check <= 0.0:
+                    optimized_objective_score_this_iter = final_score_check
+                    current_weights_array = optimized_weights_array_this_iter
+                    optimization_successful_this_iter = True
+                    if verbose: print(f"SciPy Optimize Result: Success=True, Objective Score = {optimized_objective_score_this_iter:.6f} (Avg MRR = {-optimized_objective_score_this_iter:.6f})")
+                else:
+                    print(f"CRITICAL WARNING Iter {iteration}: SciPy optimize succeeded but re-evaluation yielded invalid score ({final_score_check}).")
+
+            else:
+                print(f"Warning: SciPy optimize failed in iteration {iteration}. Message: {opt_result.message}")
+
+        except ValueError as ve: print(f"ValueError during SciPy optimize call: {ve}")
+        except Exception as e: print(f"CRITICAL ERROR Iter {iteration}: Exception during minimize call: {type(e).__name__} - {e}");
+
+        # --- Update best overall result --- (Using MRR)
+        current_mrr_this_iter = -optimized_objective_score_this_iter if optimization_successful_this_iter else 0.0
+        if optimization_successful_this_iter and current_mrr_this_iter > best_overall_mrr:
+            best_overall_mrr = current_mrr_this_iter
+            best_overall_indices = current_metric_indices[:]
+            best_overall_weights_array = optimized_weights_array_this_iter.copy()
+            if verbose: print(f"*** New best overall MRR found: {best_overall_mrr:.6f} with {len(best_overall_indices)} metrics ***")
+        elif not optimization_successful_this_iter:
+            if verbose: print("Optimization failed this iteration, best overall score not updated.")
+
+        # --- Ablation / Pruning (Multithreaded for MRR) ---
+        if not optimization_successful_this_iter:
+            if verbose: print("Skipping pruning step due to optimization failure.")
+            # ... (rest of iteration timing and continue)
+            iter_duration = time.time() - iter_start_time
+            if verbose: print(f"--- Iteration {iteration} finished (skipped prune). Duration: {iter_duration:.2f}s ---")
+            continue
+
+        if len(current_metric_indices) <= min_metrics:
+            if verbose: print(f"\nReached minimum metrics ({min_metrics}). Stopping."); break
+
+        if verbose: print(f"Evaluating metric importance for pruning ({num_threads} threads, objective: MRR)...")
+        ablation_start_time = time.time()
+        metric_to_prune_index = None
+        # For MRR, the "drop" concept is slightly different. Removing a metric might *increase* MRR.
+        # We want to remove the metric whose removal causes the *smallest decrease* or *largest increase* in MRR.
+        # Since objective_score = -MRR, we want to remove the metric that results in the *highest* objective_score_without (closest to 0 or positive).
+        # Alternatively, calculate MRR_drop = current_mrr_this_iter - mrr_without_metric. Remove metric with largest MRR_drop (least negative or most positive).
+        # Let's stick to finding the largest MRR drop.
+        max_mrr_drop = -float('inf') # Initialize with negative infinity
+        ablation_results = {}
+
+        weights_for_ablation = current_weights_array
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+            futures = {
+                executor.submit(
+                    _evaluate_ablation_task_mrr, # Use MRR ablation task
+                    metric_idx_to_remove,
+                    current_metric_indices,
+                    weights_for_ablation,
+                    all_metric_names,
+                    preprocessed_eval_dataset
+                ): metric_idx_to_remove
+                for metric_idx_to_remove in current_metric_indices
+            }
+
+            for future in concurrent.futures.as_completed(futures):
+                removed_index = futures[future]
+                try:
+                    _, objective_score_without = future.result() # Score is -MRR
+                    ablation_results[removed_index] = objective_score_without
+                except Exception as exc:
+                    print(f'CRITICAL ERROR: MRR Ablation task {removed_index} generated an exception: {exc}')
+                    ablation_results[removed_index] = 1.0 # Assign worst score
+
+        # Analyze MRR ablation results
+        if verbose: print("Ablation evaluations complete. Analyzing results...")
+        for removed_index, objective_score_without in ablation_results.items():
+            # Check if evaluation was successful (objective score <= 0)
+            if objective_score_without <= 0:
+                mrr_without_metric = -objective_score_without
+                mrr_drop = current_mrr_this_iter - mrr_without_metric # Higher drop means metric was important
+
+                # We want to remove the metric whose removal causes the LEAST damage (smallest drop)
+                # Actually, following original logic: remove metric causing smallest NDCG drop (largest gain if drop is negative)
+                # Translated to MRR: Remove metric causing smallest MRR drop (largest gain if drop is negative).
+                # We want to find the *minimum* drop. Let's rename min_ndcg_drop to min_perf_drop
+                # Initialize min_perf_drop = float('inf')
+                # If mrr_drop < min_perf_drop: update min_perf_drop, metric_to_prune = removed_index
+
+                # Let's re-read the original code's goal for pruning:
+                # "Pruning metric '{metric_to_prune}' (Removing caused smallest NDCG drop/largest gain: {min_ndcg_drop:.6f})"
+                # So, find minimum ndcg_drop.
+
+                # Apply same logic to MRR: Find the minimum mrr_drop
+                if 'min_perf_drop' not in locals(): min_perf_drop = float('inf') # Initialize only once
+
+                if mrr_drop < min_perf_drop:
+                    min_perf_drop = mrr_drop
+                    metric_to_prune_index = removed_index
+
+                # Optional logging
+                # if verbose: print(f" - Removing index {removed_index} -> MRR = {mrr_without_metric:.6f} (Drop = {mrr_drop:.6f})")
+            # else: # Ablation evaluation failed
+            # if verbose: print(f" - Evaluation failed for removing index {removed_index} (-MRR score: {objective_score_without})")
+
+
+        ablation_duration = time.time() - ablation_start_time
+        if verbose: print(f"Ablation analysis took {ablation_duration:.2f} seconds.")
+
+        # 3. Prune the least important metric index (based on min MRR drop)
+        if metric_to_prune_index is not None:
+            metric_name_to_prune = all_metric_names[metric_to_prune_index]
+            if verbose: print(f"Pruning metric '{metric_name_to_prune}' (Index: {metric_to_prune_index}, smallest MRR drop/largest gain: {min_perf_drop:.6f})") # Use min_perf_drop here
+
+            prune_pos = current_metric_indices.index(metric_to_prune_index)
+            current_metric_indices.pop(prune_pos)
+            current_weights_array = np.delete(current_weights_array, prune_pos)
+            current_sum = np.sum(current_weights_array)
+            if current_sum > 0: current_weights_array /= current_sum
+            else:
+                num_remaining = len(current_weights_array)
+                current_weights_array = np.full(num_remaining, 1.0 / num_remaining if num_remaining > 0 else 1.0)
+        else:
+            if verbose: print("Could not determine metric to prune this iteration. Stopping.")
+            break
+
+        iter_duration = time.time() - iter_start_time
+        if verbose: print(f"--- Iteration {iteration} finished. Duration: {iter_duration:.2f}s ---")
+
+
+    # --- Final Steps --- (Report MRR)
+    main_duration = time.time() - main_start_time
+    print(f"\n--- Iterative Optimization Finished ({main_duration:.2f} seconds) ---")
+
+    final_best_metrics = None
+    final_best_weights = None
+
+    if best_overall_indices is not None and best_overall_weights_array is not None:
+        final_best_metrics = [all_metric_names[i] for i in best_overall_indices]
+        final_best_weights = {name: weight
+                              for name, weight in zip(final_best_metrics, best_overall_weights_array)}
+        final_sum = sum(final_best_weights.values())
+        if final_sum > 0 and not math.isclose(final_sum, 1.0):
+            # print("Normalizing final best weights...") # Should be normalized already
+            final_best_weights = {name: w / final_sum for name, w in final_best_weights.items()}
+
+        print(f"Best configuration found with {len(final_best_metrics)} metrics:")
+        print(f"  Metrics: {sorted(final_best_metrics)}")
+        print(f"  Avg MRR: {best_overall_mrr:.6f}") # Report MRR score
+    else:
+        print("No suitable combination found during optimization.")
+        best_overall_mrr = 0.0 # Ensure return score is 0.0 if nothing found
+
+    # Return names, dict, and the MRR score
+    return final_best_metrics, final_best_weights, best_overall_mrr
+
 class ComponentOptimizer:
     global optimal_components
     def __init__(self, max_components=50, history_size=100):
@@ -2135,3 +2795,285 @@ class ComponentOptimizer:
                 best_n = n
 
         return best_n
+
+def create_global_metric_combinations(max_metrics_to_add, max_metrics_to_remove, getIndices=False):
+
+    # 1. Get all available metric names from the METRICS dictionary
+    all_available_metrics_set = set(METRICS.keys())
+    print(f"Total available metrics: {len(all_available_metrics_set)}")
+
+    # 2. Define the current best combination as the baseline
+    current_best_metrics_tuple = ('Cosine Similarity', 'L1 norm (Manhattan)', 'L2 norm (Euclidean)', 'Lp norm (Minkowski p=3)', 'L∞ norm (Chebyshev)', 'Pearson Correlation', 'Spearman Correlation')
+    baseline_metrics_set = set(current_best_metrics_tuple)
+
+    # 3. Verify baseline metrics are available (optional but recommended)
+    if not baseline_metrics_set.issubset(all_available_metrics_set):
+        missing = baseline_metrics_set - all_available_metrics_set
+        print(f"\n*** Warning: The following baseline metrics are not found in the METRICS dictionary keys: {missing} ***")
+        print("*** Please check the 'current_best_metrics_tuple' definition. ***\n")
+        # Decide how to proceed: stop, use only valid ones, etc.
+        # For now, we'll proceed using only the valid subset as the baseline.
+        baseline_metrics_set = baseline_metrics_set.intersection(all_available_metrics_set)
+        print(f"Using the valid subset as baseline: {sorted(list(baseline_metrics_set))}\n")
+        if not baseline_metrics_set:
+            print("Error: No valid baseline metrics remain. Stopping.")
+            return
+
+
+    # 4. Define the set of metrics available to be added
+    other_metrics_set = all_available_metrics_set - baseline_metrics_set
+
+    print(f"Defined baseline set with {len(baseline_metrics_set)} metrics.")
+    print(f"Defined 'other' set with {len(other_metrics_set)} metrics available to add.")
+
+    # --- Generate Combinations ---
+    # Use a set to store combinations to automatically handle duplicates
+    # Store combinations as sorted tuples for consistency
+    combinations_to_evaluate = set()
+
+    # 1. Add the baseline combination itself
+    baseline_tuple = tuple(sorted(list(baseline_metrics_set)))
+    if baseline_tuple: # Ensure baseline is not empty after validation
+        combinations_to_evaluate.add(baseline_tuple)
+        print(f"\nAdded baseline combination: {baseline_tuple}")
+    else:
+        print("\nBaseline combination is empty after validation, cannot add.")
+
+
+    # 2. Generate combinations by ADDING metrics to the baseline
+    print(f"\nGenerating combinations by adding up to {max_metrics_to_add} metrics from the 'other' set ({len(other_metrics_set)} available)...")
+    count_before_add = len(combinations_to_evaluate)
+    for k in range(1, max_metrics_to_add + 1):
+        if k > len(other_metrics_set):
+            print(f"  Cannot add {k} metrics, only {len(other_metrics_set)} available in 'other' set.")
+            break # Stop adding if k exceeds available metrics
+
+        added_in_step = 0
+        for metrics_to_add in itertools.combinations(other_metrics_set, k):
+            new_combo_set = baseline_metrics_set.union(set(metrics_to_add))
+            new_tuple = tuple(sorted(list(new_combo_set)))
+            if new_tuple not in combinations_to_evaluate:
+                combinations_to_evaluate.add(new_tuple)
+                added_in_step += 1
+
+        if added_in_step > 0:
+            print(f"  Added {added_in_step} new unique combinations by adding {k} metric(s). Total unique combos: {len(combinations_to_evaluate)}")
+        else:
+            print(f"  No new unique combinations generated by adding {k} metric(s).")
+
+
+    # 3. Generate combinations by REMOVING metrics from the baseline
+    print(f"\nGenerating combinations by removing up to {max_metrics_to_remove} metrics from the baseline set ({len(baseline_metrics_set)} available)...")
+    count_before_remove = len(combinations_to_evaluate)
+    for k in range(1, max_metrics_to_remove + 1):
+        if k >= len(baseline_metrics_set): # Use >= because removing all baseline metrics is usually not desired
+            print(f"  Skipping removal of {k} metrics (would leave {len(baseline_metrics_set) - k} metrics).")
+            continue # Continue to check smaller k values if possible, but break might be safer depending on goal
+
+        removed_in_step = 0
+        for metrics_to_remove in itertools.combinations(baseline_metrics_set, k):
+            new_combo_set = baseline_metrics_set.difference(set(metrics_to_remove))
+            if new_combo_set: # Ensure the resulting set is not empty
+                new_tuple = tuple(sorted(list(new_combo_set)))
+                if new_tuple not in combinations_to_evaluate:
+                    combinations_to_evaluate.add(new_tuple)
+                    removed_in_step += 1
+
+        if removed_in_step > 0:
+            print(f"  Added {removed_in_step} new unique combinations by removing {k} metric(s). Total unique combos: {len(combinations_to_evaluate)}")
+        else:
+            print(f"  No new unique combinations generated by removing {k} metric(s).")
+
+
+    # 4. Convert the set of tuples to a list and assign to global variable
+    final_combinations_list = list(combinations_to_evaluate)
+    
+    if getIndices:
+        final_combinations_list_indices = []
+        for currentTuple in final_combinations_list:
+            found_indices = []
+            for metric in currentTuple:
+                index = list(METRICS.keys()).index(metric)
+                found_indices.append(index)
+            final_combinations_list_indices.append(tuple(found_indices))
+        final_combinations_list = list(final_combinations_list_indices)
+
+    print(f"\n--- Generated a total of {len(final_combinations_list)} unique metric combinations to evaluate ---")
+    
+    return final_combinations_list
+
+
+
+
+
+
+
+
+
+def identifyClosestSourcesByMetricCombination(closestSources, metricsOutputs, metrics_indices, mode=""):
+    global layers 
+
+    metricsDictionary = metricsActivationsByLayers
+
+    # Layer selection logic
+    if mode == "Sum":
+        layerNumbersToCheck = [idx * 2 for idx, (name, layerNumber, activation) in enumerate(layers)]
+    elif mode == "Activation":
+        layerNumbersToCheck = [
+            (idx * 2) + 1 for idx, (name, layerNumber, activation) in enumerate(layers)
+            if getActivation(hidden_sizes, idx) != False
+        ]
+    else:
+        layerNumbersToCheck = [idx for idx, _ in enumerate(layers)]
+
+    metricsLayersToCheck = metricsDictionary[layerNumbersToCheck]
+    metricsOutputsToCheck = metricsOutputs[layerNumbersToCheck]
+    identifiedClosestMetricSources = np.empty((len(metricsLayersToCheck), closestSources), dtype=tuple)
+
+    for currentLayer, currentMetricsLayer in enumerate(metricsLayersToCheck):
+        currentMetricsLayer = currentMetricsLayer[:, metrics_indices]
+        
+        metric_scores = {}
+        metric_calculation_successful_overall = True # Flag to track if all metrics were processed
+
+        num_metrics = len(metrics_indices)
+        num_samples = currentMetricsLayer.shape[0]
+
+        currentMetricsLayerToCheck = np.array([metricsOutputsToCheck[currentLayer][idx] for idx in metrics_indices])
+        
+        if currentMetricsLayer.shape[1] != num_metrics:
+            print(f"Warning: Shape mismatch - currentMetricsLayer columns ({currentMetricsLayer.shape[1]}) != num_metrics ({num_metrics}).")
+            metric_calculation_successful_overall = False
+        if currentMetricsLayerToCheck.shape[0] != num_metrics:
+            print(f"Warning: Shape mismatch - metricsOutputsToCheck length ({currentMetricsLayerToCheck.shape[0]}) != num_metrics ({num_metrics}).")
+            metric_calculation_successful_overall = False
+
+        # --- Proceed only if initial checks pass ---
+        if metric_calculation_successful_overall:
+            # Calculate raw differences (assuming shapes are compatible)
+            raw_diffs = np.abs(currentMetricsLayer - currentMetricsLayerToCheck[np.newaxis, :])
+
+            # Normalize per metric (column-wise)
+            min_vals = np.min(currentMetricsLayer, axis=0)
+            max_vals = np.max(currentMetricsLayer, axis=0)
+            range_vals = max_vals - min_vals
+            # Add epsilon only where range is close to zero to avoid inflating differences elsewhere
+            epsilon = 1e-10
+            safe_range = np.where(range_vals < epsilon, epsilon, range_vals)
+
+            norm_samples = (currentMetricsLayer - min_vals) / safe_range
+            # Apply same normalization to the reference point
+            norm_ref = (currentMetricsLayerToCheck - min_vals) / safe_range
+
+            metric_keys_list = list(METRICS.keys())
+            metrics_to_use = {metric_keys_list[index]: 1.0 for index in metrics_indices}
+            # Handle similarity metrics - flip scores so lower is better universally
+            # Use names matching the keys in your METRICS dictionary
+            similarity_metric_names = {'Cosine Similarity', 'Pearson Correlation', 'Spearman Correlation',
+                                       'Jaccard (Rounded Sets)', 'Sørensen–Dice (Rounded Sets)'}
+            
+            metric_name_list = list(metrics_to_use)
+
+            for i, name in enumerate(metric_name_list):
+                if name in similarity_metric_names:
+                    if i < norm_samples.shape[1]: # Check index validity
+                        norm_samples[:, i] = 1.0 - norm_samples[:, i]
+                    if i < norm_ref.shape[0]: # Check index validity
+                        norm_ref[i] = 1.0 - norm_ref[i]
+
+            # Store normalized absolute difference scores per metric
+            for i, name in enumerate(metric_name_list):
+                if i < norm_samples.shape[1] and i < norm_ref.shape[0]:
+                    score_diff = np.abs(norm_samples[:, i] - norm_ref[i])
+
+                    # --- FIX 2: Handle potential NaNs from normalization/calculation ---
+                    if np.any(np.isnan(score_diff)):
+                        #print(f"Warning: NaN detected in score for metric '{name}'. Replacing with mean.")
+                        if np.all(np.isnan(score_diff)):
+                            score_diff.fill(1.0) # Assign default high difference if all are NaN
+                        else:
+                            mean_val = np.nanmean(score_diff)
+                            score_diff = np.nan_to_num(score_diff, nan=mean_val)
+                    metric_scores[name] = score_diff
+                else:
+                    print(f"Warning: Index {i} for metric '{name}' out of bounds during score storage. Metric skipped.")
+                    metric_calculation_successful_overall = False # Mark as potentially incomplete
+
+        # --- Proceed only if metric calculation was successful ---
+        if metric_calculation_successful_overall and metric_scores:
+            # Use only metrics that were successfully calculated
+            metrics_to_use = list(metric_scores.keys())
+
+            # --- FIX 3: Robust combined score calculation ---
+            weighted_scores_list = []
+            metrics_used_in_mean = 0
+            for name in metrics_to_use:
+                score_array = metric_scores.get(name) # Should exist if in metrics_to_use
+                weight = METRIC_WEIGHTS.get(name)     # Get weight (Corrected dict)
+
+                # Ensure score/weight exist and score is valid array
+                if score_array is not None and weight is not None and isinstance(score_array, np.ndarray) and score_array.size > 0:
+                    weighted_scores_list.append(score_array * weight)
+                    metrics_used_in_mean += 1
+                else:
+                    print(f"Warning: Skipping metric '{name}' in combined score (missing score/weight/invalid score array).")
+
+
+            if not weighted_scores_list or metrics_used_in_mean == 0:
+                print("Error: No valid metric scores available to combine for this sample. Cannot sort.")
+                tuples = ()
+            else:
+                combined_scores = np.sum(weighted_scores_list, axis=0) / metrics_used_in_mean
+
+                # Ensure combined_scores is 1D before argsort
+                if combined_scores.ndim != 1:
+                    print(f"Error: combined_scores has unexpected shape {combined_scores.shape}. Cannot sort.")
+                    tuples = ()
+                else:
+                    # Sort indices (lower combined score is better)
+                    sorted_metric_indices = np.argsort(combined_scores)
+                    # Ensure closestSources doesn't exceed available indices
+                    num_indices_to_take = min(closestSources, len(sorted_metric_indices))
+                    closest_metric_indices = sorted_metric_indices[:num_indices_to_take]
+
+                    # --- FIX 4: Safe Indexing for Output Tuples ---
+                    safe_tuples = []
+                    max_layer_idx = currentMetricsLayer.shape[0] - 1
+                    max_raw_diffs_idx = raw_diffs.shape[0] - 1 if 'raw_diffs' in locals() else -1 # Check if raw_diffs exists
+
+                    for i in range(num_indices_to_take):
+                        idx = closest_metric_indices[i]
+                        # Check if index is valid for both arrays needed
+                        if idx <= max_layer_idx and idx <= max_raw_diffs_idx:
+                            safe_tuples.append((
+                                idx
+                            ))
+                        else:
+                            print(f"Warning: Index {idx} out of bounds when creating output tuple (Layer Max: {max_layer_idx}, Diff Max: {max_raw_diffs_idx}). Skipping.")
+                    tuples = tuple(safe_tuples)
+
+            identifiedClosestMetricSources[currentLayer] = tuples
+
+    return identifiedClosestMetricSources, layerNumbersToCheck
+
+def getMostUsedSourcesByMetrics(metricsSources, closestSources, evalSample=0, weightedMode="", info=True):
+    metricsSourceCounter, metricsMostUsed = getMostUsedByMetrics(metricsSources, weightedMode, evaluation="Metrics")
+    metricsCounter = Counter(metricsMostUsed)
+
+    #if(info):
+    #print("Total closest Sources (Per Neuron):", sourceCounter, " | ", closestSources, " closest Sources (", weightedMode, ") in format: [SourceNumber, Occurances]: ", counter.most_common()[:closestSources])
+    #if metricsEvaluation:
+    #print("Total closest Sources (Metrics):", metricsSourceCounter, " | ", closestSources, " closest Sources (", weightedMode, ") in format: [SourceNumber, Occurances]: ", metricsCounter.most_common()[:closestSources])
+    #if mtEvaluation:
+    #print("Total closest Sources (MT):", mtSourceCounter, " | ", closestSources, " closest Sources (", weightedMode, ") in format: [SourceNumber, Occurances]: ", mtCounter.most_common()[:closestSources])
+    return metricsCounter.most_common()[:closestSources]
+
+def getMostUsedByMetrics(sources, mode="", evaluation=""):
+    mostUsed = []
+    sourceCounter = 0
+    for currentLayer, layer in enumerate(sources):
+            for sourceNumber in layer:
+                if(sourceNumber != 'None'):
+                    mostUsed.append(sourceNumber)
+                    sourceCounter += 1
+    return sourceCounter, mostUsed

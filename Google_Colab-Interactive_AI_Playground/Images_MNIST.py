@@ -552,7 +552,8 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
 
     #Make sure to set new dictionaries for the hooks to fill - they are global!
     dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource = RENN.initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model)
-    
+
+    METRICS_COMBINATION = RENN.create_global_metric_combinations(1, 1, True)
     mostUsedList = []
     mostUsedMetricsList = []
     
@@ -561,10 +562,12 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
         prediction = predict(sample)
         mostUsedSourcesWithSum = ""
         layersToCheck = []
-
+        
+        
         if(visualizationChoice == "Weighted"):
             sourcesSum, metricSourcesSum, mtSourcesSum, outputsSum, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], metricsDictionaryForSourceLayerNeuron[pos], mtDictionaryForSourceLayerNeuron[pos], "Sum")
             mostUsedSourcesWithSum, mostUsedMetricSourcesWithSum, mostUsedMMSourcesWithSum = RENN.getMostUsedSources(sourcesSum, metricSourcesSum, mtSourcesSum, closestSources, "Sum")
+                
             #20 because otherwise the blending might not be visible anymore. Should be closestSources instead to be correct!
             blendedSourceImageSum = blendImagesTogether(mostUsedSourcesWithSum[:20], "Not Weighted")
             blendedMetricSourceImageSum = blendImagesTogether(mostUsedMetricSourcesWithSum[:20], "Not Weighted")
@@ -592,7 +595,49 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
         if(analyze):
             #mostUsed, mostUsedMetrics, mostUsedMM = #RENN.getMostUsedSources(sourcesSum, metricSourcesSum, mtSourcesSum, closestSources)
             mostUsedList.append(mostUsedSourcesWithSum)
-            blendActivations(mostUsedSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layersToCheck, True)
+            for metric_combination in METRICS_COMBINATION:
+                metricSourcesSum, layerNumbersToCheck = RENN.identifyClosestSourcesByMetricCombination(closestSources, metricsDictionaryForSourceLayerNeuron[pos], metric_combination, "Sum")
+                mostUsedMetricSourcesWithSum = RENN.getMostUsedSourcesByMetrics(metricSourcesSum, closestSources, weightedMode="Sum")
+
+                evaluateImageSimilarityByMetrics("Metrics", metric_combination, sample, mostUsedMetricSourcesWithSum)
+
+            # Make sure best_image_similarity is populated before calling this
+            if 'best_image_similarity' in globals() and best_image_similarity:
+                pareto_front = find_pareto_front(best_image_similarity, objectives)
+            
+                # --- Display the Pareto Front ---
+                print(f"\n--- Pareto Optimal Set ({len(pareto_front)} combinations) ---")
+                if not pareto_front:
+                    print("No non-dominated solutions found.")
+                else:
+                    print("These combinations represent the best trade-offs based on the selected objectives:")
+                    # Sort alphabetically by combo name for consistent output (optional)
+                    pareto_front.sort(key=lambda x: x[IDX_COMBO])
+                    for i, result in enumerate(pareto_front):
+                        print(f"\n{i+1}. Combination: {result[IDX_COMBO]}")
+                        print("   Metrics (Objectives):")
+                        for idx, type in objectives.items(): # Iterate through defined objectives
+                            metric_name = f"Metric@{idx}" # Generic name
+                            # Try to get more descriptive names (optional)
+                            if idx == IDX_COS_SIM: metric_name = "Cosine Sim"
+                            elif idx == IDX_EUC_DIST: metric_name = "Euclidean Dst"
+                            elif idx == IDX_MAN_DIST: metric_name = "Manhattan Dst"
+                            elif idx == IDX_JAC_SIM: metric_name = "Jaccard Sim"
+                            elif idx == IDX_HAM_DIST: metric_name = "Hamming Dst"
+                            elif idx == IDX_PEARSON: metric_name = "Pearson Corr"
+                            elif idx == IDX_KENDALL: metric_name = "Kendall Tau"
+                            elif idx == IDX_SPEARMAN: metric_name = "Spearman Rho"
+            
+                            try:
+                                value = result[idx]
+                                value_str = f"{value:.4f}" if isinstance(value, (int, float)) else str(value)
+                            except IndexError:
+                                value_str = "N/A (Index Error)"
+                            print(f"     - {metric_name:<15}: {value_str}") # Removed type display here for cleaner look
+            else:
+                print("The global list 'best_image_similarity' is not defined or is empty.")
+                print("Please run 'evaluateImageSimilarityByMetrics' first to populate it.")
+            #blendActivations(mostUsedSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layersToCheck, True)
             evaluateImageSimilarity("", sample, mostUsedSourcesWithSum)
             evaluateImageSimilarity("Metrics", sample, mostUsedMetricSourcesWithSum)
             evaluateImageSimilarity("MT", sample, mostUsedMMSourcesWithSum)
@@ -602,3 +647,186 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
         #    time.sleep(1)  # Prevents UI freezing
     
     #print(f"Time passed since start: {time_since_start(startTime)}")
+
+best_image_similarity = []
+def evaluateImageSimilarityByMetrics(name, combination, sample, mostUsed):
+    global best_image_similarity # Declare intent to modify the global list
+
+    sample_flat = np.asarray(sample.flatten().reshape(1, -1))
+
+    blended_image = blendIndividualImagesTogether(mostUsed, len(mostUsed), layer=True)
+    # Compute similarity for the blended image with sample
+    blended_image_flat = np.asarray(blended_image.convert('L')).flatten() / 255.0
+    blended_image_flat = blended_image_flat.reshape(1, -1)
+
+    # Compute standard similarity/distance metrics using the placeholder/actual function
+    cosine_similarity, euclidean_distance, manhattan_distance, jaccard_similarity, hamming_distance, pearson_correlation = computeSimilarity(sample_flat, blended_image_flat)
+
+    # Compute rank correlation coefficients (require 1D arrays)
+    sample_1d = sample_flat.squeeze()
+    blended_1d = blended_image_flat.squeeze()
+
+    # Handle potential NaN inputs or zero variance for correlation coefficients
+    kendall_tau, spearman_rho = None, None
+    if np.isnan(sample_1d).any() or np.isnan(blended_1d).any():
+        print(f"Warning ({name} - {combination}): NaN values found in vectors, skipping rank correlations.")
+    elif np.std(sample_1d) == 0 or np.std(blended_1d) == 0:
+        print(f"Warning ({name} - {combination}): Zero variance in vectors, skipping rank correlations.")
+    elif len(sample_1d) > 1: # Need more than 1 element for correlation
+        try:
+            kendall_tau, _ = kendalltau(sample_1d, blended_1d)
+        except Exception as e:
+            print(f"Error calculating Kendall's Tau for {name} - {combination}: {e}")
+        try:
+            spearman_rho, _ = spearmanr(sample_1d, blended_1d)
+        except Exception as e:
+            print(f"Error calculating Spearman's Rho for {name} - {combination}: {e}")
+    else:
+        print(f"Warning ({name} - {combination}): Input vector length <= 1, skipping rank correlations.")
+
+
+    # --- Store Results ---
+    # Append the combination identifier along with all metrics to the list
+    result_tuple = (
+        combination,           # Identifier for the tested parameters/method
+        cosine_similarity,
+        euclidean_distance,
+        manhattan_distance,
+        jaccard_similarity,    # May be None or require specific data types
+        hamming_distance,      # May be None or require specific data types
+        pearson_correlation,   # May be None if calculation fails
+        kendall_tau,           # May be None if calculation fails
+        spearman_rho           # May be None if calculation fails
+    )
+    best_image_similarity.append(result_tuple)
+
+# --- Indices of metrics in the tuple (must match evaluateImageSimilarityByMetrics) ---
+IDX_COMBO = 0
+IDX_COS_SIM = 1
+IDX_EUC_DIST = 2
+IDX_MAN_DIST = 3
+IDX_JAC_SIM = 4
+IDX_HAM_DIST = 5
+IDX_PEARSON = 6
+IDX_KENDALL = 7
+IDX_SPEARMAN = 8
+
+# --- Configuration for Pareto Analysis ---
+
+# 1. Define Objectives: Map metric index to 'higher_better' or 'lower_better'
+#    *** ADJUST THIS DICTIONARY based on the metrics YOU want to consider ***
+objectives = {
+    IDX_COS_SIM: 'higher_better',
+    IDX_EUC_DIST: 'lower_better',
+    IDX_MAN_DIST: 'lower_better',
+    # IDX_JAC_SIM: 'higher_better', # Uncomment if relevant & reliable
+    # IDX_HAM_DIST: 'lower_better', # Uncomment if relevant & reliable
+    IDX_PEARSON: 'higher_better',
+    IDX_KENDALL: 'higher_better',
+    IDX_SPEARMAN: 'higher_better'
+}
+objective_indices = list(objectives.keys())
+
+
+# --- Dominance Check Function (same as before) ---
+def dominates(result_a, result_b, objectives):
+    """Checks if result_a dominates result_b based on the defined objectives."""
+    a_is_strictly_better_on_any = False
+    for idx, type in objectives.items():
+        try:
+            val_a = result_a[idx]
+            val_b = result_b[idx]
+        except IndexError:
+            return False # Data malformed
+
+        if val_a is None and val_b is None:
+            continue # Equal Nones, proceed
+        elif val_a is None: # 'a' has None, 'b' does not. 'a' cannot be >= 'b'.
+            return False
+        elif val_b is None: # 'b' has None, 'a' does not. Proceed checking others.
+            pass
+
+        # Check if 'a' is WORSE than 'b'
+        is_worse = False
+        if type == 'higher_better' and (val_a is None or (val_b is not None and val_a < val_b)):
+            is_worse = True
+        elif type == 'lower_better' and (val_a is None or (val_b is not None and val_a > val_b)):
+            is_worse = True
+
+        # Handle case where only val_b is None (a is better if higher_better, worse if lower_better)
+        if val_b is None and val_a is not None:
+            if type == 'higher_better': # a is better than None
+                is_strictly_better = True
+            else: # a is worse than None (lower should be better)
+                is_worse = True # Treat non-None as worse than None for lower_better objective
+
+        if is_worse:
+            return False
+
+        # Check if 'a' is STRICTLY BETTER than 'b' (only if both not None)
+        is_strictly_better = False
+        if val_a is not None and val_b is not None:
+            if type == 'higher_better' and val_a > val_b:
+                is_strictly_better = True
+            elif type == 'lower_better' and val_a < val_b:
+                is_strictly_better = True
+
+        if is_strictly_better:
+            a_is_strictly_better_on_any = True
+
+    return a_is_strictly_better_on_any
+
+# --- Find the Pareto Front Directly from best_image_similarity ---
+
+def find_pareto_front(results_list, objectives_def):
+    """
+    Analyzes a list of results to find the Pareto optimal set.
+
+    Args:
+        results_list (list): The list containing result tuples
+                             (e.g., best_image_similarity).
+        objectives_def (dict): Mapping metric index to 'higher_better'/'lower_better'.
+
+    Returns:
+        list: A list containing the tuples from results_list that form the Pareto front.
+    """
+    # 1. Filter out basic errors if necessary (e.g., if strings were added)
+    #    Adjust this check based on how errors might appear in your list.
+    valid_results = [res for res in results_list if isinstance(res[1], (int, float, type(None)))]
+    # Or if errors are marked differently:
+    # valid_results = [res for res in results_list if res[0] != 'ERROR_MARKER']
+
+    if not valid_results:
+        print("No valid results found in the input list.")
+        return []
+
+    num_results = len(valid_results)
+    is_non_dominated = [True] * num_results # Assume all are non-dominated initially
+
+    print(f"\n--- Finding Pareto Front ({len(objectives_def)} objectives) ---")
+    print(f"Objectives (Index: Type): {objectives_def}")
+    print(f"Processing {num_results} valid combinations...")
+
+    for i in range(num_results):
+        # Optimization: if i is already known to be dominated, it can't dominate others effectively
+        # if not is_non_dominated[i]:
+        #     continue
+
+        for j in range(num_results):
+            if i == j:
+                continue
+
+            # Check if solution j dominates solution i
+            try:
+                if dominates(valid_results[j], valid_results[i], objectives_def):
+                    is_non_dominated[i] = False # Solution i is dominated
+                    break # No need to check other potential dominators for i
+            except Exception as e:
+                print(f"Error during dominance check between {valid_results[j][0]} and {valid_results[i][0]}: {e}")
+                # Decide how to handle comparison errors - e.g., assume i is not dominated by j here
+                pass
+
+
+    # Collect the results that are non-dominated
+    pareto_front_results = [valid_results[i] for i in range(num_results) if is_non_dominated[i]]
+    return pareto_front_results
