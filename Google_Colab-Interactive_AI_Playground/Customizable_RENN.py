@@ -470,6 +470,9 @@ def initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model,
 
 METRIC_WEIGHTS = {name: 0.0 for name in METRICS.keys()}
 METRICS_TO_USE = {name: 1.0 for name in METRICS.keys()}
+#METRICS_TO_USE = {'L1 norm (Manhattan)': 1.8958, 'Cosine Similarity': 1.6606, 'Pearson Correlation': 1.5584, 'Peak-to-Peak Range': 1.4232,
+#  'Variance': 1.1584, 'Spearman Correlation': 0.7941, 'L∞ norm (Chebyshev)': 0.6925, 'L2 norm (Euclidean)': 0.3569, 'Median': 0.1315}
+
 for metric in METRICS_TO_USE.keys():
     METRIC_WEIGHTS[metric] = METRICS_TO_USE[metric]
 # Add to global initialization
@@ -2803,7 +2806,8 @@ def create_global_metric_combinations(max_metrics_to_add, max_metrics_to_remove,
     print(f"Total available metrics: {len(all_available_metrics_set)}")
 
     # 2. Define the current best combination as the baseline
-    current_best_metrics_tuple = ('Cosine Similarity', 'L1 norm (Manhattan)', 'L2 norm (Euclidean)', 'Lp norm (Minkowski p=3)', 'L∞ norm (Chebyshev)', 'Pearson Correlation', 'Spearman Correlation')
+    current_best_metrics_tuple = ('L1 norm (Manhattan)', 'Cosine Similarity', 'Pearson Correlation', 'Peak-to-Peak Range', 'Variance',
+                                  'Spearman Correlation', 'L∞ norm (Chebyshev)', 'L2 norm (Euclidean)', 'Median')
     baseline_metrics_set = set(current_best_metrics_tuple)
 
     # 3. Verify baseline metrics are available (optional but recommended)
@@ -2902,15 +2906,7 @@ def create_global_metric_combinations(max_metrics_to_add, max_metrics_to_remove,
     
     return final_combinations_list
 
-
-
-
-
-
-
-
-
-def identifyClosestSourcesByMetricCombination(closestSources, metricsOutputs, metrics_indices, mode=""):
+def identifyClosestSourcesByMetricCombination(closestSources, metricsOutputs, metrics_indices, metric_weights=METRIC_WEIGHTS, mode=""):
     global layers 
 
     metricsDictionary = metricsActivationsByLayers
@@ -3009,7 +3005,7 @@ def identifyClosestSourcesByMetricCombination(closestSources, metricsOutputs, me
             metrics_used_in_mean = 0
             for name in metrics_to_use:
                 score_array = metric_scores.get(name) # Should exist if in metrics_to_use
-                weight = METRIC_WEIGHTS.get(name)     # Get weight (Corrected dict)
+                weight = metric_weights.get(name)     # Get weight (Corrected dict)
 
                 # Ensure score/weight exist and score is valid array
                 if score_array is not None and weight is not None and isinstance(score_array, np.ndarray) and score_array.size > 0:
