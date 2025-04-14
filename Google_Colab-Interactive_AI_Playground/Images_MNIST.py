@@ -366,8 +366,9 @@ def computeSimilarity(sample, train_sample):
 
     return cosine_similarity, euclidean_distance, manhattan_distance, jaccard_similarity, hamming_distance, pearson_correlation
 
+original_image_similarity, metrics_image_similarity, mt_image_similarity = [], [], []
 def evaluateImageSimilarity(name, sample, mostUsed):
-    similarityList = []
+    global original_image_similarity, metrics_image_similarity, mt_image_similarity
 
     # Flatten and reshape the sample
     sample = np.asarray(sample.flatten().reshape(1, -1))
@@ -382,6 +383,17 @@ def evaluateImageSimilarity(name, sample, mostUsed):
     kendall_tau, _ = kendalltau(sample, blended_image_flat)
     spearman_rho, _ = spearmanr(sample, blended_image_flat)
 
+    results = {
+        "kendall_tau": kendall_tau,
+        "spearman_rho": spearman_rho,
+        "cosine_similarity": cosine_similarity,
+        "euclidean_distance": euclidean_distance,
+        "manhattan_distance": manhattan_distance,
+        "jaccard_similarity": jaccard_similarity if jaccard_similarity is not None else np.nan,
+        "hamming_distance": hamming_distance,
+        "pearson_correlation": pearson_correlation if pearson_correlation is not None else np.nan,
+    }
+
     # --- Print Results ---
     print(f"\n--- Blended Image Similarity Scores ({name})---")
     print(f"Kendall's Tau: {kendall_tau:.2f}")
@@ -392,6 +404,13 @@ def evaluateImageSimilarity(name, sample, mostUsed):
     print(f"Jaccard Similarity: {jaccard_similarity:.4f}" if jaccard_similarity is not None else "Jaccard Similarity: N/A")
     print(f"Hamming Distance: {hamming_distance:.4f}")
     print(f"Pearson Correlation: {pearson_correlation:.4f}" if pearson_correlation is not None else "Pearson Correlation: N/A")
+    
+    if name == "":
+        original_image_similarity.append(results)
+    elif name == "Metrics":
+        metrics_image_similarity.append(results)
+    elif name == "MT":
+        mt_image_similarity.append(results)
 
     # # Initialize aggregates for overall metrics
     # aggregate_scores = {
@@ -508,9 +527,8 @@ def evaluateImageSimilarity(name, sample, mostUsed):
     # print(f"Pearson Correlation (Mean): {aggregate_scores['pearson']:.4f}" if aggregate_scores["pearson"] is not None else "Pearson Correlation: N/A")
 
 # Global storage (optional)
-all_similarity_results = []
-
-def blendActivations(mostUsed, evaluationActivations, layerNumbersToCheck, store_globally=False):
+original_activation_similarity, metrics_activation_similarity, mt_activation_similarity = [], [], []
+def blendActivations(name, mostUsed, evaluationActivations, layerNumbersToCheck, store_globally=False):
     totalSources = sum(count for _, count in mostUsed)
     blendedActivations = np.zeros_like(evaluationActivations[layerNumbersToCheck])
 
@@ -542,7 +560,12 @@ def blendActivations(mostUsed, evaluationActivations, layerNumbersToCheck, store
     }
 
     if store_globally:
-        all_similarity_results.append(results)
+        if name == "":
+            original_activation_similarity.append(results)
+        elif name == "Metrics":
+            metrics_activation_similarity.append(results)
+        elif name == "MT":
+            mt_activation_similarity.append(results)
 
     # --- Print Results ---
     #print("\n--- Blended Activation Similarity Scores ---")
@@ -552,12 +575,14 @@ def blendActivations(mostUsed, evaluationActivations, layerNumbersToCheck, store
     return results  # Return for immediate use
 
 def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
-    global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource
+    global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource, original_image_similarity, metrics_image_similarity, mt_image_similarity, original_activation_similarity, metrics_activation_similarity, mt_activation_similarity
 
+    original_image_similarity, metrics_image_similarity, mt_image_similarity, original_activation_similarity, metrics_activation_similarity, mt_activation_similarity = [], [], [], [], [], []
+    
     #Make sure to set new dictionaries for the hooks to fill - they are global!
     dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource = RENN.initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model)
 
-    if analyze and paretoEvaluation:
+    if analyze:
         METRICS_COMBINATIONS = RENN.create_global_metric_combinations(3, 3, True)
 
     mostUsedList = []
@@ -601,18 +626,24 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
         if(analyze):
             #mostUsed, mostUsedMetrics, mostUsedMM = #RENN.getMostUsedSources(sourcesSum, metricSourcesSum, mtSourcesSum, closestSources)
             mostUsedList.append(mostUsedSourcesWithSum)
-            blendActivations(mostUsedSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layersToCheck, True)
+            blendActivations("", mostUsedSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layersToCheck, True)
             evaluateImageSimilarity("", sample, mostUsedSourcesWithSum)
-            evaluateImageSimilarity("Metrics", sample, mostUsedMetricSourcesWithSum)
-            evaluateImageSimilarity("MT", sample, mostUsedMMSourcesWithSum)
+            if metricsEvaluation:
+                blendActivations("Metrics", mostUsedMetricSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layersToCheck, True)
+                evaluateImageSimilarity("Metrics", sample, mostUsedMetricSourcesWithSum)
+            if RENN.mtEvaluation:
+                blendActivations("MT", mostUsedMMSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layersToCheck, True)
+                evaluateImageSimilarity("MT", sample, mostUsedMMSourcesWithSum)
 
+            #Per sample, not overall
             if paretoEvaluation:
                 for metric_combination in METRICS_COMBINATIONS:
                     metricSourcesSum, layerNumbersToCheck = RENN.identifyClosestSourcesByMetricCombination(closestSources, metricsDictionaryForSourceLayerNeuron[pos], metric_combination, mode="Sum")
                     mostUsedMetricSourcesWithSum = RENN.getMostUsedSourcesByMetrics(metricSourcesSum, closestSources, weightedMode="Sum")
 
                     evaluateImageSimilarityByMetrics("Metrics", metric_combination, sample, mostUsedMetricSourcesWithSum)
-    if analyze:          
+    if analyze:   
+        #Per sample, not overall    
         if weightTuning and paretoEvaluation:
             optimizations_to_run = evaluate_pareto()
             results, combinations = optimize_weights_of_best_combinations(closestSources, optimizations_to_run)
@@ -620,11 +651,187 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             pareto_df, weight_stats_df, study, union_combination_names = find_overall_weights_via_moo(closestSources, combinations)
             find_best_metric_weights(pareto_df, closestSources)
 
+        evaluate_metric_combinations_activation(
+            hidden_sizes=hidden_sizes, # Your model's hidden layer sizes
+            eval_dataloader=eval_dataloader,
+            eval_samples=eval_samples,
+            model=model,
+            closestSources=closestSources,
+            all_metric_combinations=METRICS_COMBINATIONS,
+             weightedMode="Sum",       # Or other mode used in RENN.getMostUsedSourcesByMetrics
+            identificationMode="Sum"  # Or "Activation" if preferred
+        )
+    
     #if pos % 10 == 0:  # Clear every 10 samples
     #    clear_output(wait=True)  # Keeps the last output visible
     #    time.sleep(1)  # Prevents UI freezing
 
     #print(f"Time passed since start: {time_since_start(startTime)}")
+
+def evaluate_metric_combinations_activation(hidden_sizes, eval_dataloader, eval_samples, model, closestSources, all_metric_combinations, weightedMode="Sum", identificationMode="Sum"):
+    print(f"Evaluating {len(all_metric_combinations)} metric combinations across {eval_samples} samples...")
+
+    # Dictionary to store results: {combination_str: {metric_name: [list_of_scores]}}
+    results_aggregator = defaultdict(lambda: defaultdict(list))
+    metric_keys_list = list(RENN.POTENTIAL_METRICS.keys())
+
+    # --- Evaluation Loop ---
+    for pos, (sample, _) in enumerate(eval_dataloader):
+        if pos >= eval_samples: # Ensure we only process the specified number of samples
+            break
+        sample = sample.float()
+
+        # Get the original activations for the current sample (needed for blendActivations)
+        # Assuming the hook stored activations by sample position (pos)
+        evaluationActivations = dictionaryForSourceLayerNeuron[pos]
+        if evaluationActivations is None:
+            print(f"Warning: Could not find original activations for sample {pos}. Skipping.")
+            continue
+
+        # Get the metric-based activations dictionary for the current sample
+        metricsSampleActivations = metricsDictionaryForSourceLayerNeuron[pos]
+        if metricsSampleActivations is None:
+            print(f"Warning: Could not find metric activations for sample {pos}. Skipping.")
+            continue
+
+        # Iterate through each metric combination
+        for metric_combination in all_metric_combinations:
+            try:
+                metric_combination_names = [metric_keys_list[i] for i in metric_combination]
+                # 1. Identify sources based on the current metric combination
+                metricSources, layerNumbersToCheck = RENN.identifyClosestSourcesByMetricCombination(
+                    closestSources,
+                    metricsSampleActivations, # Use pre-calculated metric activations
+                    metric_combination,
+                    mode=identificationMode
+                )
+
+                if not layerNumbersToCheck:
+                    print(f"Warning: No layers identified for combination {metric_combination} on sample {pos}. Skipping combination for this sample.")
+                    continue
+
+
+                # 2. Get the most used sources based on the identified sources
+                # Ensure this function returns a list like: [('source_id', count), ...]
+                mostUsedMetricSources = RENN.getMostUsedSourcesByMetrics(
+                    metricSources,
+                    closestSources,
+                    weightedMode=weightedMode
+                )
+
+                if not mostUsedMetricSources:
+                    #print(f"Warning: No sources found for combination {metric_combination} on sample {pos}. Skipping combination.")
+                    # Assign NaN results if no sources are found, allowing averaging later
+                    combination_str = str(metric_combination) # Use string representation as dict key
+                    for metric_name in ["kendall_tau", "spearman_rho", "cosine_similarity",
+                                        "euclidean_distance", "manhattan_distance", "jaccard_similarity",
+                                        "hamming_distance", "pearson_correlation"]:
+                        results_aggregator[combination_str][metric_name].append(np.nan)
+                    continue
+
+
+                # 3. Blend activations and compute similarity
+                # Pass the *original* activations (`evaluationActivations`) and the identified layers
+                # The blendActivations function calculates the blend based on `mostUsedMetricSources`
+                # and compares it against `evaluationActivations`.
+                similarity_results = blendActivations(
+                    name=f"metric_combo_{metric_combination}", # Temporary name, not stored globally here
+                    mostUsed=mostUsedMetricSources,
+                    evaluationActivations=evaluationActivations, # Original activations
+                    layerNumbersToCheck=layerNumbersToCheck,
+                    store_globally=False # We aggregate results locally
+                )
+
+                # 4. Store results for this combination and sample
+                combination_str = str(metric_combination) # Use string representation as dict key
+                for metric_name, value in similarity_results.items():
+                    results_aggregator[combination_str][metric_name].append(value)
+
+            except Exception as e:
+                print(f"Error processing combination {metric_combination} for sample {pos}: {e}")
+                # Optionally store NaNs for this combination/sample on error
+                combination_str = str(metric_combination)
+                for metric_name in ["kendall_tau", "spearman_rho", "cosine_similarity", "euclidean_distance", "manhattan_distance", "jaccard_similarity", "hamming_distance", "pearson_correlation"]:
+                    results_aggregator[combination_str][metric_name].append(np.nan)
+
+
+    # --- Aggregation ---
+    final_results = {}
+    for combination_str, metric_scores in results_aggregator.items():
+        avg_scores = {}
+        for metric_name, scores_list in metric_scores.items():
+            # Use nanmean to ignore NaNs during averaging
+            avg_scores[f"avg_{metric_name}"] = np.nanmean(scores_list) if scores_list else np.nan
+        final_results[combination_str] = avg_scores
+
+    # Convert to DataFrame for easier sorting and analysis
+    results_df = pd.DataFrame.from_dict(final_results, orient='index')
+
+    metrics_priority_list = [
+        'avg_cosine_similarity',   # Primary: Higher is better
+        'avg_euclidean_distance',  # Tie-breaker 1: Lower is better
+        'avg_kendall_tau',         # Tie-breaker 2: Higher is better
+        'avg_pearson_correlation', # Tie-breaker 3: Higher is better
+        'avg_manhattan_distance',  # Tie-breaker 4: Lower is better
+        # Add more metrics if further tie-breaking is needed
+    ]
+
+    # Keywords to identify metric types (same as before)
+    similarity_keywords = ['similarity', 'correlation', 'tau', 'rho']
+    distance_keywords = ['distance']
+    
+    # --- Prepare Sorting Parameters ---
+    sort_by_columns = []
+    sort_ascending_flags = []
+    sort_descriptions = [] # For printing clarity
+    
+    print("--- Preparing Multi-Metric Sort ---")
+    print(f"Sorting Priority: {', '.join(metrics_priority_list)}")
+    
+    for metric_col in metrics_priority_list:
+        if metric_col not in results_df.columns:
+            print(f"Warning: Metric '{metric_col}' in priority list not found in DataFrame. Skipping.")
+            continue
+    
+        # Determine sort order (ascending=True means lower is better)
+        ascending_order = None
+        metric_col_lower = metric_col.lower()
+    
+        is_similarity = any(keyword in metric_col_lower for keyword in similarity_keywords)
+        is_distance = any(keyword in metric_col_lower for keyword in distance_keywords)
+    
+        if is_similarity and not is_distance:
+            ascending_order = False # Higher values are better
+            sort_descriptions.append(f"{metric_col} (Desc)")
+        elif is_distance:
+            ascending_order = True # Lower values are better
+            sort_descriptions.append(f"{metric_col} (Asc)")
+        else:
+            print(f"Warning: Could not determine optimal sort direction for '{metric_col}'. Defaulting to 'Higher is Better'.")
+            ascending_order = False # Default assumption
+            sort_descriptions.append(f"{metric_col} (Desc - Default)")
+    
+        # Add the metric and its corresponding ascending flag to the lists
+        sort_by_columns.append(metric_col)
+        sort_ascending_flags.append(ascending_order)
+    
+    # --- Perform and Print Multi-Metric Sorted Results ---
+    
+    if not sort_by_columns:
+        print("\nError: No valid columns found to sort by based on the priority list. Aborting.")
+    else:
+        print(f"\n--- Final Ranking Sorted By: {' -> '.join(sort_descriptions)} ---")
+    
+        # Perform the multi-column sort using the prepared lists
+        multi_sorted_df = results_df.sort_values(
+            by=sort_by_columns,
+            ascending=sort_ascending_flags
+        )
+    
+        # Print the entire sorted DataFrame
+        print(multi_sorted_df)
+
+    print("Evaluation complete.")
 
 best_image_similarity = []
 def evaluateImageSimilarityByMetrics(name, combination, sample, mostUsed):

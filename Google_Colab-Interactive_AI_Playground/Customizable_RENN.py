@@ -30,7 +30,7 @@ llm: bool = False                  # Use LLM specific logic
 metricsEvaluation: bool = False    # Perform metrics evaluation
 mtEvaluation: bool = True          # Perform magnitude truncation evaluation
 useBitNet: bool = False            # Use BitNet specific logic/model
-useOnlyBestMetrics: bool = True
+useOnlyBestMetrics: bool = False
 
 # --- Environment, Data & File Paths ---
 device: str = ""                   # Computation device (e.g., "cuda", "cpu")
@@ -470,9 +470,16 @@ def initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model,
     return dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource
 
 METRIC_WEIGHTS = {name: 0.0 for name in POTENTIAL_METRICS.keys()}
-#NEEDS TO BE CHANGED BEFORE PARETO_EVALUATION!!!! Comment the initialization of EVAlUATION_METRICS to use all metrics instead
-EVALUATION_METRICS = {'L1 norm (Manhattan)': 0.4550, 'Cosine Similarity': 1.3947, 'Pearson Correlation': 1.7145, 'Peak-to-Peak Range': 1.6832,
-                     'Variance': 0.7049, 'Spearman Correlation': 1.3736, 'L∞ norm (Chebyshev)': 0.8470, 'L2 norm (Euclidean)': 1.7258, 'Median': 0.7801}
+#Best metrics by Optimization for only one sample
+#EVALUATION_METRICS = {'L1 norm (Manhattan)': 0.4550, 'Cosine Similarity': 1.3947, 'Pearson Correlation': 1.7145, 'Peak-to-Peak Range': 1.6832,
+#                     'Variance': 0.7049, 'Spearman Correlation': 1.3736, 'L∞ norm (Chebyshev)': 0.8470, 'L2 norm (Euclidean)': 1.7258, 'Median': 0.7801}
+#Best Metrics for one sample with 128 layer size by Average NDCG ~65%
+#EVALUATION_METRICS = {'Canberra': 0.034262836221897686, 'Chi-square': 0.8155299806719645, 'Jaccard (Rounded Sets)': 0.001437592332473082, 'Jensen-Shannon': 0.0025480160518755336, 'Kurtosis': 0.0031398715863971147, 'L1 norm (Manhattan)': 0.12144434270728152, 'Max': 0.005106721107465592, 'Pearson Correlation': 0.010801096055247771, 'Skewness': 0.004429958518467075, 'Sørensen–Dice (Rounded Sets)': 0.0012995847469301114}
+#Best Metrics for 10 samples with 1024 layer size by Average NDCG ~83%
+#EVALUATION_METRICS = {'Canberra': 0.729337656812952, 'Kurtosis': 0.0012939579042749686, 'Max': 0.23866959715105898, 'Pearson Correlation': 0.009881806419878765, 'Spearman Correlation': 0.004248273259857096, 'Squared Euclidean': 0.01656870845197806}
+#Bests Metrics for 10 samples with 2048 layer size by Average NDCG ~84%
+EVALUATION_METRICS = {'Canberra': 0.6096463431205467, 'Chi-square': 0.03554298989041808, 'Jaccard (Rounded Sets)': 0.3382192228124472, 'Kurtosis': 0.0002865279259160476, 'Levenshtein (Rounded Strings)': 0.0002998769279219361, 'Max': 0.0096465702916513, 'Median': 0.0016993437007648648, 'Peak-to-Peak Range': 0.0010868364471923585, 'Pearson Correlation': 0.001783285431289672, 'Shannon Entropy': 0.000564316921047458, 'Skewness': 0.0012246865308042248}
+#EVALUATION_METRICS = {'Cosine Similarity': 1.0, 'L1 norm (Manhattan)': 1.0, 'L∞ norm (Chebyshev)': 1.0, 'Pearson Correlation': 1.0, 'Spearman Correlation': 1.0}
 METRICS_TO_USE = EVALUATION_METRICS if (len(EVALUATION_METRICS) > 0 and useOnlyBestMetrics) else {name: 1.0 for name in POTENTIAL_METRICS.keys()}
 
 for metric in METRICS_TO_USE.keys():
