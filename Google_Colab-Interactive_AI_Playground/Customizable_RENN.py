@@ -2866,7 +2866,7 @@ def create_global_metric_combinations(max_metrics_to_add, max_metrics_to_remove,
 
     # 2. Define the current best combination as the baseline
     current_best_metrics_tuple = ('L1 norm (Manhattan)', 'Cosine Similarity', 'Pearson Correlation', 'Peak-to-Peak Range', 'Variance',
-                                  'Spearman Correlation', 'L∞ norm (Chebyshev)', 'L2 norm (Euclidean)', 'Median')
+        'Spearman Correlation', 'L∞ norm (Chebyshev)', 'L2 norm (Euclidean)', 'Median', 'KL Divergence Reversed', 'Kurtosis','L1/L2 Ratio')
     baseline_metrics_set = set(current_best_metrics_tuple)
 
     # 3. Verify baseline metrics are available (optional but recommended)

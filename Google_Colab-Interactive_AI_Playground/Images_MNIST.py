@@ -3,12 +3,15 @@ from torch.utils.data import Dataset
 from torch.utils.data import Subset
 import torch.optim as optim
 import numpy as np
+import os
 import Customizable_RENN as RENN
+from scipy.spatial import distance
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.metrics import mean_squared_error, accuracy_score
 from scipy.stats import spearmanr, kendalltau, pearsonr
-from IPython.display import clear_output
+from IPython.display import clear_output, display
 from collections import defaultdict, OrderedDict
+import concurrent.futures
 import time
 import math
 import matplotlib.pyplot as plt
@@ -574,8 +577,9 @@ def blendActivations(name, mostUsed, evaluationActivations, layerNumbersToCheck,
 
     return results  # Return for immediate use
 
+resultDataframe = ""
 def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
-    global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource, original_image_similarity, metrics_image_similarity, mt_image_similarity, original_activation_similarity, metrics_activation_similarity, mt_activation_similarity
+    global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource, original_image_similarity, metrics_image_similarity, mt_image_similarity, original_activation_similarity, metrics_activation_similarity, mt_activation_similarity, resultDataframe
 
     original_image_similarity, metrics_image_similarity, mt_image_similarity, original_activation_similarity, metrics_activation_similarity, mt_activation_similarity = [], [], [], [], [], []
     
@@ -651,14 +655,12 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             pareto_df, weight_stats_df, study, union_combination_names = find_overall_weights_via_moo(closestSources, combinations)
             find_best_metric_weights(pareto_df, closestSources)
 
-        evaluate_metric_combinations_activation(
-            hidden_sizes=hidden_sizes, # Your model's hidden layer sizes
-            eval_dataloader=eval_dataloader,
-            eval_samples=eval_samples,
-            model=model,
+        resultDataframe = evaluate_metric_combinations_overall(
+            mostUsedList,
+            hidden_sizes=hidden_sizes,
             closestSources=closestSources,
             all_metric_combinations=METRICS_COMBINATIONS,
-             weightedMode="Sum",       # Or other mode used in RENN.getMostUsedSourcesByMetrics
+            weightedMode="Sum",       # Or other mode used in RENN.getMostUsedSourcesByMetrics
             identificationMode="Sum"  # Or "Activation" if preferred
         )
     
@@ -668,173 +670,367 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
 
     #print(f"Time passed since start: {time_since_start(startTime)}")
 
-def evaluate_metric_combinations_activation(hidden_sizes, eval_dataloader, eval_samples, model, closestSources, all_metric_combinations, weightedMode="Sum", identificationMode="Sum"):
-    print(f"Evaluating {len(all_metric_combinations)} metric combinations across {eval_samples} samples...")
+# ----------------------------------------------------------------------------
+# Helper Functions for Source List Similarities
+# ----------------------------------------------------------------------------
 
-    # Dictionary to store results: {combination_str: {metric_name: [list_of_scores]}}
-    results_aggregator = defaultdict(lambda: defaultdict(list))
-    metric_keys_list = list(RENN.POTENTIAL_METRICS.keys())
+def calculate_source_cosine_similarity(list1, list2):
+    """ Calculates standard cosine similarity between source count vectors. """
+    counts1 = Counter(dict(list1))
+    counts2 = Counter(dict(list2))
+    all_source_ids = sorted(list(counts1.keys() | counts2.keys()))
+    if not all_source_ids: return 1.0
+    vec1 = np.array([counts1.get(src_id, 0) for src_id in all_source_ids], dtype=float).reshape(1, -1)
+    vec2 = np.array([counts2.get(src_id, 0) for src_id in all_source_ids], dtype=float).reshape(1, -1)
+    norm1 = np.linalg.norm(vec1)
+    norm2 = np.linalg.norm(vec2)
+    if norm1 == 0 and norm2 == 0: return 1.0
+    if norm1 == 0 or norm2 == 0: return 0.0
+    try:
+        sim_score = cosine_similarity(vec1, vec2)[0, 0]
+        return np.clip(sim_score, 0.0, 1.0)
+    except Exception: return 0.0
 
-    # --- Evaluation Loop ---
-    for pos, (sample, _) in enumerate(eval_dataloader):
-        if pos >= eval_samples: # Ensure we only process the specified number of samples
-            break
-        sample = sample.float()
+def calculate_log_cosine_similarity(list1, list2):
+    """ Calculates cosine similarity between log2(count+1) transformed source vectors. """
+    counts1 = Counter(dict(list1))
+    counts2 = Counter(dict(list2))
+    all_source_ids = sorted(list(counts1.keys() | counts2.keys()))
+    if not all_source_ids: return 1.0
+    # Apply log2(count + 1) transformation
+    vec1 = np.array([math.log2(counts1.get(src_id, 0) + 1) for src_id in all_source_ids], dtype=float).reshape(1, -1)
+    vec2 = np.array([math.log2(counts2.get(src_id, 0) + 1) for src_id in all_source_ids], dtype=float).reshape(1, -1)
+    norm1 = np.linalg.norm(vec1)
+    norm2 = np.linalg.norm(vec2)
+    if norm1 == 0 and norm2 == 0: return 1.0
+    if norm1 == 0 or norm2 == 0: return 0.0
+    try:
+        sim_score = cosine_similarity(vec1, vec2)[0, 0]
+        return np.clip(sim_score, 0.0, 1.0)
+    except Exception: return 0.0
 
-        # Get the original activations for the current sample (needed for blendActivations)
-        # Assuming the hook stored activations by sample position (pos)
-        evaluationActivations = dictionaryForSourceLayerNeuron[pos]
-        if evaluationActivations is None:
-            print(f"Warning: Could not find original activations for sample {pos}. Skipping.")
-            continue
+def calculate_jsd(list1, list2):
+    """
+    Calculates Jensen-Shannon Divergence (base 2) between source count distributions.
+    Lower values indicate higher similarity. Returns NaN on error or invalid input.
+    """
+    counts1 = Counter(dict(list1))
+    counts2 = Counter(dict(list2))
+    all_source_ids = sorted(list(counts1.keys() | counts2.keys()))
+    if not all_source_ids: return 0.0 # Treat empty lists as identical
 
-        # Get the metric-based activations dictionary for the current sample
-        metricsSampleActivations = metricsDictionaryForSourceLayerNeuron[pos]
-        if metricsSampleActivations is None:
-            print(f"Warning: Could not find metric activations for sample {pos}. Skipping.")
-            continue
+    # Create count vectors
+    vec1 = np.array([counts1.get(src_id, 0) for src_id in all_source_ids], dtype=float)
+    vec2 = np.array([counts2.get(src_id, 0) for src_id in all_source_ids], dtype=float)
 
-        # Iterate through each metric combination
-        for metric_combination in all_metric_combinations:
+    # Normalize to probability distributions
+    sum1 = np.sum(vec1)
+    sum2 = np.sum(vec2)
+
+    # Handle cases where one or both lists have zero total count
+    if sum1 == 0 and sum2 == 0: return 0.0 # Identical zero distributions
+    if sum1 == 0 or sum2 == 0: return 1.0 # Maximally divergent if one is zero, other isn't
+
+    p = vec1 / sum1
+    q = vec2 / sum2
+
+    # Calculate JSD using scipy (handles internal smoothing for zero probabilities)
+    try:
+        jsd_score = distance.jensenshannon(p, q, base=2.0)
+        # Ensure result is not NaN (can happen in edge cases with distance function)
+        return jsd_score if not np.isnan(jsd_score) else 1.0 # Treat NaN as max divergence
+    except Exception:
+        # traceback.print_exc() # Optional: for debugging errors in distance calc
+        return np.nan # Return NaN if calculation fails
+
+
+# ----------------------------------------------------------------------------
+# Constants for Metric Keys (Global Scope) - UPDATED
+# ----------------------------------------------------------------------------
+# Activation Similarity keys
+ACTIVATION_METRIC_KEYS = ["kendall_tau", "spearman_rho", "cosine_similarity",
+                          "euclidean_distance", "manhattan_distance", "jaccard_similarity",
+                          "hamming_distance", "pearson_correlation"]
+# Image Similarity keys mapping
+IMAGE_SIM_KEY_MAP = {
+    'Cosine Sim': 'cosine_sim', 'Euclidean Dst': 'euclidean_dst',
+    'Manhattan Dst': 'manhattan_dst', 'Jaccard Sim': 'jaccard_sim',
+    'Hamming Dst': 'hamming_dst', 'Pearson Corr': 'pearson_corr',
+    'Kendall Tau': 'kendall_tau', 'Spearman Rho': 'spearman_rho'
+}
+IMG_SIM_PREFIX = "img_"
+IMAGE_METRIC_KEYS_PREFIXED = [f"{IMG_SIM_PREFIX}{v}" for v in IMAGE_SIM_KEY_MAP.values()]
+
+# Source Overlap Metric Keys (Standard Cosine, Log-Cosine, JSD) - UPDATED
+SOURCE_COSINE_METRIC = "source_cosine_similarity"
+SOURCE_LOG_COSINE_METRIC = "source_log_cosine_similarity" # New key
+SOURCE_JSD_METRIC = "source_jsd" # New key
+SOURCE_METRIC_KEYS = [SOURCE_COSINE_METRIC, SOURCE_LOG_COSINE_METRIC, SOURCE_JSD_METRIC]
+
+# Combined list for robust NaN padding and aggregation checks - UPDATED
+ALL_METRIC_KEYS_FOR_AGGREGATION = ACTIVATION_METRIC_KEYS + IMAGE_METRIC_KEYS_PREFIXED + SOURCE_METRIC_KEYS
+
+# ----------------------------------------------------------------------------
+# Worker Function for Processing a Single Sample - UPDATED
+# ----------------------------------------------------------------------------
+def process_sample_evaluation(args):
+    # Unpack arguments
+    (pos, sample, originalMostUsedSources, evaluationActivations,
+     metricsSampleActivations, all_metric_combinations, closestSources,
+     weightedMode, identificationMode) = args
+
+    sample_results = {}
+    if evaluationActivations is None or metricsSampleActivations is None: return None
+    original_source_ids = set(src_id for src_id, count in originalMostUsedSources)
+
+    for metric_combination in all_metric_combinations:
+        combination_str = str(metric_combination)
+        current_results = {key: np.nan for key in ALL_METRIC_KEYS_FOR_AGGREGATION} # Initialize all possible keys
+
+        try:
+            metricSources, layerNumbersToCheck = RENN.identifyClosestSourcesByMetricCombination(
+                closestSources, metricsSampleActivations, metric_combination, mode=identificationMode
+            )
+
+            if not layerNumbersToCheck:
+                for metric_key in ALL_METRIC_KEYS_FOR_AGGREGATION: sample_results[(combination_str, metric_key)] = np.nan
+                continue
+
+            mostUsedMetricSources = RENN.getMostUsedSourcesByMetrics(
+                metricSources, closestSources, weightedMode=weightedMode
+            )
+
+            if mostUsedMetricSources:
+                # --- Calculate ALL Source Similarities ---
+                current_results[SOURCE_COSINE_METRIC] = calculate_source_cosine_similarity(
+                    originalMostUsedSources, mostUsedMetricSources
+                )
+                current_results[SOURCE_LOG_COSINE_METRIC] = calculate_log_cosine_similarity(
+                    originalMostUsedSources, mostUsedMetricSources
+                )
+                current_results[SOURCE_JSD_METRIC] = calculate_jsd(
+                    originalMostUsedSources, mostUsedMetricSources
+                )
+
+                # --- Calculate Image Similarity ---
+                image_sim_dict = evaluateImageSimilarityByMetrics(
+                    name="Metrics_MP", combination=combination_str, sample=sample,
+                    mostUsed=mostUsedMetricSources, storeGlobally=False
+                )
+                for eval_key, store_suffix in IMAGE_SIM_KEY_MAP.items():
+                    if eval_key in image_sim_dict:
+                        current_results[f"{IMG_SIM_PREFIX}{store_suffix}"] = image_sim_dict[eval_key]
+
+                # --- Calculate Activation Similarity ---
+                activation_sim_dict = blendActivations(
+                    name=f"metric_combo_{combination_str}", mostUsed=mostUsedMetricSources,
+                    evaluationActivations=evaluationActivations,
+                    layerNumbersToCheck=layerNumbersToCheck, store_globally=False
+                )
+                for act_key in ACTIVATION_METRIC_KEYS:
+                    if act_key in activation_sim_dict:
+                        current_results[act_key] = activation_sim_dict[act_key]
+
+            # Store results for this combination
+            for metric_key, value in current_results.items():
+                sample_results[(combination_str, metric_key)] = value
+
+        except Exception as e:
+            print(f"\n--- WORKER ERROR (PID {os.getpid()}) processing combination {combination_str} for sample {pos} ---") 
+            for metric_key in ALL_METRIC_KEYS_FOR_AGGREGATION: sample_results[(combination_str, metric_key)] = np.nan
+            print(f"--- WORKER (PID {os.getpid()}) continuing ---")
+
+    return sample_results
+
+# ----------------------------------------------------------------------------
+# Main Evaluation Function (Multiprocessing Version) - UPDATED
+# ----------------------------------------------------------------------------
+
+def evaluate_metric_combinations_overall(
+        mostUsedList,
+        closestSources,
+        hidden_sizes,
+        all_metric_combinations,
+        weightedMode="Sum",
+        identificationMode="Sum",
+        max_workers=None
+):
+    """
+    Evaluates metric combinations using multiprocessing. Includes multiple source
+    similarity metrics (Cosine, Log-Cosine, JSD). Saves results to CSV.
+    """
+    start_time = time.time()
+    print(f"Starting evaluation with multiprocessing (max_workers={max_workers or os.cpu_count()})...")
+    print("Metrics: Activation Similarity, Image Similarity, Source Similarities (Cosine, LogCos, JSD)")
+
+    if max_workers is None: max_workers = os.cpu_count(); print(f"Using default max_workers = {max_workers}")
+
+    futures = []; results_list = []
+    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+        processed_samples = 0
+        for pos, (sample, _) in enumerate(eval_dataloader):
+            if processed_samples >= eval_samples: break
+            originalMostUsedSources = mostUsedList[pos] if pos < len(mostUsedList) else []
+            evaluationActivations = dictionaryForSourceLayerNeuron[pos]
+            metricsSampleActivations = metricsDictionaryForSourceLayerNeuron[pos]
+            try: sample_data = sample.float() # Add CPU conversion if needed
+            except Exception as e: print(f"Warning: Sample prep failed {pos}: {e}. Skipping."); continue
+
+            args = (pos, sample_data, originalMostUsedSources, evaluationActivations,
+                    metricsSampleActivations, all_metric_combinations, closestSources,
+                    weightedMode, identificationMode)
+            futures.append(executor.submit(process_sample_evaluation, args))
+            processed_samples += 1
+        print(f"Submitted {len(futures)} tasks to {max_workers} workers.")
+        for future in concurrent.futures.as_completed(futures):
             try:
-                metric_combination_names = [metric_keys_list[i] for i in metric_combination]
-                # 1. Identify sources based on the current metric combination
-                metricSources, layerNumbersToCheck = RENN.identifyClosestSourcesByMetricCombination(
-                    closestSources,
-                    metricsSampleActivations, # Use pre-calculated metric activations
-                    metric_combination,
-                    mode=identificationMode
-                )
+                result = future.result()
+                if result is not None: results_list.append(result)
+            except Exception as e: print(f"\n--- ERROR retrieving result: {e} ---")
 
-                if not layerNumbersToCheck:
-                    print(f"Warning: No layers identified for combination {metric_combination} on sample {pos}. Skipping combination for this sample.")
-                    continue
+    print(f"\nCollected results from {len(results_list)} tasks.")
+    if not results_list: print("Error: No results collected."); return None
 
+    # --- Aggregate Results ---
+    print("Aggregating results...")
+    results_aggregator = defaultdict(lambda: defaultdict(list))
+    for sample_result_dict in results_list:
+        for (combination_str, metric_key), score in sample_result_dict.items():
+            results_aggregator[combination_str][metric_key].append(score)
 
-                # 2. Get the most used sources based on the identified sources
-                # Ensure this function returns a list like: [('source_id', count), ...]
-                mostUsedMetricSources = RENN.getMostUsedSourcesByMetrics(
-                    metricSources,
-                    closestSources,
-                    weightedMode=weightedMode
-                )
-
-                if not mostUsedMetricSources:
-                    #print(f"Warning: No sources found for combination {metric_combination} on sample {pos}. Skipping combination.")
-                    # Assign NaN results if no sources are found, allowing averaging later
-                    combination_str = str(metric_combination) # Use string representation as dict key
-                    for metric_name in ["kendall_tau", "spearman_rho", "cosine_similarity",
-                                        "euclidean_distance", "manhattan_distance", "jaccard_similarity",
-                                        "hamming_distance", "pearson_correlation"]:
-                        results_aggregator[combination_str][metric_name].append(np.nan)
-                    continue
-
-
-                # 3. Blend activations and compute similarity
-                # Pass the *original* activations (`evaluationActivations`) and the identified layers
-                # The blendActivations function calculates the blend based on `mostUsedMetricSources`
-                # and compares it against `evaluationActivations`.
-                similarity_results = blendActivations(
-                    name=f"metric_combo_{metric_combination}", # Temporary name, not stored globally here
-                    mostUsed=mostUsedMetricSources,
-                    evaluationActivations=evaluationActivations, # Original activations
-                    layerNumbersToCheck=layerNumbersToCheck,
-                    store_globally=False # We aggregate results locally
-                )
-
-                # 4. Store results for this combination and sample
-                combination_str = str(metric_combination) # Use string representation as dict key
-                for metric_name, value in similarity_results.items():
-                    results_aggregator[combination_str][metric_name].append(value)
-
-            except Exception as e:
-                print(f"Error processing combination {metric_combination} for sample {pos}: {e}")
-                # Optionally store NaNs for this combination/sample on error
-                combination_str = str(metric_combination)
-                for metric_name in ["kendall_tau", "spearman_rho", "cosine_similarity", "euclidean_distance", "manhattan_distance", "jaccard_similarity", "hamming_distance", "pearson_correlation"]:
-                    results_aggregator[combination_str][metric_name].append(np.nan)
-
-
-    # --- Aggregation ---
+    # --- Calculate Averages ---
     final_results = {}
-    for combination_str, metric_scores in results_aggregator.items():
+    for combination_str, metric_scores_dict in results_aggregator.items():
         avg_scores = {}
-        for metric_name, scores_list in metric_scores.items():
-            # Use nanmean to ignore NaNs during averaging
-            avg_scores[f"avg_{metric_name}"] = np.nanmean(scores_list) if scores_list else np.nan
+        all_possible_keys = set(metric_scores_dict.keys()) | set(ALL_METRIC_KEYS_FOR_AGGREGATION)
+        for metric_key in all_possible_keys:
+            scores_list = metric_scores_dict.get(metric_key, [])
+            if scores_list: avg_scores[f"avg_{metric_key}"] = np.nanmean([s for s in scores_list if s is not None])
+            else: avg_scores[f"avg_{metric_key}"] = np.nan
         final_results[combination_str] = avg_scores
 
-    # Convert to DataFrame for easier sorting and analysis
-    results_df = pd.DataFrame.from_dict(final_results, orient='index')
+    if not final_results: print("Error: Aggregation failed."); return None
 
+    # --- Create DataFrame ---
+    try:
+        results_df = pd.DataFrame.from_dict(final_results, orient='index')
+        print(f"Aggregated DataFrame shape: {results_df.shape}")
+        if results_df.empty: print("Error: DataFrame empty."); return None
+    except Exception as e: print(f"Error creating DataFrame: {e}"); return None
+
+    # --- Define Logical Column Order (Updated) ---
+    ordered_columns = []
+    act_sim_ordered = ['cosine_similarity', 'pearson_correlation', 'kendall_tau', 'spearman_rho', 'jaccard_similarity']
+    act_dist_ordered = ['euclidean_distance', 'manhattan_distance', 'hamming_distance']
+    img_sim_ordered = ['cosine_sim', 'pearson_corr', 'kendall_tau', 'spearman_rho', 'jaccard_sim']
+    img_dist_ordered = ['euclidean_dst', 'manhattan_dst', 'hamming_dst']
+    # Source metrics together
+    source_ordered = [SOURCE_COSINE_METRIC, SOURCE_LOG_COSINE_METRIC, SOURCE_JSD_METRIC]
+
+    ordered_columns.extend([f'avg_{m}' for m in act_sim_ordered])
+    ordered_columns.extend([f'avg_{m}' for m in act_dist_ordered])
+    ordered_columns.extend([f'avg_{IMG_SIM_PREFIX}{m}' for m in img_sim_ordered])
+    ordered_columns.extend([f'avg_{IMG_SIM_PREFIX}{m}' for m in img_dist_ordered])
+    ordered_columns.extend([f'avg_{m}' for m in source_ordered]) # Add new source metrics here
+
+    remaining_cols = [col for col in results_df.columns if col not in ordered_columns]
+    ordered_columns.extend(sorted(remaining_cols))
+    final_ordered_columns = [col for col in ordered_columns if col in results_df.columns]
+
+    # --- Reindex DataFrame Columns ---
+    try:
+        results_df = results_df[final_ordered_columns]
+        print("Reordered DataFrame columns.")
+    except Exception as e: print(f"Warning: Column reordering failed: {e}.")
+
+    # --- Define Row Sorting Priority (Updated) ---
+    # Added new source metrics as lower-priority tie-breakers
     metrics_priority_list = [
-        'avg_cosine_similarity',   # Primary: Higher is better
-        'avg_euclidean_distance',  # Tie-breaker 1: Lower is better
-        'avg_kendall_tau',         # Tie-breaker 2: Higher is better
-        'avg_pearson_correlation', # Tie-breaker 3: Higher is better
-        'avg_manhattan_distance',  # Tie-breaker 4: Lower is better
-        # Add more metrics if further tie-breaking is needed
+        'avg_cosine_similarity',
+        f'avg_{IMG_SIM_PREFIX}cosine_sim',
+        f'avg_{SOURCE_COSINE_METRIC}',       # Original source metric
+        f'avg_{SOURCE_LOG_COSINE_METRIC}', # New source metric (higher better)
+        f'avg_{SOURCE_JSD_METRIC}',          # New source metric (lower better)
+        'avg_euclidean_distance',
+        f'avg_{IMG_SIM_PREFIX}euclidean_dst',
+        'avg_kendall_tau',
     ]
-
-    # Keywords to identify metric types (same as before)
     similarity_keywords = ['similarity', 'correlation', 'tau', 'rho']
-    distance_keywords = ['distance']
-    
-    # --- Prepare Sorting Parameters ---
-    sort_by_columns = []
-    sort_ascending_flags = []
-    sort_descriptions = [] # For printing clarity
-    
-    print("--- Preparing Multi-Metric Sort ---")
-    print(f"Sorting Priority: {', '.join(metrics_priority_list)}")
-    
+    distance_keywords = ['distance', 'dst', 'jsd'] # Add jsd as distance
+
+    # --- Prepare Row Sorting Parameters (Updated Logic) ---
+    sort_by_columns = []; sort_ascending_flags = []; sort_descriptions = []
     for metric_col in metrics_priority_list:
-        if metric_col not in results_df.columns:
-            print(f"Warning: Metric '{metric_col}' in priority list not found in DataFrame. Skipping.")
-            continue
-    
-        # Determine sort order (ascending=True means lower is better)
-        ascending_order = None
+        if metric_col not in results_df.columns: continue
+        ascending_order = False; sort_type = " (Desc)" # Default: higher is better
         metric_col_lower = metric_col.lower()
-    
         is_similarity = any(keyword in metric_col_lower for keyword in similarity_keywords)
         is_distance = any(keyword in metric_col_lower for keyword in distance_keywords)
-    
-        if is_similarity and not is_distance:
-            ascending_order = False # Higher values are better
-            sort_descriptions.append(f"{metric_col} (Desc)")
-        elif is_distance:
-            ascending_order = True # Lower values are better
-            sort_descriptions.append(f"{metric_col} (Asc)")
-        else:
-            print(f"Warning: Could not determine optimal sort direction for '{metric_col}'. Defaulting to 'Higher is Better'.")
-            ascending_order = False # Default assumption
-            sort_descriptions.append(f"{metric_col} (Desc - Default)")
-    
-        # Add the metric and its corresponding ascending flag to the lists
-        sort_by_columns.append(metric_col)
-        sort_ascending_flags.append(ascending_order)
-    
-    # --- Perform and Print Multi-Metric Sorted Results ---
-    
-    if not sort_by_columns:
-        print("\nError: No valid columns found to sort by based on the priority list. Aborting.")
-    else:
-        print(f"\n--- Final Ranking Sorted By: {' -> '.join(sort_descriptions)} ---")
-    
-        # Perform the multi-column sort using the prepared lists
-        multi_sorted_df = results_df.sort_values(
-            by=sort_by_columns,
-            ascending=sort_ascending_flags
-        )
-    
-        # Print the entire sorted DataFrame
-        print(multi_sorted_df)
 
-    print("Evaluation complete.")
+        # Explicit checks for clarity, especially for new metrics
+        if SOURCE_JSD_METRIC in metric_col_lower: # JSD: lower is better
+            ascending_order = True; sort_type = " (Asc)"
+        elif SOURCE_LOG_COSINE_METRIC in metric_col_lower: # LogCosine: higher is better
+            ascending_order = False; sort_type = " (Desc)"
+        elif SOURCE_COSINE_METRIC in metric_col_lower: # Cosine: higher is better
+            ascending_order = False; sort_type = " (Desc)"
+        elif is_distance: # Other distances: lower is better
+            ascending_order = True; sort_type = " (Asc)"
+        elif is_similarity: # Other similarities: higher is better
+            ascending_order = False; sort_type = " (Desc)"
+        # else: keep default (Desc)
+
+        sort_by_columns.append(metric_col); sort_ascending_flags.append(ascending_order)
+        sort_descriptions.append(f"{metric_col.replace('avg_', '')}{sort_type}")
+
+    # --- Perform Final Row Sort ---
+    if not sort_by_columns:
+        print("\nWarning: No valid columns for sorting rows.")
+        final_df_to_return = results_df
+    else:
+        print(f"\n--- Final Ranking Sorted By Rows: {' -> '.join(sort_descriptions)} ---")
+        try:
+            multi_sorted_df = results_df.sort_values(
+                by=sort_by_columns, ascending=sort_ascending_flags, na_position='last'
+            )
+            final_df_to_return = multi_sorted_df
+        except Exception as e:
+            print(f"\nError during final row sorting: {e}.")
+            final_df_to_return = results_df
+
+    # --- Print Preview and Export ---
+    pd.set_option('display.max_rows', 200); pd.set_option('display.max_columns', None)
+    pd.set_option('display.width', 2000); pd.set_option('display.max_colwidth', None)
+    print("\n--- Top Results Preview (Full results in CSV) ---")
+    print(final_df_to_return.head())
+
+    # --- Generate Timestamped Filename ---
+    local_time_struct = time.localtime()
+    formatted_time = time.strftime("%Y%m%d_%H%M%S", local_time_struct) # Format for filename
+    # Example: Construct filename with parameters (ensure variables like train_samples exist)
+    try:
+        filename_params = f"E{eval_samples}_T{train_samples}_L{hidden_sizes[0][1]}"
+        output_csv_filename = f"{formatted_time}-{filename_params}_metrics.csv"
+    except NameError:
+        print("Warning: Could not create detailed filename, using default.")
+        output_csv_filename = f"{formatted_time}_metric_evaluation_results.csv" # Fallback
+
+
+    # --- Export Full Results to CSV ---
+    try:
+        final_df_to_return.to_csv(output_csv_filename)
+        print(final_df_to_return)
+        print(f"\nFull results successfully exported to: {output_csv_filename}")
+    except Exception as e:
+        print(f"\nWarning: Failed to export results to CSV file '{output_csv_filename}': {e}")
+
+    end_time = time.time()
+    print(f"\nEvaluation complete in {end_time - start_time:.2f} seconds.")
+    print(f"Returning final DataFrame ({final_df_to_return.shape}).")
+    return final_df_to_return
 
 best_image_similarity = []
-def evaluateImageSimilarityByMetrics(name, combination, sample, mostUsed):
+def evaluateImageSimilarityByMetrics(name, combination, sample, mostUsed, storeGlobally=True):
     global best_image_similarity # Declare intent to modify the global list
 
     sample_flat = np.asarray(sample.flatten().reshape(1, -1))
@@ -869,7 +1065,6 @@ def evaluateImageSimilarityByMetrics(name, combination, sample, mostUsed):
     else:
         print(f"Warning ({name} - {combination}): Input vector length <= 1, skipping rank correlations.")
 
-
     # --- Store Results ---
     # Append the combination identifier along with all metrics to the list
     result_tuple = (
@@ -883,7 +1078,8 @@ def evaluateImageSimilarityByMetrics(name, combination, sample, mostUsed):
         kendall_tau,           # May be None if calculation fails
         spearman_rho           # May be None if calculation fails
     )
-    best_image_similarity.append(result_tuple)
+    if storeGlobally:
+        best_image_similarity.append(result_tuple)
 
     results_dict = {
         # Use the exact keys expected by the objective function
@@ -899,6 +1095,8 @@ def evaluateImageSimilarityByMetrics(name, combination, sample, mostUsed):
     }
 
     return results_dict
+
+# Weighting Test Area
 
 def evaluate_pareto():
     # --- Indices of metrics in the tuple (must match evaluateImageSimilarityByMetrics) ---
