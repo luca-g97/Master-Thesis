@@ -484,7 +484,7 @@ METRICS_TO_USE = EVALUATION_METRICS if (len(EVALUATION_METRICS) > 0 and useOnlyB
 
 for metric in METRICS_TO_USE.keys():
     METRIC_WEIGHTS[metric] = METRICS_TO_USE[metric]
-    
+
 # Add to global initialization
 mt_component_optimizer = None
 optimal_components_overall = 46
@@ -578,42 +578,100 @@ def identifyClosestSources(closestSources, outputs, metricsOutputs, mtOutputs, m
             if metric_calculation_successful_overall:
                 # Calculate raw differences (assuming shapes are compatible)
                 raw_diffs = np.abs(currentMetricsLayer - metricsOutputsToCheck[currentLayer][np.newaxis, :])
-
-                # Normalize per metric (column-wise)
-                min_vals = np.min(currentMetricsLayer, axis=0)
-                max_vals = np.max(currentMetricsLayer, axis=0)
-                range_vals = max_vals - min_vals
-                # Add epsilon only where range is close to zero to avoid inflating differences elsewhere
-                epsilon = 1e-10
-                safe_range = np.where(range_vals < epsilon, epsilon, range_vals)
-
-                norm_samples = (currentMetricsLayer - min_vals) / safe_range
-                # Apply same normalization to the reference point
-                norm_ref = (metricsOutputsToCheck[currentLayer] - min_vals) / safe_range
-
-                # Handle similarity metrics - flip scores so lower is better universally
-                # Use names matching the keys in your METRICS dictionary
+                
+                #Combined Score Approach
+                # # Normalize per metric (column-wise)
+                # min_vals = np.min(currentMetricsLayer, axis=0)
+                # max_vals = np.max(currentMetricsLayer, axis=0)
+                # range_vals = max_vals - min_vals
+                # # Add epsilon only where range is close to zero to avoid inflating differences elsewhere
+                # epsilon = 1e-10
+                # safe_range = np.where(range_vals < epsilon, epsilon, range_vals)
+                # 
+                # norm_samples = (currentMetricsLayer - min_vals) / safe_range
+                # # Apply same normalization to the reference point
+                # norm_ref = (metricsOutputsToCheck[currentLayer] - min_vals) / safe_range
+                # 
+                # # Handle similarity metrics - flip scores so lower is better universally
+                # # Use names matching the keys in your METRICS dictionary
+                # similarity_metric_names = {'Cosine Similarity', 'Pearson Correlation', 'Spearman Correlation',
+                #                            'Jaccard (Rounded Sets)', 'Sørensen–Dice (Rounded Sets)'}
+                # metric_name_list = list(METRICS_TO_USE.keys()) # Get a fixed order
+                # 
+                # for i, name in enumerate(metric_name_list):
+                #     if name in similarity_metric_names:
+                #         if i < norm_samples.shape[1]: # Check index validity
+                #             norm_samples[:, i] = 1.0 - norm_samples[:, i]
+                #         if i < norm_ref.shape[0]: # Check index validity
+                #             norm_ref[i] = 1.0 - norm_ref[i]
+                # 
+                # # Store normalized absolute difference scores per metric
+                # for i, name in enumerate(metric_name_list):
+                #     if i < norm_samples.shape[1] and i < norm_ref.shape[0]:
+                #         score_diff = np.abs(norm_samples[:, i] - norm_ref[i])
+                # 
+                #         # --- FIX 2: Handle potential NaNs from normalization/calculation ---
+                #         if np.any(np.isnan(score_diff)):
+                #             #print(f"Warning: NaN detected in score for metric '{name}'. Replacing with mean.")
+                #             if np.all(np.isnan(score_diff)):
+                #                 score_diff.fill(1.0) # Assign default high difference if all are NaN
+                #             else:
+                #                 mean_val = np.nanmean(score_diff)
+                #                 score_diff = np.nan_to_num(score_diff, nan=mean_val)
+                #         metric_scores[name] = score_diff
+                #     else:
+                #         print(f"Warning: Index {i} for metric '{name}' out of bounds during score storage. Metric skipped.")
+                #         metric_calculation_successful_overall = False # Mark as potentially incomplete
+                
+                #Z-Score approach
+                # Calculate mean and std dev per metric (column-wise across samples)
+                mean_vals = np.mean(currentMetricsLayer, axis=0)
+                std_vals = np.std(currentMetricsLayer, axis=0)
+                
+                # Handle potential division by zero if a metric has zero variance (all values are the same)
+                epsilon = 1e-10 # Small epsilon to avoid division by zero
+                safe_std_dev = np.where(std_vals < epsilon, epsilon, std_vals)
+                
+                # Standardize the sample data
+                z_samples = (currentMetricsLayer - mean_vals) / safe_std_dev
+                
+                # Standardize the reference point using the mean and std dev *from the samples*
+                norm_ref = (metricsOutputsToCheck[currentLayer] - mean_vals) / safe_std_dev # Renamed z_ref for consistency below
+                
+                # Handle similarity metrics: Lower Z-score should always be better.
+                # For similarity metrics, a higher original score (closer to 1) is better.
+                # This translates to a higher Z-score (further above the mean).
+                # To make lower scores better universally, we flip the sign of Z-scores for similarity metrics.
                 similarity_metric_names = {'Cosine Similarity', 'Pearson Correlation', 'Spearman Correlation',
                                            'Jaccard (Rounded Sets)', 'Sørensen–Dice (Rounded Sets)'}
                 metric_name_list = list(METRICS_TO_USE.keys()) # Get a fixed order
-
+                
                 for i, name in enumerate(metric_name_list):
                     if name in similarity_metric_names:
-                        if i < norm_samples.shape[1]: # Check index validity
-                            norm_samples[:, i] = 1.0 - norm_samples[:, i]
+                        if i < z_samples.shape[1]: # Check index validity
+                            z_samples[:, i] = -z_samples[:, i] # Flip sign
                         if i < norm_ref.shape[0]: # Check index validity
-                            norm_ref[i] = 1.0 - norm_ref[i]
-
-                # Store normalized absolute difference scores per metric
+                            norm_ref[i] = -norm_ref[i]   # Flip sign
+                
+                # Now, for all metrics, a lower (more negative or closer to 0) z-score is better.
+                
+                # Store the absolute difference between standardized sample and reference scores
+                metric_scores = {} # Ensure this is a fresh dictionary
+                metric_calculation_successful_overall = True # Reset flag if needed
+                
                 for i, name in enumerate(metric_name_list):
-                    if i < norm_samples.shape[1] and i < norm_ref.shape[0]:
-                        score_diff = np.abs(norm_samples[:, i] - norm_ref[i])
-
-                        # --- FIX 2: Handle potential NaNs from normalization/calculation ---
+                    if i < z_samples.shape[1] and i < norm_ref.shape[0]:
+                        # Calculate the absolute difference on the standardized scale
+                        # This represents how many standard deviations apart the sample is from the reference for this metric
+                        score_diff = np.abs(z_samples[:, i] - norm_ref[i])
+                
+                        # --- Handle potential NaNs ---
+                        # (NaNs less likely with safe_std_dev, but good practice)
                         if np.any(np.isnan(score_diff)):
-                            #print(f"Warning: NaN detected in score for metric '{name}'. Replacing with mean.")
+                            # Use your existing NaN handling logic (FIX 2)
                             if np.all(np.isnan(score_diff)):
-                                score_diff.fill(1.0) # Assign default high difference if all are NaN
+                                # Assign a default high difference, e.g., 3 standard deviations?
+                                score_diff.fill(3.0)
                             else:
                                 mean_val = np.nanmean(score_diff)
                                 score_diff = np.nan_to_num(score_diff, nan=mean_val)
@@ -678,7 +736,7 @@ def identifyClosestSources(closestSources, outputs, metricsOutputs, mtOutputs, m
                                 safe_tuples.append((
                                     idx,
                                     currentMetricsLayer[idx],
-                                    raw_diffs[idx]
+                                    combined_scores[idx]#raw_diffs[idx]
                                 ))
                             else:
                                 print(f"Warning: Index {idx} out of bounds when creating output tuple (Layer Max: {max_layer_idx}, Diff Max: {max_raw_diffs_idx}). Skipping.")
@@ -705,10 +763,12 @@ def identifyClosestSources(closestSources, outputs, metricsOutputs, mtOutputs, m
     return identifiedClosestSources, identifiedClosestMetricSources, identifiedClosestMTSources, outputsToCheck, layerNumbersToCheck
 
 def getMostUsed(sources, mode="", evaluation=""):
+    mostUsedSourcesPerLayer = []
     mostUsed = []
     differences = []
     sourceCounter = 0
     for currentLayer, layer in enumerate(sources):
+        mostUsedPerLayer = []
         if evaluation == "Metrics" or evaluation == "Magnitude Truncation":
             for sourceNumber, value, difference in layer:
                 if(sourceNumber != 'None'):
@@ -726,7 +786,12 @@ def getMostUsed(sources, mode="", evaluation=""):
                             mostUsed.append(sourceNumber)
                             sourceCounter += 1
                             differences.append(difference)
-    return sourceCounter, mostUsed, differences
+                            if sourceNumber not in mostUsedPerLayer:
+                                mostUsedPerLayer.append(sourceNumber)
+        for sourceInLayer in mostUsedPerLayer:
+            mostUsedSourcesPerLayer.append(sourceInLayer)
+        
+    return sourceCounter, mostUsed, differences, mostUsedSourcesPerLayer
 
 def getMostUsedFromDataFrame(df, evalSample, closestSources, weightedMode=""):
     # Filter entries for the specific evalSample
@@ -802,14 +867,15 @@ def getMostUsedSources(sources, metricsSources, mtSources, closestSources, evalS
     if llm:
         sourceCounter, mostUsed = getMostUsedFromDataFrame(sources, evalSample, closestSources, weightedMode)
     else:
-        sourceCounter, mostUsed, sourceDifferences = getMostUsed(sources, weightedMode)
+        sourceCounter, mostUsed, sourceDifferences, mostUsedSourcesPerLayer = getMostUsed(sources, weightedMode)
         if metricsEvaluation:
-            metricsSourceCounter, metricsMostUsed, metricsDifferences = getMostUsed(metricsSources, weightedMode, evaluation="Metrics")
+            metricsSourceCounter, metricsMostUsed, metricsDifferences, _ = getMostUsed(metricsSources, weightedMode, evaluation="Metrics")
         if mtEvaluation:
-            mtSourceCounter, mtMostUsed, mtDifferences = getMostUsed(mtSources, weightedMode, evaluation="Magnitude Truncation")
+            mtSourceCounter, mtMostUsed, mtDifferences, _ = getMostUsed(mtSources, weightedMode, evaluation="Magnitude Truncation")
     counter = weighted_counter(mostUsed, sourceDifferences)
-    metricsCounter = Counter(metricsMostUsed)
-    mtCounter = Counter(mtMostUsed)
+    metricsCounter = weighted_counter(metricsMostUsed, metricsDifferences)
+    mtCounter = weighted_counter(mtMostUsed, mtDifferences)
+    mostUsedSourcesPerLayerCounter = Counter(mostUsedSourcesPerLayer)
 
     #if(info):
     #print("Total closest Sources (Per Neuron):", sourceCounter, " | ", closestSources, " closest Sources (", weightedMode, ") in format: [SourceNumber, Occurances]: ", counter.most_common()[:closestSources])
@@ -817,7 +883,7 @@ def getMostUsedSources(sources, metricsSources, mtSources, closestSources, evalS
     #print("Total closest Sources (Metrics):", metricsSourceCounter, " | ", closestSources, " closest Sources (", weightedMode, ") in format: [SourceNumber, Occurances]: ", metricsCounter.most_common()[:closestSources])
     #if mtEvaluation:
     #print("Total closest Sources (MT):", mtSourceCounter, " | ", closestSources, " closest Sources (", weightedMode, ") in format: [SourceNumber, Occurances]: ", mtCounter.most_common()[:closestSources])
-    return counter.most_common()[:closestSources], metricsCounter.most_common()[:closestSources], mtCounter.most_common()[:closestSources]
+    return counter.most_common()[:closestSources], metricsCounter.most_common()[:closestSources], mtCounter.most_common()[:closestSources], mostUsedSourcesPerLayerCounter.most_common()[:closestSources]
 
 # Normalize function to convert to integer range for sparse arrays
 def normalize_to_integer_sparse(sparse_data, min_val, max_val):
@@ -1282,10 +1348,10 @@ def compare_precision_results(closestSources, outputs):
         float_precisions[f'float_{9-i}'] = 9 - i
 
     # Use the highest precision (np.float128) as the base reference
-    base_results, _, _ = identifyClosestSources(closestSources, outputs)  # Using np.float128
+    base_results, _, _, _, _ = identifyClosestSources(closestSources, outputs)  # Using np.float128
 
     # Run the RENN.getMostUsedSources method with base precision
-    mostUsedBase = getMostUsedSources(base_results, closestSources)
+    mostUsedBase, _, _, _ = getMostUsedSources(base_results, closestSources)
 
     # Store the precision levels and their corresponding differences
     precision_results = {}
@@ -1301,10 +1367,10 @@ def compare_precision_results(closestSources, outputs):
             rounded_dictionary = activationsByLayers.astype(float_type)
 
         # Run identifyClosestSources with the rounded or cast values
-        results, _, _ = identifyClosestSources(closestSources, rounded_outputs)
+        results, _, _, _, _ = identifyClosestSources(closestSources, rounded_outputs)
 
         # Run RENN.getMostUsedSources with the new results
-        mostUsed = getMostUsedSources(results, closestSources)
+        mostUsed, _, _, _ = getMostUsedSources(results, closestSources)
 
         # Compare the results from getMostUsedSources (this is where you compare)
         if mostUsed == mostUsedBase:
@@ -2866,7 +2932,7 @@ def create_global_metric_combinations(max_metrics_to_add, max_metrics_to_remove,
 
     # 2. Define the current best combination as the baseline
     current_best_metrics_tuple = ('L1 norm (Manhattan)', 'Cosine Similarity', 'Pearson Correlation', 'Peak-to-Peak Range', 'Variance',
-        'Spearman Correlation', 'L∞ norm (Chebyshev)', 'L2 norm (Euclidean)', 'Median', 'KL Divergence Reversed', 'Kurtosis','L1/L2 Ratio')
+                                  'Spearman Correlation', 'L∞ norm (Chebyshev)', 'L2 norm (Euclidean)', 'Median', 'KL Divergence Reversed', 'Kurtosis','L1/L2 Ratio')
     baseline_metrics_set = set(current_best_metrics_tuple)
 
     # 3. Verify baseline metrics are available (optional but recommended)
@@ -2967,7 +3033,7 @@ def create_global_metric_combinations(max_metrics_to_add, max_metrics_to_remove,
 
 def identifyClosestSourcesByMetricCombination(closestSources, metricsOutputs, metrics_indices, metric_weights=METRIC_WEIGHTS, mode=""):
     global layers
-    
+
     metricsDictionary = metricsActivationsByLayers
 
     # Layer selection logic

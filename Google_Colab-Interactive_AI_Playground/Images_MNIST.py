@@ -21,9 +21,9 @@ import plotly.graph_objects as go
 import plotly.subplots as sp
 
 paretoEvaluation, weightTuning = False, False
-if paretoEvaluation or weightTuning: 
+if paretoEvaluation or weightTuning:
     RENN.useOnlyBestMetrics = False
-    
+
 mnist, to_categorical, nn, DataLoader, pd, optuna, device, metricsEvaluation = "", "", "", "", "", "", "", True
 train_dataloader, test_dataloader, eval_dataloader, trainDataSet, testDataSet, trainSubset, testSubset, x_train, y_train, x_test, y_test, x_eval, y_eval = "", "", "", "", "", "", "", "", "", "", "", "", ""
 model, criterion_class, chosen_optimizer, layers = "", "", "", ""
@@ -407,7 +407,7 @@ def evaluateImageSimilarity(name, sample, mostUsed):
     print(f"Jaccard Similarity: {jaccard_similarity:.4f}" if jaccard_similarity is not None else "Jaccard Similarity: N/A")
     print(f"Hamming Distance: {hamming_distance:.4f}")
     print(f"Pearson Correlation: {pearson_correlation:.4f}" if pearson_correlation is not None else "Pearson Correlation: N/A")
-    
+
     if name == "":
         original_image_similarity.append(results)
     elif name == "Metrics":
@@ -582,12 +582,14 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
     global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource, original_image_similarity, metrics_image_similarity, mt_image_similarity, original_activation_similarity, metrics_activation_similarity, mt_activation_similarity, resultDataframe
 
     original_image_similarity, metrics_image_similarity, mt_image_similarity, original_activation_similarity, metrics_activation_similarity, mt_activation_similarity = [], [], [], [], [], []
-    
+
     #Make sure to set new dictionaries for the hooks to fill - they are global!
     dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource = RENN.initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model)
-
+    
     if analyze:
         METRICS_COMBINATIONS = RENN.create_global_metric_combinations(3, 3, True)
+        #metricsDictionaryForSourceLayerNeuron = createRandomDictionary(metricsDictionaryForSourceLayerNeuron, RENN.metricsActivationsBySources) #Random values per metrics min and max
+        #metricsDictionaryForSourceLayerNeuron = np.full(metricsDictionaryForSourceLayerNeuron.shape, 0.5) #Fixed Vector
 
     mostUsedList = []
     mostUsedMetricsList = []
@@ -598,27 +600,26 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
         mostUsedSourcesWithSum = ""
         layersToCheck = []
 
-
         if(visualizationChoice == "Weighted"):
             sourcesSum, metricSourcesSum, mtSourcesSum, outputsSum, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], metricsDictionaryForSourceLayerNeuron[pos], mtDictionaryForSourceLayerNeuron[pos], "Sum")
-            mostUsedSourcesWithSum, mostUsedMetricSourcesWithSum, mostUsedMMSourcesWithSum = RENN.getMostUsedSources(sourcesSum, metricSourcesSum, mtSourcesSum, closestSources, "Sum")
+            mostUsedSourcesWithSum, mostUsedMetricSourcesWithSum, mostUsedMTSourcesWithSum, mostUsedSourcesPerLayerWithSum = RENN.getMostUsedSources(sourcesSum, metricSourcesSum, mtSourcesSum, closestSources, "Sum")
 
             #20 because otherwise the blending might not be visible anymore. Should be closestSources instead to be correct!
             blendedSourceImageSum = blendImagesTogether(mostUsedSourcesWithSum, "Not Weighted")
             blendedMetricSourceImageSum = blendImagesTogether(mostUsedMetricSourcesWithSum, "Not Weighted")
-            blendedMMSourceImageSum = blendImagesTogether(mostUsedMMSourcesWithSum, "Not Weighted")
+            blendedMTSourceImageSum = blendImagesTogether(mostUsedMTSourcesWithSum, "Not Weighted")
             layersToCheck = layerNumbersToCheck # Switch to another variable to use correct layers for analyzation
 
             sourcesActivation, metricSourcesActivation, mtSourcesActivation, outputsActivation, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], metricsDictionaryForSourceLayerNeuron[pos], mtDictionaryForSourceLayerNeuron[pos], "Activation")
-            mostUsedSourcesWithActivation, mostUsedMetricSourcesWithActivation, mostUsedMMSourcesWithActivation = RENN.getMostUsedSources(sourcesActivation, metricSourcesActivation, mtSourcesActivation, closestSources, "Activation")
+            mostUsedSourcesWithActivation, mostUsedMetricSourcesWithActivation, mostUsedMTSourcesWithActivation, mostUsedSourcesPerLayerWithActivation = RENN.getMostUsedSources(sourcesActivation, metricSourcesActivation, mtSourcesActivation, closestSources, "Activation")
             #20 sources only because otherwise the blending might not be visible anymore. Should be closestSources instead to be correct!
             blendedSourceImageActivation = blendImagesTogether(mostUsedSourcesWithActivation, "Not Weighted")
             blendedMetricSourceImageActivation = blendImagesTogether(mostUsedMetricSourcesWithActivation, "Not Weighted")
-            blendedMMSourceImageActivation = blendImagesTogether(mostUsedMMSourcesWithActivation, "Not Weighted")
+            blendedMTSourceImageActivation = blendImagesTogether(mostUsedMTSourcesWithActivation, "Not Weighted")
 
             showImagesUnweighted("Per Neuron", createImageWithPrediction(sample.reshape(28, 28), true, prediction), blendedSourceImageActivation, blendedSourceImageSum, mostUsedSourcesWithActivation[:showClosestMostUsedSources], mostUsedSourcesWithSum[:showClosestMostUsedSources])
             showImagesUnweighted("Metrics", createImageWithPrediction(sample.reshape(28, 28), true, prediction), blendedMetricSourceImageActivation, blendedMetricSourceImageSum, mostUsedMetricSourcesWithActivation[:showClosestMostUsedSources], mostUsedMetricSourcesWithSum[:showClosestMostUsedSources])
-            showImagesUnweighted("Magnitude Truncation", createImageWithPrediction(sample.reshape(28, 28), true, prediction), blendedMMSourceImageActivation, blendedMMSourceImageSum, mostUsedMMSourcesWithActivation[:showClosestMostUsedSources], mostUsedMMSourcesWithSum[:showClosestMostUsedSources])
+            showImagesUnweighted("Magnitude Truncation", createImageWithPrediction(sample.reshape(28, 28), true, prediction), blendedMTSourceImageActivation, blendedMTSourceImageSum, mostUsedMTSourcesWithActivation[:showClosestMostUsedSources], mostUsedMTSourcesWithSum[:showClosestMostUsedSources])
         else:
             sourcesSum, metricSourcesSum, mtSourcesSum, outputsSum, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], metricsDictionaryForSourceLayerNeuron[pos], mtDictionaryForSourceLayerNeuron[pos], "Sum")
             mostUsedSourcesWithSum = getClosestSourcesPerNeuronAndLayer(sourcesSum, metricSourcesSum, layerNumbersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, "Sum")
@@ -628,16 +629,16 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             #RENN.analyzeData(closestSources, dictionaryForSourceLayerNeuron[pos])
 
         if(analyze):
-            #mostUsed, mostUsedMetrics, mostUsedMM = #RENN.getMostUsedSources(sourcesSum, metricSourcesSum, mtSourcesSum, closestSources)
-            mostUsedList.append(mostUsedSourcesWithSum)
+            #mostUsed, mostUsedMetrics, mostUsedMT = #RENN.getMostUsedSources(sourcesSum, metricSourcesSum, mtSourcesSum, closestSources)
+            mostUsedList.append(mostUsedSourcesPerLayerWithSum)
             blendActivations("", mostUsedSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layersToCheck, True)
             evaluateImageSimilarity("", sample, mostUsedSourcesWithSum)
             if metricsEvaluation:
                 blendActivations("Metrics", mostUsedMetricSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layersToCheck, True)
                 evaluateImageSimilarity("Metrics", sample, mostUsedMetricSourcesWithSum)
             if RENN.mtEvaluation:
-                blendActivations("MT", mostUsedMMSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layersToCheck, True)
-                evaluateImageSimilarity("MT", sample, mostUsedMMSourcesWithSum)
+                blendActivations("MT", mostUsedMTSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layersToCheck, True)
+                evaluateImageSimilarity("MT", sample, mostUsedMTSourcesWithSum)
 
             #Per sample, not overall
             if paretoEvaluation:
@@ -646,7 +647,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
                     mostUsedMetricSourcesWithSum = RENN.getMostUsedSourcesByMetrics(metricSourcesSum, closestSources, weightedMode="Sum")
 
                     evaluateImageSimilarityByMetrics("Metrics", metric_combination, sample, mostUsedMetricSourcesWithSum)
-    if analyze:   
+    if analyze:
         #Per sample, not overall    
         if weightTuning and paretoEvaluation:
             optimizations_to_run = evaluate_pareto()
@@ -660,112 +661,281 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             hidden_sizes=hidden_sizes,
             closestSources=closestSources,
             all_metric_combinations=METRICS_COMBINATIONS,
-            weightedMode="Sum",       # Or other mode used in RENN.getMostUsedSourcesByMetrics
-            identificationMode="Sum"  # Or "Activation" if preferred
+            mode="Sum"
         )
+
+# ----------------------------------------------------------------------------
+# Helper Functions for Source List Similarities / Distances
+# ----------------------------------------------------------------------------
+
+def createRandomDictionary(original, train_array):
+    # 1. Get properties from the original array
+    original_array = original
+    original_shape = original_array.shape
+    original_dtype = original_array.dtype
     
-    #if pos % 10 == 0:  # Clear every 10 samples
-    #    clear_output(wait=True)  # Keeps the last output visible
-    #    time.sleep(1)  # Prevents UI freezing
+    # 2. Handle empty array case
+    if original_array.size == 0:
+        # Create an empty array with the same shape and dtype
+        new_random_array_local_range = np.empty(original_shape, dtype=original_dtype)
+        print("Warning: Original array was empty. Created an empty array with the same shape.")
+    # Handle 0D or 1D array case (reverts to global min/max behavior)
+    elif original_array.ndim <= 1:
+        print("Warning: Array is 0D or 1D. Using global min/max for range.")
+        min_val = np.min(train_array)
+        max_val = np.max(train_array)
+        rng = np.random.default_rng()
+        if np.issubdtype(original_dtype, np.integer):
+            # Integers [min_val, max_val]
+            if min_val >= max_val: # Handle single value or invalid range after potential floor/ceil
+                new_random_array_local_range = np.full(original_shape, np.floor(min_val).astype(original_dtype), dtype=original_dtype)
+            else:
+                int_min = np.floor(min_val).astype(original_dtype)
+                int_max = np.ceil(max_val).astype(original_dtype)
+                new_random_array_local_range = rng.integers(int_min, int_max + 1, size=original_shape, dtype=original_dtype)
+        else:
+            # Floats [min_val, max_val)
+            if np.isclose(min_val, max_val):
+                new_random_array_local_range = np.full(original_shape, min_val, dtype=original_dtype)
+            else:
+                random_base = rng.random(size=original_shape)
+                scaled_values = min_val + random_base * (max_val - min_val)
+                new_random_array_local_range = scaled_values.astype(original_dtype)
+    
+    # --- Main logic for 2D or higher arrays ---
+    else:
+        # 3. Calculate min and max ALONG THE LAST AXIS
+        # keepdims=True makes broadcasting work easily later
+        min_per_slice = np.min(original_array, axis=-1, keepdims=True)
+        max_per_slice = np.max(original_array, axis=-1, keepdims=True)
+        # Shape of min/max_per_slice will be (d1, d2, ..., dn-1, 1)
+    
+        # 4. Initialize the random number generator
+        rng = np.random.default_rng() # Initialize once
+    
+        # 5. Generate random values based on dtype and LOCAL range
+    
+        if np.issubdtype(original_dtype, np.integer):
+            # --- Integer Type ---
+            # Ensure min/max slices are integer type for calculations
+            int_min_slice = np.floor(min_per_slice).astype(original_dtype)
+            int_max_slice = np.ceil(max_per_slice).astype(original_dtype)
+    
+            # Calculate integer range per slice [min, max] -> range = max - min
+            range_per_slice_int = int_max_slice - int_min_slice
+    
+            # Mask where min == max (or min > max after floor/ceil)
+            mask_min_eq_max = (range_per_slice_int <= 0)
+    
+            # Initialize result array
+            new_random_array_local_range = np.empty(original_shape, dtype=original_dtype)
+    
+            # Fill constant parts where min >= max for the slice
+            # Use np.broadcast_to to fill correctly based on slice min value
+            new_random_array_local_range[mask_min_eq_max] = np.broadcast_to(int_min_slice, original_shape)[mask_min_eq_max]
+    
+            # Generate random values for slices where min < max
+            idx_varied = ~mask_min_eq_max
+            if np.any(idx_varied):
+                # Generate base floats [0, 1) for the entire shape (simpler than indexing)
+                random_base = rng.random(size=original_shape)
+    
+                # Scale to [min, max + 1) to cover the integer range after flooring
+                # Broadcasting automatically applies the correct slice's min/range
+                scaled_floats = int_min_slice + random_base * (range_per_slice_int + 1)
+    
+                # Floor and cast to get integers in the range [min, max]
+                generated_values = np.floor(scaled_floats).astype(original_dtype)
+    
+                # Apply only where the range was > 0
+                new_random_array_local_range[idx_varied] = generated_values[idx_varied]
+    
+        else:
+            # --- Float Type (or other non-integer) ---
+            # Calculate float range per slice
+            range_per_slice = max_per_slice - min_per_slice
+    
+            # Mask where min is close to max for the slice (use tolerance for floats)
+            # Use np.broadcast_to to compare shape correctly if needed, but direct comparison should work
+            mask_min_eq_max = np.isclose(range_per_slice, 0)
+    
+            # Generate base random numbers [0, 1)
+            random_base = rng.random(size=original_shape)
+    
+            # Scale using the corresponding slice's min and range
+            # Broadcasting applies the correct min/range from (d1,...,dn-1,1) to (d1,...,dn)
+            # Where range is ~0, multiplication results in ~0, effectively adding min_per_slice
+            scaled_random_values = min_per_slice + random_base * range_per_slice
+    
+            # Cast to original dtype
+            new_random_array_local_range = scaled_random_values.astype(original_dtype)
+    
+            # Ensure min==max case is exactly min_val (using np.where for precision)
+            # Broadcast min_per_slice to match the shape for np.where
+            broadcasted_min = np.broadcast_to(min_per_slice, original_shape)
+            broadcasted_mask = np.broadcast_to(mask_min_eq_max, original_shape)
+            new_random_array_local_range = np.where(broadcasted_mask, broadcasted_min, new_random_array_local_range)
+            # Recast just in case 'where' changed dtype (unlikely but safe)
+            new_random_array_local_range = new_random_array_local_range.astype(original_dtype)
+        
+    return new_random_array_local_range
 
-    #print(f"Time passed since start: {time_since_start(startTime)}")
-
-# ----------------------------------------------------------------------------
-# Helper Functions for Source List Similarities
-# ----------------------------------------------------------------------------
-
+# --- Existing ---
 def calculate_source_cosine_similarity(list1, list2):
     """ Calculates standard cosine similarity between source count vectors. """
-    counts1 = Counter(dict(list1))
-    counts2 = Counter(dict(list2))
+    counts1 = Counter(dict(list1)); counts2 = Counter(dict(list2))
     all_source_ids = sorted(list(counts1.keys() | counts2.keys()))
     if not all_source_ids: return 1.0
     vec1 = np.array([counts1.get(src_id, 0) for src_id in all_source_ids], dtype=float).reshape(1, -1)
     vec2 = np.array([counts2.get(src_id, 0) for src_id in all_source_ids], dtype=float).reshape(1, -1)
-    norm1 = np.linalg.norm(vec1)
-    norm2 = np.linalg.norm(vec2)
+    norm1 = np.linalg.norm(vec1); norm2 = np.linalg.norm(vec2)
     if norm1 == 0 and norm2 == 0: return 1.0
     if norm1 == 0 or norm2 == 0: return 0.0
-    try:
-        sim_score = cosine_similarity(vec1, vec2)[0, 0]
-        return np.clip(sim_score, 0.0, 1.0)
+    try: return np.clip(cosine_similarity(vec1, vec2)[0, 0], 0.0, 1.0)
     except Exception: return 0.0
 
 def calculate_log_cosine_similarity(list1, list2):
     """ Calculates cosine similarity between log2(count+1) transformed source vectors. """
-    counts1 = Counter(dict(list1))
-    counts2 = Counter(dict(list2))
+    counts1 = Counter(dict(list1)); counts2 = Counter(dict(list2))
     all_source_ids = sorted(list(counts1.keys() | counts2.keys()))
     if not all_source_ids: return 1.0
-    # Apply log2(count + 1) transformation
     vec1 = np.array([math.log2(counts1.get(src_id, 0) + 1) for src_id in all_source_ids], dtype=float).reshape(1, -1)
     vec2 = np.array([math.log2(counts2.get(src_id, 0) + 1) for src_id in all_source_ids], dtype=float).reshape(1, -1)
-    norm1 = np.linalg.norm(vec1)
-    norm2 = np.linalg.norm(vec2)
+    norm1 = np.linalg.norm(vec1); norm2 = np.linalg.norm(vec2)
     if norm1 == 0 and norm2 == 0: return 1.0
     if norm1 == 0 or norm2 == 0: return 0.0
-    try:
-        sim_score = cosine_similarity(vec1, vec2)[0, 0]
-        return np.clip(sim_score, 0.0, 1.0)
+    try: return np.clip(cosine_similarity(vec1, vec2)[0, 0], 0.0, 1.0)
     except Exception: return 0.0
 
 def calculate_jsd(list1, list2):
-    """
-    Calculates Jensen-Shannon Divergence (base 2) between source count distributions.
-    Lower values indicate higher similarity. Returns NaN on error or invalid input.
-    """
-    counts1 = Counter(dict(list1))
-    counts2 = Counter(dict(list2))
+    """ Calculates Jensen-Shannon Divergence (base 2) between source count distributions. """
+    counts1 = Counter(dict(list1)); counts2 = Counter(dict(list2))
     all_source_ids = sorted(list(counts1.keys() | counts2.keys()))
-    if not all_source_ids: return 0.0 # Treat empty lists as identical
+    if not all_source_ids: return 0.0
+    vec1 = np.array([counts1.get(src_id, 0) for src_id in all_source_ids], dtype=float)
+    vec2 = np.array([counts2.get(src_id, 0) for src_id in all_source_ids], dtype=float)
+    sum1 = np.sum(vec1); sum2 = np.sum(vec2)
+    if sum1 == 0 and sum2 == 0: return 0.0
+    if sum1 == 0 or sum2 == 0: return 1.0
+    p = vec1 / sum1; q = vec2 / sum2
+    try:
+        jsd_score = distance.jensenshannon(p, q, base=2.0)
+        return jsd_score if not np.isnan(jsd_score) else 1.0
+    except Exception: return np.nan
 
-    # Create count vectors
+def calculate_rank_correlation(list1, list2):
+    """ Calculates Spearman and Kendall rank correlation based on counts. """
+    if not list1 or not list2: return np.nan, np.nan
+    try:
+        sorted_list1 = sorted(list1, key=lambda x: x[1], reverse=True)
+        sorted_list2 = sorted(list2, key=lambda x: x[1], reverse=True)
+        rank_map1 = {id: rank + 1 for rank, (id, count) in enumerate(sorted_list1)}
+        rank_map2 = {id: rank + 1 for rank, (id, count) in enumerate(sorted_list2)}
+    except IndexError: return np.nan, np.nan
+    common_ids = set(rank_map1.keys()) & set(rank_map2.keys())
+    if len(common_ids) < 2: return np.nan, np.nan
+    ranks1 = [rank_map1[id] for id in common_ids]; ranks2 = [rank_map2[id] for id in common_ids]
+    try:
+        spearman_corr, _ = spearmanr(ranks1, ranks2); kendall_tau, _ = kendalltau(ranks1, ranks2)
+        spearman_corr = spearman_corr if not np.isnan(spearman_corr) else 0.0
+        kendall_tau = kendall_tau if not np.isnan(kendall_tau) else 0.0
+    except Exception: spearman_corr, kendall_tau = np.nan, np.nan
+    return spearman_corr, kendall_tau
+
+def calculate_top_k_overlap(list1, list2, k):
+    """ Calculates Intersection@k, Precision@k, Recall@k based on counts. """
+    if k <= 0 or not list1 or not list2: return 0, 0.0, 0.0
+    try:
+        sorted_list1 = sorted(list1, key=lambda x: x[1], reverse=True)
+        sorted_list2 = sorted(list2, key=lambda x: x[1], reverse=True)
+        top_k_ids1 = set(item[0] for item in sorted_list1[:k])
+        top_k_ids2 = set(item[0] for item in sorted_list2[:k])
+        intersection_set = top_k_ids1 & top_k_ids2
+        intersection_count = len(intersection_set)
+        precision_at_k = intersection_count / k
+        num_relevant_in_top_k1 = len(top_k_ids1) # Actual number of unique items in ref top k
+        recall_at_k = intersection_count / num_relevant_in_top_k1 if num_relevant_in_top_k1 > 0 else 0.0
+    except Exception: return 0, 0.0, 0.0
+    return intersection_count, precision_at_k, recall_at_k
+
+# --- NEW HELPERS ---
+def calculate_vector_distances(list1, list2):
+    """ Calculates Euclidean (L2) and Manhattan (L1) distances between count vectors. """
+    counts1 = Counter(dict(list1)); counts2 = Counter(dict(list2))
+    all_source_ids = sorted(list(counts1.keys() | counts2.keys()))
+    if not all_source_ids: return 0.0, 0.0 # Zero distance if both empty
+
     vec1 = np.array([counts1.get(src_id, 0) for src_id in all_source_ids], dtype=float)
     vec2 = np.array([counts2.get(src_id, 0) for src_id in all_source_ids], dtype=float)
 
-    # Normalize to probability distributions
-    sum1 = np.sum(vec1)
-    sum2 = np.sum(vec2)
+    # Handle case where one list is empty (max possible distance conceptually)
+    # Though norm calculation handles this implicitly if one vector is zero
+    # if (len(list1) == 0 and len(list2) > 0) or (len(list2) == 0 and len(list1) > 0):
+    #     return np.inf, np.inf # Or some large number / NaN?
 
-    # Handle cases where one or both lists have zero total count
-    if sum1 == 0 and sum2 == 0: return 0.0 # Identical zero distributions
-    if sum1 == 0 or sum2 == 0: return 1.0 # Maximally divergent if one is zero, other isn't
-
-    p = vec1 / sum1
-    q = vec2 / sum2
-
-    # Calculate JSD using scipy (handles internal smoothing for zero probabilities)
     try:
-        jsd_score = distance.jensenshannon(p, q, base=2.0)
-        # Ensure result is not NaN (can happen in edge cases with distance function)
-        return jsd_score if not np.isnan(jsd_score) else 1.0 # Treat NaN as max divergence
+        diff = vec1 - vec2
+        euclidean_dist = np.linalg.norm(diff, ord=2)
+        manhattan_dist = np.linalg.norm(diff, ord=1)
+        return euclidean_dist, manhattan_dist
     except Exception:
-        # traceback.print_exc() # Optional: for debugging errors in distance calc
-        return np.nan # Return NaN if calculation fails
+        return np.nan, np.nan
 
+def calculate_ruzicka_similarity(list1, list2):
+    """ Calculates Ruzicka similarity (Generalized Jaccard for counts). """
+    counts1 = Counter(dict(list1)); counts2 = Counter(dict(list2))
+    all_source_ids = counts1.keys() | counts2.keys() # Union of keys
+    if not all_source_ids: return 1.0 # Identical empty lists
+
+    sum_min = 0.0
+    sum_max = 0.0
+    for id in all_source_ids:
+        c1 = counts1.get(id, 0)
+        c2 = counts2.get(id, 0)
+        sum_min += min(c1, c2)
+        sum_max += max(c1, c2)
+
+    return sum_min / sum_max if sum_max > 0 else 1.0
+
+def calculate_symmetric_difference_size(list1, list2):
+    """ Calculates the number of items present in one list but not the other. """
+    try:
+        ids1 = set(item[0] for item in list1)
+        ids2 = set(item[0] for item in list2)
+        return len(ids1.symmetric_difference(ids2))
+    except IndexError: # Handle malformed tuples
+        return np.nan
+    except Exception:
+        return np.nan
 
 # ----------------------------------------------------------------------------
 # Constants for Metric Keys (Global Scope) - UPDATED
 # ----------------------------------------------------------------------------
-# Activation Similarity keys
-ACTIVATION_METRIC_KEYS = ["kendall_tau", "spearman_rho", "cosine_similarity",
-                          "euclidean_distance", "manhattan_distance", "jaccard_similarity",
-                          "hamming_distance", "pearson_correlation"]
-# Image Similarity keys mapping
-IMAGE_SIM_KEY_MAP = {
-    'Cosine Sim': 'cosine_sim', 'Euclidean Dst': 'euclidean_dst',
-    'Manhattan Dst': 'manhattan_dst', 'Jaccard Sim': 'jaccard_sim',
-    'Hamming Dst': 'hamming_dst', 'Pearson Corr': 'pearson_corr',
-    'Kendall Tau': 'kendall_tau', 'Spearman Rho': 'spearman_rho'
-}
+ACTIVATION_METRIC_KEYS = ["kendall_tau", "spearman_rho", "cosine_similarity", "euclidean_distance", "manhattan_distance", "jaccard_similarity", "hamming_distance", "pearson_correlation"]
+IMAGE_SIM_KEY_MAP = {'Cosine Sim': 'cosine_sim', 'Euclidean Dst': 'euclidean_dst', 'Manhattan Dst': 'manhattan_dst', 'Jaccard Sim': 'jaccard_sim', 'Hamming Dst': 'hamming_dst', 'Pearson Corr': 'pearson_corr', 'Kendall Tau': 'kendall_tau', 'Spearman Rho': 'spearman_rho'}
 IMG_SIM_PREFIX = "img_"
 IMAGE_METRIC_KEYS_PREFIXED = [f"{IMG_SIM_PREFIX}{v}" for v in IMAGE_SIM_KEY_MAP.values()]
 
-# Source Overlap Metric Keys (Standard Cosine, Log-Cosine, JSD) - UPDATED
+# Source Overlap Metric Keys - UPDATED
 SOURCE_COSINE_METRIC = "source_cosine_similarity"
-SOURCE_LOG_COSINE_METRIC = "source_log_cosine_similarity" # New key
-SOURCE_JSD_METRIC = "source_jsd" # New key
-SOURCE_METRIC_KEYS = [SOURCE_COSINE_METRIC, SOURCE_LOG_COSINE_METRIC, SOURCE_JSD_METRIC]
+SOURCE_LOG_COSINE_METRIC = "source_log_cosine_similarity"
+SOURCE_JSD_METRIC = "source_jsd"
+SOURCE_SPEARMAN_METRIC = "source_spearman_rank_corr"
+SOURCE_KENDALL_METRIC = "source_kendall_rank_tau"
+SOURCE_INTERSECT_K_METRIC = "source_intersect_at_k"
+SOURCE_PRECISION_K_METRIC = "source_precision_at_k"
+SOURCE_RECALL_K_METRIC = "source_recall_at_k"
+SOURCE_EUCLIDEAN_METRIC = "source_euclidean_dist" # New
+SOURCE_MANHATTAN_METRIC = "source_manhattan_dist" # New
+SOURCE_RUZICKA_METRIC = "source_ruzicka_similarity" # New
+SOURCE_SYMM_DIFF_METRIC = "source_symmetric_diff_size" # New
+
+SOURCE_METRIC_KEYS = [
+    SOURCE_COSINE_METRIC, SOURCE_LOG_COSINE_METRIC, SOURCE_JSD_METRIC,
+    SOURCE_SPEARMAN_METRIC, SOURCE_KENDALL_METRIC, SOURCE_INTERSECT_K_METRIC,
+    SOURCE_PRECISION_K_METRIC, SOURCE_RECALL_K_METRIC, SOURCE_EUCLIDEAN_METRIC,
+    SOURCE_MANHATTAN_METRIC, SOURCE_RUZICKA_METRIC, SOURCE_SYMM_DIFF_METRIC
+]
 
 # Combined list for robust NaN padding and aggregation checks - UPDATED
 ALL_METRIC_KEYS_FOR_AGGREGATION = ACTIVATION_METRIC_KEYS + IMAGE_METRIC_KEYS_PREFIXED + SOURCE_METRIC_KEYS
@@ -774,22 +944,22 @@ ALL_METRIC_KEYS_FOR_AGGREGATION = ACTIVATION_METRIC_KEYS + IMAGE_METRIC_KEYS_PRE
 # Worker Function for Processing a Single Sample - UPDATED
 # ----------------------------------------------------------------------------
 def process_sample_evaluation(args):
-    # Unpack arguments
     (pos, sample, originalMostUsedSources, evaluationActivations,
      metricsSampleActivations, all_metric_combinations, closestSources,
-     weightedMode, identificationMode) = args
+     mode
+     ) = args
 
     sample_results = {}
-    if evaluationActivations is None or metricsSampleActivations is None: return None
+    if metricsSampleActivations is None: return None # Need metric scores
     original_source_ids = set(src_id for src_id, count in originalMostUsedSources)
 
     for metric_combination in all_metric_combinations:
         combination_str = str(metric_combination)
-        current_results = {key: np.nan for key in ALL_METRIC_KEYS_FOR_AGGREGATION} # Initialize all possible keys
+        current_results = {key: np.nan for key in ALL_METRIC_KEYS_FOR_AGGREGATION}
 
         try:
             metricSources, layerNumbersToCheck = RENN.identifyClosestSourcesByMetricCombination(
-                closestSources, metricsSampleActivations, metric_combination, mode=identificationMode
+                closestSources, metricsSampleActivations, metric_combination, mode=mode
             )
 
             if not layerNumbersToCheck:
@@ -797,46 +967,48 @@ def process_sample_evaluation(args):
                 continue
 
             mostUsedMetricSources = RENN.getMostUsedSourcesByMetrics(
-                metricSources, closestSources, weightedMode=weightedMode
+                metricSources, closestSources, weightedMode=mode
             )
 
+            # Calculate similarities ONLY if mostUsedMetricSources were found
             if mostUsedMetricSources:
-                # --- Calculate ALL Source Similarities ---
-                current_results[SOURCE_COSINE_METRIC] = calculate_source_cosine_similarity(
-                    originalMostUsedSources, mostUsedMetricSources
-                )
-                current_results[SOURCE_LOG_COSINE_METRIC] = calculate_log_cosine_similarity(
-                    originalMostUsedSources, mostUsedMetricSources
-                )
-                current_results[SOURCE_JSD_METRIC] = calculate_jsd(
-                    originalMostUsedSources, mostUsedMetricSources
-                )
+                # --- Calculate ALL Source Similarities/Distances ---
+                current_results[SOURCE_COSINE_METRIC] = calculate_source_cosine_similarity(originalMostUsedSources, mostUsedMetricSources)
+                current_results[SOURCE_LOG_COSINE_METRIC] = calculate_log_cosine_similarity(originalMostUsedSources, mostUsedMetricSources)
+                current_results[SOURCE_JSD_METRIC] = calculate_jsd(originalMostUsedSources, mostUsedMetricSources)
+                spearman, kendall = calculate_rank_correlation(originalMostUsedSources, mostUsedMetricSources)
+                current_results[SOURCE_SPEARMAN_METRIC] = spearman
+                current_results[SOURCE_KENDALL_METRIC] = kendall
+                intersect_k, precision_k, recall_k = calculate_top_k_overlap(originalMostUsedSources, mostUsedMetricSources, closestSources)
+                current_results[SOURCE_INTERSECT_K_METRIC] = intersect_k
+                current_results[SOURCE_PRECISION_K_METRIC] = precision_k
+                current_results[SOURCE_RECALL_K_METRIC] = recall_k
+                # New Metrics
+                euclidean, manhattan = calculate_vector_distances(originalMostUsedSources, mostUsedMetricSources)
+                current_results[SOURCE_EUCLIDEAN_METRIC] = euclidean
+                current_results[SOURCE_MANHATTAN_METRIC] = manhattan
+                current_results[SOURCE_RUZICKA_METRIC] = calculate_ruzicka_similarity(originalMostUsedSources, mostUsedMetricSources)
+                current_results[SOURCE_SYMM_DIFF_METRIC] = calculate_symmetric_difference_size(originalMostUsedSources, mostUsedMetricSources)
+
 
                 # --- Calculate Image Similarity ---
-                image_sim_dict = evaluateImageSimilarityByMetrics(
-                    name="Metrics_MP", combination=combination_str, sample=sample,
-                    mostUsed=mostUsedMetricSources, storeGlobally=False
-                )
-                for eval_key, store_suffix in IMAGE_SIM_KEY_MAP.items():
-                    if eval_key in image_sim_dict:
-                        current_results[f"{IMG_SIM_PREFIX}{store_suffix}"] = image_sim_dict[eval_key]
+                if evaluationActivations is not None:
+                    image_sim_dict = evaluateImageSimilarityByMetrics(name="Metrics_MP", combination=combination_str, sample=sample, mostUsed=mostUsedMetricSources, storeGlobally=False)
+                    for eval_key, store_suffix in IMAGE_SIM_KEY_MAP.items():
+                        if eval_key in image_sim_dict: current_results[f"{IMG_SIM_PREFIX}{store_suffix}"] = image_sim_dict[eval_key]
 
-                # --- Calculate Activation Similarity ---
-                activation_sim_dict = blendActivations(
-                    name=f"metric_combo_{combination_str}", mostUsed=mostUsedMetricSources,
-                    evaluationActivations=evaluationActivations,
-                    layerNumbersToCheck=layerNumbersToCheck, store_globally=False
-                )
-                for act_key in ACTIVATION_METRIC_KEYS:
-                    if act_key in activation_sim_dict:
-                        current_results[act_key] = activation_sim_dict[act_key]
+                    # --- Calculate Activation Similarity ---
+                    if layerNumbersToCheck:
+                        activation_sim_dict = blendActivations(name=f"metric_combo_{combination_str}", mostUsed=mostUsedMetricSources, evaluationActivations=evaluationActivations, layerNumbersToCheck=layerNumbersToCheck, store_globally=False)
+                        for act_key in ACTIVATION_METRIC_KEYS:
+                            if act_key in activation_sim_dict: current_results[act_key] = activation_sim_dict[act_key]
 
-            # Store results for this combination
+            # Store results for this combination (will store NaNs if mostUsedMetricSources was empty)
             for metric_key, value in current_results.items():
                 sample_results[(combination_str, metric_key)] = value
 
         except Exception as e:
-            print(f"\n--- WORKER ERROR (PID {os.getpid()}) processing combination {combination_str} for sample {pos} ---") 
+            print(f"\n--- WORKER ERROR (PID {os.getpid()}) processing combination {combination_str} for sample {pos} ---")
             for metric_key in ALL_METRIC_KEYS_FOR_AGGREGATION: sample_results[(combination_str, metric_key)] = np.nan
             print(f"--- WORKER (PID {os.getpid()}) continuing ---")
 
@@ -845,46 +1017,44 @@ def process_sample_evaluation(args):
 # ----------------------------------------------------------------------------
 # Main Evaluation Function (Multiprocessing Version) - UPDATED
 # ----------------------------------------------------------------------------
-
-def evaluate_metric_combinations_overall(
-        mostUsedList,
-        closestSources,
-        hidden_sizes,
-        all_metric_combinations,
-        weightedMode="Sum",
-        identificationMode="Sum",
-        max_workers=None
-):
-    """
-    Evaluates metric combinations using multiprocessing. Includes multiple source
-    similarity metrics (Cosine, Log-Cosine, JSD). Saves results to CSV.
-    """
+def evaluate_metric_combinations_overall(mostUsedList, hidden_sizes, closestSources, all_metric_combinations, mode="Sum", max_workers=None):
     start_time = time.time()
-    print(f"Starting evaluation with multiprocessing (max_workers={max_workers or os.cpu_count()})...")
-    print("Metrics: Activation Similarity, Image Similarity, Source Similarities (Cosine, LogCos, JSD)")
+    print(f"\nStarting evaluation with multiprocessing (max_workers={max_workers or os.cpu_count()})...")
+    print("Metrics: Activation Sim, Image Sim, Source Sims (Cos, LogCos, JSD, Rank, TopK, Dist, Ruzicka, SymmDiff)") # Updated description
 
     if max_workers is None: max_workers = os.cpu_count(); print(f"Using default max_workers = {max_workers}")
 
     futures = []; results_list = []
     with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
         processed_samples = 0
+        # Submit tasks for each sample
         for pos, (sample, _) in enumerate(eval_dataloader):
             if processed_samples >= eval_samples: break
             originalMostUsedSources = mostUsedList[pos] if pos < len(mostUsedList) else []
             evaluationActivations = dictionaryForSourceLayerNeuron[pos]
             metricsSampleActivations = metricsDictionaryForSourceLayerNeuron[pos]
-            try: sample_data = sample.float() # Add CPU conversion if needed
+
+            if metricsSampleActivations is None: continue
+            if not isinstance(metricsSampleActivations, np.ndarray):
+                try: metricsSampleActivations = np.array(metricsSampleActivations)
+                except Exception: print(f"Warning: Skipping sample {pos}, cannot convert metric activations to numpy array."); continue
+
+            try: sample_data = sample.float()
             except Exception as e: print(f"Warning: Sample prep failed {pos}: {e}. Skipping."); continue
 
+            # Update args tuple for the worker - ADDED k_top_overlap
             args = (pos, sample_data, originalMostUsedSources, evaluationActivations,
-                    metricsSampleActivations, all_metric_combinations, closestSources,
-                    weightedMode, identificationMode)
+                    metricsSampleActivations, all_metric_combinations, closestSources, mode
+                    )
+            # External functions assumed available in worker scope
             futures.append(executor.submit(process_sample_evaluation, args))
             processed_samples += 1
+
         print(f"Submitted {len(futures)} tasks to {max_workers} workers.")
+        # Retrieve results
         for future in concurrent.futures.as_completed(futures):
             try:
-                result = future.result()
+                result = future.result();
                 if result is not None: results_list.append(result)
             except Exception as e: print(f"\n--- ERROR retrieving result: {e} ---")
 
@@ -896,14 +1066,14 @@ def evaluate_metric_combinations_overall(
     results_aggregator = defaultdict(lambda: defaultdict(list))
     for sample_result_dict in results_list:
         for (combination_str, metric_key), score in sample_result_dict.items():
-            results_aggregator[combination_str][metric_key].append(score)
+            if metric_key in ALL_METRIC_KEYS_FOR_AGGREGATION:
+                results_aggregator[combination_str][metric_key].append(score)
 
     # --- Calculate Averages ---
     final_results = {}
     for combination_str, metric_scores_dict in results_aggregator.items():
         avg_scores = {}
-        all_possible_keys = set(metric_scores_dict.keys()) | set(ALL_METRIC_KEYS_FOR_AGGREGATION)
-        for metric_key in all_possible_keys:
+        for metric_key in ALL_METRIC_KEYS_FOR_AGGREGATION:
             scores_list = metric_scores_dict.get(metric_key, [])
             if scores_list: avg_scores[f"avg_{metric_key}"] = np.nanmean([s for s in scores_list if s is not None])
             else: avg_scores[f"avg_{metric_key}"] = np.nan
@@ -924,23 +1094,25 @@ def evaluate_metric_combinations_overall(
     act_dist_ordered = ['euclidean_distance', 'manhattan_distance', 'hamming_distance']
     img_sim_ordered = ['cosine_sim', 'pearson_corr', 'kendall_tau', 'spearman_rho', 'jaccard_sim']
     img_dist_ordered = ['euclidean_dst', 'manhattan_dst', 'hamming_dst']
-    # Source metrics together
-    source_ordered = [SOURCE_COSINE_METRIC, SOURCE_LOG_COSINE_METRIC, SOURCE_JSD_METRIC]
-
-    ordered_columns.extend([f'avg_{m}' for m in act_sim_ordered])
-    ordered_columns.extend([f'avg_{m}' for m in act_dist_ordered])
-    ordered_columns.extend([f'avg_{IMG_SIM_PREFIX}{m}' for m in img_sim_ordered])
-    ordered_columns.extend([f'avg_{IMG_SIM_PREFIX}{m}' for m in img_dist_ordered])
-    ordered_columns.extend([f'avg_{m}' for m in source_ordered]) # Add new source metrics here
-
-    remaining_cols = [col for col in results_df.columns if col not in ordered_columns]
-    ordered_columns.extend(sorted(remaining_cols))
+    # Source metrics together - UPDATED
+    source_sim_ordered = [
+        SOURCE_COSINE_METRIC, SOURCE_LOG_COSINE_METRIC, SOURCE_RUZICKA_METRIC, # Count-based Sims
+        SOURCE_SPEARMAN_METRIC, SOURCE_KENDALL_METRIC, # Rank Sims
+        SOURCE_PRECISION_K_METRIC, SOURCE_RECALL_K_METRIC, SOURCE_INTERSECT_K_METRIC # TopK Sims
+    ]
+    source_dist_ordered = [
+        SOURCE_JSD_METRIC, SOURCE_EUCLIDEAN_METRIC, SOURCE_MANHATTAN_METRIC, # Count/Distro Dists
+        SOURCE_SYMM_DIFF_METRIC # Set Dist
+    ]
+    ordered_columns.extend([f'avg_{m}' for m in act_sim_ordered]); ordered_columns.extend([f'avg_{m}' for m in act_dist_ordered])
+    ordered_columns.extend([f'avg_{IMG_SIM_PREFIX}{m}' for m in img_sim_ordered]); ordered_columns.extend([f'avg_{IMG_SIM_PREFIX}{m}' for m in img_dist_ordered])
+    ordered_columns.extend([f'avg_{m}' for m in source_sim_ordered]) # Add ALL source similarities
+    ordered_columns.extend([f'avg_{m}' for m in source_dist_ordered]) # Add ALL source distances/differences
+    remaining_cols = [col for col in results_df.columns if col not in ordered_columns]; ordered_columns.extend(sorted(remaining_cols))
     final_ordered_columns = [col for col in ordered_columns if col in results_df.columns]
 
     # --- Reindex DataFrame Columns ---
-    try:
-        results_df = results_df[final_ordered_columns]
-        print("Reordered DataFrame columns.")
+    try: results_df = results_df[final_ordered_columns]; print("Reordered DataFrame columns.")
     except Exception as e: print(f"Warning: Column reordering failed: {e}.")
 
     # --- Define Row Sorting Priority (Updated) ---
@@ -948,62 +1120,60 @@ def evaluate_metric_combinations_overall(
     metrics_priority_list = [
         'avg_cosine_similarity',
         f'avg_{IMG_SIM_PREFIX}cosine_sim',
-        f'avg_{SOURCE_COSINE_METRIC}',       # Original source metric
-        f'avg_{SOURCE_LOG_COSINE_METRIC}', # New source metric (higher better)
-        f'avg_{SOURCE_JSD_METRIC}',          # New source metric (lower better)
+        f'avg_{SOURCE_COSINE_METRIC}',
+        f'avg_{SOURCE_LOG_COSINE_METRIC}',
+        f'avg_{SOURCE_RUZICKA_METRIC}',      # Added Ruzicka (Higher better)
+        f'avg_{SOURCE_SPEARMAN_METRIC}',
+        f'avg_{SOURCE_PRECISION_K_METRIC}',
+        f'avg_{SOURCE_RECALL_K_METRIC}',
+        f'avg_{SOURCE_JSD_METRIC}',
+        f'avg_{SOURCE_EUCLIDEAN_METRIC}',    # Added Euclidean (Lower better)
+        f'avg_{SOURCE_MANHATTAN_METRIC}',    # Added Manhattan (Lower better)
+        f'avg_{SOURCE_SYMM_DIFF_METRIC}', # Added SymmDiff (Lower better)
         'avg_euclidean_distance',
         f'avg_{IMG_SIM_PREFIX}euclidean_dst',
-        'avg_kendall_tau',
+        f'avg_{SOURCE_KENDALL_METRIC}',
+        f'avg_{SOURCE_INTERSECT_K_METRIC}',
+        'avg_kendall_tau', # Activation kendall
     ]
-    similarity_keywords = ['similarity', 'correlation', 'tau', 'rho']
-    distance_keywords = ['distance', 'dst', 'jsd'] # Add jsd as distance
+    # Updated keywords for sorting direction inference
+    similarity_keywords = ['similarity', 'correlation', 'tau', 'rho', 'spearman', 'kendall', 'precision', 'recall', 'intersect', 'ruzicka']
+    distance_keywords = ['distance', 'dst', 'jsd', 'euclidean', 'manhattan', 'diff'] # Added more distance types
 
     # --- Prepare Row Sorting Parameters (Updated Logic) ---
     sort_by_columns = []; sort_ascending_flags = []; sort_descriptions = []
     for metric_col in metrics_priority_list:
         if metric_col not in results_df.columns: continue
-        ascending_order = False; sort_type = " (Desc)" # Default: higher is better
-        metric_col_lower = metric_col.lower()
+        ascending_order = False; sort_type = " (Desc)"; metric_col_lower = metric_col.lower()
         is_similarity = any(keyword in metric_col_lower for keyword in similarity_keywords)
         is_distance = any(keyword in metric_col_lower for keyword in distance_keywords)
 
-        # Explicit checks for clarity, especially for new metrics
-        if SOURCE_JSD_METRIC in metric_col_lower: # JSD: lower is better
+        # Explicit checks first for distances/lower-is-better
+        if SOURCE_JSD_METRIC in metric_col_lower \
+                or SOURCE_EUCLIDEAN_METRIC in metric_col_lower \
+                or SOURCE_MANHATTAN_METRIC in metric_col_lower \
+                or SOURCE_SYMM_DIFF_METRIC in metric_col_lower \
+                or is_distance:
             ascending_order = True; sort_type = " (Asc)"
-        elif SOURCE_LOG_COSINE_METRIC in metric_col_lower: # LogCosine: higher is better
+        # Otherwise assume higher is better (covers similarities and rank correlations etc.)
+        elif is_similarity:
             ascending_order = False; sort_type = " (Desc)"
-        elif SOURCE_COSINE_METRIC in metric_col_lower: # Cosine: higher is better
-            ascending_order = False; sort_type = " (Desc)"
-        elif is_distance: # Other distances: lower is better
-            ascending_order = True; sort_type = " (Asc)"
-        elif is_similarity: # Other similarities: higher is better
-            ascending_order = False; sort_type = " (Desc)"
-        # else: keep default (Desc)
+        # else: keep default (Desc) for anything else
 
         sort_by_columns.append(metric_col); sort_ascending_flags.append(ascending_order)
         sort_descriptions.append(f"{metric_col.replace('avg_', '')}{sort_type}")
 
     # --- Perform Final Row Sort ---
-    if not sort_by_columns:
-        print("\nWarning: No valid columns for sorting rows.")
-        final_df_to_return = results_df
+    if not sort_by_columns: print("\nWarning: No valid columns for sorting rows."); final_df_to_return = results_df
     else:
         print(f"\n--- Final Ranking Sorted By Rows: {' -> '.join(sort_descriptions)} ---")
-        try:
-            multi_sorted_df = results_df.sort_values(
-                by=sort_by_columns, ascending=sort_ascending_flags, na_position='last'
-            )
-            final_df_to_return = multi_sorted_df
-        except Exception as e:
-            print(f"\nError during final row sorting: {e}.")
-            final_df_to_return = results_df
+        try: final_df_to_return = results_df.sort_values(by=sort_by_columns, ascending=sort_ascending_flags, na_position='last')
+        except Exception as e: print(f"\nError during final row sorting: {e}."); final_df_to_return = results_df
 
     # --- Print Preview and Export ---
-    pd.set_option('display.max_rows', 200); pd.set_option('display.max_columns', None)
-    pd.set_option('display.width', 2000); pd.set_option('display.max_colwidth', None)
-    print("\n--- Top Results Preview (Full results in CSV) ---")
-    print(final_df_to_return.head())
-
+    pd.set_option('display.max_rows', 200); pd.set_option('display.max_columns', None); pd.set_option('display.width', 2000); pd.set_option('display.max_colwidth', None)
+    print("\n--- Top Results Preview (Full results in CSV) ---"); print(final_df_to_return)
+    
     # --- Generate Timestamped Filename ---
     local_time_struct = time.localtime()
     formatted_time = time.strftime("%Y%m%d_%H%M%S", local_time_struct) # Format for filename
@@ -1019,7 +1189,6 @@ def evaluate_metric_combinations_overall(
     # --- Export Full Results to CSV ---
     try:
         final_df_to_return.to_csv(output_csv_filename)
-        print(final_df_to_return)
         print(f"\nFull results successfully exported to: {output_csv_filename}")
     except Exception as e:
         print(f"\nWarning: Failed to export results to CSV file '{output_csv_filename}': {e}")
@@ -1109,9 +1278,9 @@ def evaluate_pareto():
     IDX_PEARSON = 6
     IDX_KENDALL = 7
     IDX_SPEARMAN = 8
-    
+
     # --- Configuration for Pareto Analysis ---
-    
+
     # 1. Define Objectives: Map metric index to 'higher_better' or 'lower_better'
     #    *** ADJUST THIS DICTIONARY based on the metrics YOU want to consider ***
     objectives = {
@@ -1125,7 +1294,7 @@ def evaluate_pareto():
         IDX_SPEARMAN: 'higher_better'
     }
     objective_indices = list(objectives.keys())
-    
+
     def dominates(result_a, result_b, objectives):
         """Checks if result_a dominates result_b based on the defined objectives."""
         a_is_strictly_better_on_any = False
@@ -1135,31 +1304,31 @@ def evaluate_pareto():
                 val_b = result_b[idx]
             except IndexError:
                 return False # Data malformed
-    
+
             if val_a is None and val_b is None:
                 continue # Equal Nones, proceed
             elif val_a is None: # 'a' has None, 'b' does not. 'a' cannot be >= 'b'.
                 return False
             elif val_b is None: # 'b' has None, 'a' does not. Proceed checking others.
                 pass
-    
+
             # Check if 'a' is WORSE than 'b'
             is_worse = False
             if type == 'higher_better' and (val_a is None or (val_b is not None and val_a < val_b)):
                 is_worse = True
             elif type == 'lower_better' and (val_a is None or (val_b is not None and val_a > val_b)):
                 is_worse = True
-    
+
             # Handle case where only val_b is None (a is better if higher_better, worse if lower_better)
             if val_b is None and val_a is not None:
                 if type == 'higher_better': # a is better than None
                     is_strictly_better = True
                 else: # a is worse than None (lower should be better)
                     is_worse = True # Treat non-None as worse than None for lower_better objective
-    
+
             if is_worse:
                 return False
-    
+
             # Check if 'a' is STRICTLY BETTER than 'b' (only if both not None)
             is_strictly_better = False
             if val_a is not None and val_b is not None:
@@ -1167,41 +1336,41 @@ def evaluate_pareto():
                     is_strictly_better = True
                 elif type == 'lower_better' and val_a < val_b:
                     is_strictly_better = True
-    
+
             if is_strictly_better:
                 a_is_strictly_better_on_any = True
-    
+
         return a_is_strictly_better_on_any
 
     # --- Find the Pareto Front Directly from best_image_similarity ---
-    
+
     def find_pareto_front(results_list, objectives_def):
         # 1. Filter out basic errors if necessary (e.g., if strings were added)
         #    Adjust this check based on how errors might appear in your list.
         valid_results = [res for res in results_list if isinstance(res[1], (int, float, type(None)))]
         # Or if errors are marked differently:
         # valid_results = [res for res in results_list if res[0] != 'ERROR_MARKER']
-    
+
         if not valid_results:
             print("No valid results found in the input list.")
             return []
-    
+
         num_results = len(valid_results)
         is_non_dominated = [True] * num_results # Assume all are non-dominated initially
-    
+
         print(f"\n--- Finding Pareto Front ({len(objectives_def)} objectives) ---")
         print(f"Objectives (Index: Type): {objectives_def}")
         print(f"Processing {num_results} valid combinations...")
-    
+
         for i in range(num_results):
             # Optimization: if i is already known to be dominated, it can't dominate others effectively
             # if not is_non_dominated[i]:
             #     continue
-    
+
             for j in range(num_results):
                 if i == j:
                     continue
-    
+
                 # Check if solution j dominates solution i
                 try:
                     if dominates(valid_results[j], valid_results[i], objectives_def):
@@ -1211,12 +1380,12 @@ def evaluate_pareto():
                     print(f"Error during dominance check between {valid_results[j][0]} and {valid_results[i][0]}: {e}")
                     # Decide how to handle comparison errors - e.g., assume i is not dominated by j here
                     pass
-    
-    
+
+
         # Collect the results that are non-dominated
         pareto_front_results = [valid_results[i] for i in range(num_results) if is_non_dominated[i]]
         return pareto_front_results
-    
+
     # Make sure best_image_similarity is populated before calling this
     if 'best_image_similarity' in globals() and best_image_similarity:
         pareto_front = find_pareto_front(best_image_similarity, objectives)
@@ -1924,7 +2093,7 @@ def select_balanced_solution_from_pareto(pareto_df, target_metrics, directions):
     for metric, weight in sorted(final_weights.items(), key=lambda item: item[1], reverse=True):
         print(f"  {metric}: {weight:.4f}")
 
-    return final_weights, closest_idx 
+    return final_weights, closest_idx
 
 def evaluate_metric_importance_via_ablation(
         closestSources,
