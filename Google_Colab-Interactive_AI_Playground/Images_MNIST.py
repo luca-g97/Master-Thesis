@@ -352,6 +352,7 @@ def compute_cosine_similarity(image1, image2):
     vec2 = image2.flatten().reshape(1, -1)
     return cosine_similarity(vec1, vec2)[0][0]
 
+EPSILON = 1e-9 # Small tolerance for variance check
 def computeSimilarity(sample, train_sample):
     # Compute similarities
     cosine_similarity = compute_cosine_similarity(sample, train_sample)
@@ -362,10 +363,10 @@ def computeSimilarity(sample, train_sample):
         if np.sum(np.maximum(sample, train_sample)) > 0 else None
     )
     hamming_distance = np.mean(sample != train_sample)  # Hamming
-    try:
+    if not (np.isnan(sample).any() or np.isnan(train_sample).any() or np.std(sample) < EPSILON or np.std(train_sample) < EPSILON):
         pearson_correlation, _ = pearsonr(sample.flatten(), train_sample.flatten())  # Pearson
-    except ValueError:
-        pearson_correlation = None
+    else:
+        pearson_correlation = np.nan
 
     return cosine_similarity, euclidean_distance, manhattan_distance, jaccard_similarity, hamming_distance, pearson_correlation
 
@@ -383,8 +384,12 @@ def evaluateImageSimilarity(name, sample, mostUsed):
 
     cosine_similarity, euclidean_distance, manhattan_distance, jaccard_similarity, hamming_distance, pearson_correlation = computeSimilarity(sample, blended_image_flat)
 
-    kendall_tau, _ = kendalltau(sample, blended_image_flat)
-    spearman_rho, _ = spearmanr(sample, blended_image_flat)
+    if not (np.isnan(sample).any() or np.isnan(blended_image_flat).any() or np.std(sample) < EPSILON or np.std(blended_image_flat) < EPSILON):
+        kendall_tau, _ = kendalltau(sample, blended_image_flat)
+        spearman_rho, _ = spearmanr(sample, blended_image_flat)
+    else:
+        kendall_tau = np.nan
+        spearman_rho = np.nan
 
     results = {
         "kendall_tau": kendall_tau,
@@ -415,120 +420,6 @@ def evaluateImageSimilarity(name, sample, mostUsed):
     elif name == "MT":
         mt_image_similarity.append(results)
 
-    # # Initialize aggregates for overall metrics
-    # aggregate_scores = {
-    #     "cosine": 0,
-    #     "euclidean": 0,
-    #     "manhattan": 0,
-    #     "jaccard": 0,
-    #     "hamming": 0,
-    #     "pearson": 0,
-    # }
-    # count_valid = {
-    #     "jaccard": 0,  # Count only valid Jaccard entries (non-zero denominator)
-    #     "pearson": 0,  # Count only valid Pearson correlations
-    # }
-    # 
-    # # Compute similarity for each training sample
-    # for pos, (train_sample, true) in enumerate(trainDataSet):
-    #     train_sample = np.asarray(train_sample.flatten().reshape(1, -1))
-    # 
-    #     cosine_similarity, euclidean_distance, manhattan_distance, jaccard_similarity, hamming_distance, pearson_correlation = computeSimilarity(sample, train_sample)
-    # 
-    #     # Accumulate aggregate scores
-    #     aggregate_scores["cosine"] += cosine_similarity
-    #     aggregate_scores["euclidean"] += euclidean_distance
-    #     aggregate_scores["manhattan"] += manhattan_distance
-    #     if jaccard_similarity is not None:
-    #         aggregate_scores["jaccard"] += jaccard_similarity
-    #         count_valid["jaccard"] += 1
-    #     aggregate_scores["hamming"] += hamming_distance
-    #     if pearson_correlation is not None:
-    #         aggregate_scores["pearson"] += pearson_correlation
-    #         count_valid["pearson"] += 1
-    # 
-    #     similarityList.append({
-    #         "pos": pos,
-    #         "cosine": cosine_similarity,
-    #         "euclidean": euclidean_distance,
-    #         "manhattan": manhattan_distance,
-    #         "jaccard": jaccard_similarity,
-    #         "hamming": hamming_distance,
-    #         "pearson": pearson_correlation,
-    #     })
-    # 
-    # # Normalize aggregate scores
-    # num_samples = len(trainDataSet)
-    # for key in ["cosine", "euclidean", "manhattan", "hamming"]:
-    #     aggregate_scores[key] /= num_samples
-    # if count_valid["jaccard"] > 0:
-    #     aggregate_scores["jaccard"] /= count_valid["jaccard"]
-    # else:
-    #     aggregate_scores["jaccard"] = None
-    # if count_valid["pearson"] > 0:
-    #     aggregate_scores["pearson"] /= count_valid["pearson"]
-    # else:
-    #     aggregate_scores["pearson"] = None
-    # 
-    # # Sort similarityList by cosine similarity in descending order
-    # similarityList.sort(key=lambda x: x["cosine"], reverse=True)
-    # 
-    # # Extract top sources from similarity list
-    # topSources = set(item["pos"] for item in similarityList[:len(mostUsed)])
-    # 
-    # # Extract most used sources
-    # mostUsedSources = set(source for source, _ in mostUsed)
-    # 
-    # # --- Metrics ---
-    # # Matches
-    # matches = len(topSources & mostUsedSources)
-    # 
-    # # Accuracy
-    # accuracy = matches / len(topSources) if topSources else 0
-    # 
-    # # Precision and Recall
-    # precision = matches / len(mostUsedSources) if mostUsedSources else 0
-    # recall = matches / len(topSources) if topSources else 0
-    # 
-    # # F1-Score
-    # f1_score = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
-    # 
-    # # Weighted Accuracy
-    # total_weight = sum(count for _, count in mostUsed)
-    # weighted_matches = sum(
-    #     count for source, count in mostUsed if source in topSources
-    # )
-    # weighted_accuracy = weighted_matches / total_weight if total_weight else 0
-    # 
-    # # Kendall's Tau and Spearman's Rho
-    # topRanking = [item["pos"] for item in similarityList[:len(mostUsed)]]
-    # mostUsedRanking = [source for source, _ in mostUsed]
-    # kendall_tau, _ = kendalltau(topRanking, mostUsedRanking)
-    # spearman_rho, _ = spearmanr(topRanking, mostUsedRanking)
-    # 
-    # # Top-k Intersection
-    # top_k_intersection = len(topSources & mostUsedSources)
-    # 
-    # # --- Print Results ---
-    # print("\n--- Overall Metrics ---")
-    # print(f"Accuracy: {accuracy * 100:.2f}%")
-    # print(f"Precision: {precision * 100:.2f}%")
-    # print(f"Recall: {recall * 100:.2f}%")
-    # print(f"F1-Score: {f1_score * 100:.2f}%")
-    # print(f"Weighted Accuracy: {weighted_accuracy * 100:.2f}%")
-    # print(f"Kendall's Tau: {kendall_tau:.2f}")
-    # print(f"Spearman's Rho: {spearman_rho:.2f}")
-    # print(f"Top-{len(mostUsed)} Intersection: {top_k_intersection}/{len(mostUsed)}")
-    # 
-    # # --- Print Overall Similarity Scores ---
-    # print("\n--- Overall Similarity Scores ---")
-    # print(f"Cosine Similarity (Mean): {aggregate_scores['cosine']:.4f}")
-    # print(f"Euclidean Distance (Mean): {aggregate_scores['euclidean']:.4f}")
-    # print(f"Manhattan Distance (Mean): {aggregate_scores['manhattan']:.4f}")
-    # print(f"Jaccard Similarity (Mean): {aggregate_scores['jaccard']:.4f}" if aggregate_scores["jaccard"] is not None else "Jaccard Similarity: N/A")
-    # print(f"Hamming Distance (Mean): {aggregate_scores['hamming']:.4f}")
-    # print(f"Pearson Correlation (Mean): {aggregate_scores['pearson']:.4f}" if aggregate_scores["pearson"] is not None else "Pearson Correlation: N/A")
-
 # Global storage (optional)
 original_activation_similarity, metrics_activation_similarity, mt_activation_similarity = [], [], []
 def blendActivations(name, mostUsed, evaluationActivations, layerNumbersToCheck, store_globally=False):
@@ -547,8 +438,13 @@ def blendActivations(name, mostUsed, evaluationActivations, layerNumbersToCheck,
 
     # --- Compute Metrics ---
     cosine_sim, euclidean_dist, manhattan_dist, jaccard_sim, hamming_dist, pearson_corr = computeSimilarity(eval_flat, blend_flat)
-    kendall_tau, _ = kendalltau(eval_flat.squeeze(), blend_flat.squeeze())
-    spearman_rho, _ = spearmanr(eval_flat.squeeze(), blend_flat.squeeze())
+
+    if not (np.isnan(eval_flat).any() or np.isnan(blend_flat).any() or np.std(eval_flat) < EPSILON or np.std(blend_flat) < EPSILON):
+        kendall_tau, _ = kendalltau(eval_flat.squeeze(), blend_flat.squeeze())
+        spearman_rho, _ = spearmanr(eval_flat.squeeze(), blend_flat.squeeze())
+    else:
+        kendall_tau = np.nan
+        spearman_rho = np.nan
 
     # --- Store Results ---
     results = {
@@ -591,7 +487,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
         #metricsDictionaryForSourceLayerNeuron = createRandomDictionary(metricsDictionaryForSourceLayerNeuron, RENN.metricsActivationsBySources) #Random values per metrics min and max
         #metricsDictionaryForSourceLayerNeuron = np.full(metricsDictionaryForSourceLayerNeuron.shape, 0.5) #Fixed Vector
 
-    mostUsedList = []
+    mostUsedListSum, mostUsedListActivations = [], []
     mostUsedMetricsList = []
 
     for pos, (sample, true) in enumerate(eval_dataloader):
@@ -610,7 +506,9 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             blendedMTSourceImageSum = blendImagesTogether(mostUsedMTSourcesWithSum, "Not Weighted")
             layersToCheck = layerNumbersToCheck # Switch to another variable to use correct layers for analyzation
 
-            sourcesActivation, metricSourcesActivation, mtSourcesActivation, outputsActivation, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], metricsDictionaryForSourceLayerNeuron[pos], mtDictionaryForSourceLayerNeuron[pos], "Activation")
+            
+            #sourcesActivation, metricSourcesActivation, mtSourcesActivation, outputsActivation, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], metricsDictionaryForSourceLayerNeuron[pos], mtDictionaryForSourceLayerNeuron[pos], "Activation") #For Overall Sum-Evaluation
+            sourcesActivation, metricSourcesActivation, mtSourcesActivation, outputsActivation, layersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], metricsDictionaryForSourceLayerNeuron[pos], mtDictionaryForSourceLayerNeuron[pos], "Activation") #Uncomment for Overall Activation-Evaluation
             mostUsedSourcesWithActivation, mostUsedMetricSourcesWithActivation, mostUsedMTSourcesWithActivation, mostUsedSourcesPerLayerWithActivation = RENN.getMostUsedSources(sourcesActivation, metricSourcesActivation, mtSourcesActivation, closestSources, "Activation")
             #20 sources only because otherwise the blending might not be visible anymore. Should be closestSources instead to be correct!
             blendedSourceImageActivation = blendImagesTogether(mostUsedSourcesWithActivation, "Not Weighted")
@@ -630,38 +528,26 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
 
         if(analyze):
             #mostUsed, mostUsedMetrics, mostUsedMT = #RENN.getMostUsedSources(sourcesSum, metricSourcesSum, mtSourcesSum, closestSources)
-            mostUsedList.append(mostUsedSourcesPerLayerWithSum)
-            blendActivations("", mostUsedSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layersToCheck, True)
+            #Always use the linear layer values for reference within the evaluation
+            mostUsedListSum.append(mostUsedSourcesPerLayerWithSum)
+            mostUsedListActivations.append(mostUsedSourcesPerLayerWithActivation)
+            blendActivations("", mostUsedSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layerNumbersToCheck, True)
             evaluateImageSimilarity("", sample, mostUsedSourcesWithSum)
             if metricsEvaluation:
-                blendActivations("Metrics", mostUsedMetricSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layersToCheck, True)
+                blendActivations("Metrics", mostUsedMetricSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layerNumbersToCheck, True)
                 evaluateImageSimilarity("Metrics", sample, mostUsedMetricSourcesWithSum)
             if RENN.mtEvaluation:
-                blendActivations("MT", mostUsedMTSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layersToCheck, True)
+                blendActivations("MT", mostUsedMTSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layerNumbersToCheck, True)
                 evaluateImageSimilarity("MT", sample, mostUsedMTSourcesWithSum)
-
-            #Per sample, not overall
-            if paretoEvaluation:
-                for metric_combination in METRICS_COMBINATIONS:
-                    metricSourcesSum, layerNumbersToCheck = RENN.identifyClosestSourcesByMetricCombination(closestSources, metricsDictionaryForSourceLayerNeuron[pos], metric_combination, mode="Sum")
-                    mostUsedMetricSourcesWithSum = RENN.getMostUsedSourcesByMetrics(metricSourcesSum, closestSources, weightedMode="Sum")
-
-                    evaluateImageSimilarityByMetrics("Metrics", metric_combination, sample, mostUsedMetricSourcesWithSum)
+                
     if analyze:
-        #Per sample, not overall    
-        if weightTuning and paretoEvaluation:
-            optimizations_to_run = evaluate_pareto()
-            results, combinations = optimize_weights_of_best_combinations(closestSources, optimizations_to_run)
-            synthesize_overall_weights(results)
-            pareto_df, weight_stats_df, study, union_combination_names = find_overall_weights_via_moo(closestSources, combinations)
-            find_best_metric_weights(pareto_df, closestSources)
-
         resultDataframe = evaluate_metric_combinations_overall(
-            mostUsedList,
+            mostUsedListSum,
+            linearLayers=layerNumbersToCheck,
             hidden_sizes=hidden_sizes,
             closestSources=closestSources,
             all_metric_combinations=METRICS_COMBINATIONS,
-            mode="Sum"
+            mode="Activation" #Change to Activation for Overall Activation-Evaluation
         )
 
 # ----------------------------------------------------------------------------
@@ -945,7 +831,7 @@ ALL_METRIC_KEYS_FOR_AGGREGATION = ACTIVATION_METRIC_KEYS + IMAGE_METRIC_KEYS_PRE
 # ----------------------------------------------------------------------------
 def process_sample_evaluation(args):
     (pos, sample, originalMostUsedSources, evaluationActivations,
-     metricsSampleActivations, all_metric_combinations, closestSources,
+     metricsSampleActivations, linearLayers, all_metric_combinations, closestSources,
      mode
      ) = args
 
@@ -976,7 +862,10 @@ def process_sample_evaluation(args):
                 current_results[SOURCE_COSINE_METRIC] = calculate_source_cosine_similarity(originalMostUsedSources, mostUsedMetricSources)
                 current_results[SOURCE_LOG_COSINE_METRIC] = calculate_log_cosine_similarity(originalMostUsedSources, mostUsedMetricSources)
                 current_results[SOURCE_JSD_METRIC] = calculate_jsd(originalMostUsedSources, mostUsedMetricSources)
-                spearman, kendall = calculate_rank_correlation(originalMostUsedSources, mostUsedMetricSources)
+                if not (np.isnan(originalMostUsedSources).any() or np.isnan(mostUsedMetricSources).any() or np.std(originalMostUsedSources) < EPSILON or np.std(mostUsedMetricSources) < EPSILON):
+                    spearman, kendall = calculate_rank_correlation(originalMostUsedSources, mostUsedMetricSources)
+                else:
+                    spearman, kendall = np.nan, np.nan
                 current_results[SOURCE_SPEARMAN_METRIC] = spearman
                 current_results[SOURCE_KENDALL_METRIC] = kendall
                 intersect_k, precision_k, recall_k = calculate_top_k_overlap(originalMostUsedSources, mostUsedMetricSources, closestSources)
@@ -999,7 +888,7 @@ def process_sample_evaluation(args):
 
                     # --- Calculate Activation Similarity ---
                     if layerNumbersToCheck:
-                        activation_sim_dict = blendActivations(name=f"metric_combo_{combination_str}", mostUsed=mostUsedMetricSources, evaluationActivations=evaluationActivations, layerNumbersToCheck=layerNumbersToCheck, store_globally=False)
+                        activation_sim_dict = blendActivations(name=f"metric_combo_{combination_str}", mostUsed=mostUsedMetricSources, evaluationActivations=evaluationActivations, layerNumbersToCheck=linearLayers, store_globally=False)
                         for act_key in ACTIVATION_METRIC_KEYS:
                             if act_key in activation_sim_dict: current_results[act_key] = activation_sim_dict[act_key]
 
@@ -1008,16 +897,16 @@ def process_sample_evaluation(args):
                 sample_results[(combination_str, metric_key)] = value
 
         except Exception as e:
-            print(f"\n--- WORKER ERROR (PID {os.getpid()}) processing combination {combination_str} for sample {pos} ---")
+            #print(f"\n--- WORKER ERROR (PID {os.getpid()}) processing combination {combination_str} for sample {pos} ---")
             for metric_key in ALL_METRIC_KEYS_FOR_AGGREGATION: sample_results[(combination_str, metric_key)] = np.nan
-            print(f"--- WORKER (PID {os.getpid()}) continuing ---")
+            #print(f"--- WORKER (PID {os.getpid()}) continuing ---")
 
     return sample_results
 
 # ----------------------------------------------------------------------------
 # Main Evaluation Function (Multiprocessing Version) - UPDATED
 # ----------------------------------------------------------------------------
-def evaluate_metric_combinations_overall(mostUsedList, hidden_sizes, closestSources, all_metric_combinations, mode="Sum", max_workers=None):
+def evaluate_metric_combinations_overall(mostUsedList, linearLayers, hidden_sizes, closestSources, all_metric_combinations, mode="Sum", max_workers=None):
     start_time = time.time()
     print(f"\nStarting evaluation with multiprocessing (max_workers={max_workers or os.cpu_count()})...")
     print("Metrics: Activation Sim, Image Sim, Source Sims (Cos, LogCos, JSD, Rank, TopK, Dist, Ruzicka, SymmDiff)") # Updated description
@@ -1044,7 +933,7 @@ def evaluate_metric_combinations_overall(mostUsedList, hidden_sizes, closestSour
 
             # Update args tuple for the worker - ADDED k_top_overlap
             args = (pos, sample_data, originalMostUsedSources, evaluationActivations,
-                    metricsSampleActivations, all_metric_combinations, closestSources, mode
+                    metricsSampleActivations, linearLayers, all_metric_combinations, closestSources, mode
                     )
             # External functions assumed available in worker scope
             futures.append(executor.submit(process_sample_evaluation, args))
@@ -1217,22 +1106,24 @@ def evaluateImageSimilarityByMetrics(name, combination, sample, mostUsed, storeG
     blended_1d = blended_image_flat.squeeze()
 
     # Handle potential NaN inputs or zero variance for correlation coefficients
-    kendall_tau, spearman_rho = None, None
-    if np.isnan(sample_1d).any() or np.isnan(blended_1d).any():
-        print(f"Warning ({name} - {combination}): NaN values found in vectors, skipping rank correlations.")
-    elif np.std(sample_1d) == 0 or np.std(blended_1d) == 0:
-        print(f"Warning ({name} - {combination}): Zero variance in vectors, skipping rank correlations.")
-    elif len(sample_1d) > 1: # Need more than 1 element for correlation
-        try:
-            kendall_tau, _ = kendalltau(sample_1d, blended_1d)
-        except Exception as e:
-            print(f"Error calculating Kendall's Tau for {name} - {combination}: {e}")
-        try:
-            spearman_rho, _ = spearmanr(sample_1d, blended_1d)
-        except Exception as e:
-            print(f"Error calculating Spearman's Rho for {name} - {combination}: {e}")
+    if not (np.isnan(sample_1d).any() or np.isnan(blended_1d).any() or np.std(sample_1d) < EPSILON or np.std(blended_1d) < EPSILON):
+        if np.isnan(sample_1d).any() or np.isnan(blended_1d).any():
+            print(f"Warning ({name} - {combination}): NaN values found in vectors, skipping rank correlations.")
+        elif np.std(sample_1d) == 0 or np.std(blended_1d) == 0:
+            print(f"Warning ({name} - {combination}): Zero variance in vectors, skipping rank correlations.")
+        elif len(sample_1d) > 1: # Need more than 1 element for correlation
+            try:
+                kendall_tau, _ = kendalltau(sample_1d, blended_1d)
+            except Exception as e:
+                print(f"Error calculating Kendall's Tau for {name} - {combination}: {e}")
+            try:
+                spearman_rho, _ = spearmanr(sample_1d, blended_1d)
+            except Exception as e:
+                print(f"Error calculating Spearman's Rho for {name} - {combination}: {e}")
+        else:
+            print(f"Warning ({name} - {combination}): Input vector length <= 1, skipping rank correlations.")
     else:
-        print(f"Warning ({name} - {combination}): Input vector length <= 1, skipping rank correlations.")
+        kendall_tau, spearman_rho = np.nan, np.nan
 
     # --- Store Results ---
     # Append the combination identifier along with all metrics to the list
@@ -1398,7 +1289,7 @@ def evaluate_pareto():
             print("These combinations represent the best trade-offs based on the selected objectives:")
             # Sort alphabetically by combo name for consistent output (optional)
             # Prepare mappings needed (assuming constants and RENN.POTENTIAL_METRICS are available globally)
-        metric_keys_list = list(RENN.POTENTIAL_METRICS.keys())
+        metric_keys_list = list(RENN.FINAL_METRICS.keys())
 
         # Create a reverse map from index to name (needed for output dict)
         # Also map index to simple direction string
@@ -1518,10 +1409,10 @@ def evaluate_pareto():
 
 def optimize_weights_of_best_combinations(closestSources, optimizations_to_run):
     # Get the ordered list of all metric names once
-    if not hasattr(RENN, 'POTENTIAL_METRICS') or not isinstance(RENN.POTENTIAL_METRICS, dict):
+    if not hasattr(RENN, 'POTENTIAL_METRICS') or not isinstance(RENN.FINAL_METRICS, dict):
         print("Error: RENN.POTENTIAL_METRICS is not defined or not a dictionary.")
         return None # Or raise an error
-    all_metric_names_list = list(RENN.POTENTIAL_METRICS.keys())
+    all_metric_names_list = list(RENN.FINAL_METRICS.keys())
 
     # Convert combination names to indices
     for config in optimizations_to_run:
@@ -1886,10 +1777,10 @@ def find_overall_weights_via_moo(
 
     # --- 3. Prepare Combination Indices for the Union Combo ---
     study = None
-    if not hasattr(RENN, 'POTENTIAL_METRICS') or not isinstance(RENN.POTENTIAL_METRICS, dict):
+    if not hasattr(RENN, 'POTENTIAL_METRICS') or not isinstance(RENN.FINAL_METRICS, dict):
         print("Error: RENN.POTENTIAL_METRICS is not defined or not a dictionary.")
         return None, None, None, None
-    all_metric_names_list = list(RENN.POTENTIAL_METRICS.keys())
+    all_metric_names_list = list(RENN.FINAL_METRICS.keys())
     try:
         union_combination_indices = tuple(all_metric_names_list.index(name) for name in union_combination_names)
     except ValueError as e:
@@ -2179,10 +2070,10 @@ def evaluate_metric_importance_via_ablation(
         return average_scores
 
     # --- 3. Check RENN.POTENTIAL_METRICS and Get All Names ---
-    if not hasattr(RENN, 'POTENTIAL_METRICS') or not isinstance(RENN.POTENTIAL_METRICS, dict):
+    if not hasattr(RENN, 'POTENTIAL_METRICS') or not isinstance(RENN.FINAL_METRICS, dict):
         print("Error: RENN.POTENTIAL_METRICS is not defined or not a dictionary.")
         return None, None, None
-    all_metric_names_list = list(RENN.POTENTIAL_METRICS.keys())
+    all_metric_names_list = list(RENN.FINAL_METRICS.keys())
 
     # --- 4. Evaluate Baseline Performance ---
     print(f"\nCalculating baseline performance for full combination ({len(base_combination_names)} metrics)...")
@@ -2295,10 +2186,10 @@ def run_multi_objective_weight_optimization(
 
     # --- 2. Prepare Combination Indices ---
     study = None
-    if not hasattr(RENN, 'POTENTIAL_METRICS') or not isinstance(RENN.POTENTIAL_METRICS, dict):
+    if not hasattr(RENN, 'POTENTIAL_METRICS') or not isinstance(RENN.FINAL_METRICS, dict):
         print("Error: RENN.POTENTIAL_METRICS is not defined or not a dictionary.")
         return None, None, None
-    all_metric_names_list = list(RENN.POTENTIAL_METRICS.keys())
+    all_metric_names_list = list(RENN.FINAL_METRICS.keys())
     try:
         combination_indices = tuple(all_metric_names_list.index(name) for name in combination_names_to_optimize)
     except ValueError as e:
