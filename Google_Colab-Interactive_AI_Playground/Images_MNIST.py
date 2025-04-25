@@ -422,15 +422,72 @@ def evaluateImageSimilarity(name, sample, mostUsed):
 
 # Global storage (optional)
 original_activation_similarity, metrics_activation_similarity, mt_activation_similarity = [], [], []
-def blendActivations(name, mostUsed, evaluationActivations, layerNumbersToCheck, store_globally=False):
-    totalSources = sum(count for _, count in mostUsed)
+bestClosestSourcesPerMetric = {"": [], "Metrics": [], "MT": []}
+def blendActivations(name, mostUsed, closestSourceList, evaluationActivations, layerNumbersToCheck, closestSources, mode="", store_globally=False, flattened=True, testForClosestSources=False):
+    if(name == "MT" or name == "Metrics"):
+        mode = name
+    
+    if not flattened:
+        sourcesWeightedPerLayer = []
+        for layerIdx, layerNumber in enumerate(layerNumbersToCheck):
+            _, mostUsedFound, differences, _ = RENN.getMostUsed([closestSourceList[layerIdx]], evaluation=mode)
+            foundWeightedSources = RENN.weighted_counter(mostUsedFound, differences)
+            sourcesWeightedPerLayer.append(foundWeightedSources.most_common())
+    
+    start, end = closestSources, closestSources
+    if testForClosestSources:
+        start, end = closestSources - 20, closestSources + 20
+    
+    bestResults={"cosine_similarity": 0}  
+    bestClosestSources = -1
+    for closestSources in range(start, end):
+        if flattened:
+            results = getClosestSourcesValues(mostUsed, evaluationActivations, layerNumbersToCheck, closestSources, flattened)
+        else:
+            results = getClosestSourcesValues(sourcesWeightedPerLayer, evaluationActivations, layerNumbersToCheck, closestSources, flattened)
+        
+        if (results["cosine_similarity"] > bestResults["cosine_similarity"]):
+            bestResults = results
+            bestClosestSources = closestSources
+    
+    if store_globally:
+        if name == "":
+            original_activation_similarity.append(bestResults)
+        elif name == "Metrics":
+            metrics_activation_similarity.append(bestResults)
+        elif name == "MT":
+            mt_activation_similarity.append(bestResults)
+            
+    bestClosestSourcesPerMetric[mode].append((bestClosestSources, bestResults))
+    # --- Print Results ---
+    if name == "" or name == "Metrics" or name == "MT":
+        if(name == "MT" or name == "Metrics"):
+            name = f"({name})"
+        print(f"\n--- Blended Activation Similarity Scores {name}---")
+        print(f"Optimal closest sources: {bestClosestSources}")
+        for metric, value in bestResults.items():
+            print(f"{metric.replace('_', ' ').title()}: {value:.4f}")
+
+def getClosestSourcesValues(mostUsed, evaluationActivations, layerNumbersToCheck, closestSources, flattened=False):
     blendedActivations = np.zeros_like(evaluationActivations[layerNumbersToCheck])
 
-    for source, count in mostUsed:
-        activationsBySources = RENN.activationsBySources[source]
-        for layerIdx, layerNumber in enumerate(layerNumbersToCheck):
-            neurons = activationsBySources[layerNumber]
-            blendedActivations[layerIdx] += neurons * (count / totalSources)
+    if flattened:
+        totalSources = sum(count for _, count in mostUsed[:closestSources])
+        for source, count in mostUsed[:closestSources]:
+            activationsBySources = RENN.activationsBySources[source]
+            for layerIdx, layerNumber in enumerate(layerNumbersToCheck):
+                neurons = activationsBySources[layerNumber]
+                blendedActivations[layerIdx] += neurons * (count / totalSources)
+    else:
+        totalSourcesPerLayer = []
+        for layer in mostUsed:
+            totalSourcesPerLayer.append(sum(count for _, count in layer[:closestSources]))
+        for number, (sourcesWeighted, totalSources) in enumerate(zip(mostUsed[:closestSources], totalSourcesPerLayer)):
+            layerNumber = layerNumbersToCheck[number]
+            for source, count in sourcesWeighted:
+                activationsBySources = RENN.activationsBySources[source]
+                values = activationsBySources[layerNumber]
+                blendedActivations[number] += values * count/totalSources
 
     # Flatten and reshape for similarity computation
     eval_flat = evaluationActivations[layerNumbersToCheck].flatten().reshape(1, -1).astype(np.float64)
@@ -457,27 +514,15 @@ def blendActivations(name, mostUsed, evaluationActivations, layerNumbersToCheck,
         "hamming_distance": hamming_dist,
         "pearson_correlation": pearson_corr if pearson_corr is not None else np.nan,
     }
-
-    if store_globally:
-        if name == "":
-            original_activation_similarity.append(results)
-        elif name == "Metrics":
-            metrics_activation_similarity.append(results)
-        elif name == "MT":
-            mt_activation_similarity.append(results)
-
-    # --- Print Results ---
-    #print("\n--- Blended Activation Similarity Scores ---")
-    #for metric, value in results.items():
-    #    print(f"{metric.replace('_', ' ').title()}: {value:.4f}")
-
-    return results  # Return for immediate use
+                
+    return results   
 
 resultDataframe = ""
 def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
-    global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource, original_image_similarity, metrics_image_similarity, mt_image_similarity, original_activation_similarity, metrics_activation_similarity, mt_activation_similarity, resultDataframe
+    global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource, original_image_similarity, metrics_image_similarity, mt_image_similarity, original_activation_similarity, metrics_activation_similarity, mt_activation_similarity, bestClosestSourcesPerMetric, resultDataframe
 
     original_image_similarity, metrics_image_similarity, mt_image_similarity, original_activation_similarity, metrics_activation_similarity, mt_activation_similarity = [], [], [], [], [], []
+    bestClosestSourcesPerMetric = {"": [], "Metrics": [], "MT": []}
 
     #Make sure to set new dictionaries for the hooks to fill - they are global!
     dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource = RENN.initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model)
@@ -531,16 +576,20 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             #Always use the linear layer values for reference within the evaluation
             mostUsedListSum.append(mostUsedSourcesPerLayerWithSum)
             mostUsedListActivations.append(mostUsedSourcesPerLayerWithActivation)
-            blendActivations("", mostUsedSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layerNumbersToCheck, True)
+            blendActivations("", mostUsedSourcesWithSum, sourcesSum, dictionaryForSourceLayerNeuron[pos], layerNumbersToCheck, closestSources, store_globally=True, testForClosestSources=True)
             evaluateImageSimilarity("", sample, mostUsedSourcesWithSum)
             if metricsEvaluation:
-                blendActivations("Metrics", mostUsedMetricSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layerNumbersToCheck, True)
+                blendActivations("Metrics", mostUsedMetricSourcesWithSum, metricSourcesSum, dictionaryForSourceLayerNeuron[pos], layerNumbersToCheck, closestSources, store_globally=True, testForClosestSources=True)
                 evaluateImageSimilarity("Metrics", sample, mostUsedMetricSourcesWithSum)
             if RENN.mtEvaluation:
-                blendActivations("MT", mostUsedMTSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layerNumbersToCheck, True)
+                blendActivations("MT", mostUsedMTSourcesWithSum, mtSourcesSum, dictionaryForSourceLayerNeuron[pos], layerNumbersToCheck, closestSources, store_globally=True, testForClosestSources=True)
                 evaluateImageSimilarity("MT", sample, mostUsedMTSourcesWithSum)
-                
+   
+      
     if analyze:
+        closestSourcesValues = [item[0] for item in bestClosestSourcesPerMetric["Metrics"]]
+        closestSources = sum(closestSourcesValues) / len(closestSourcesValues)
+        
         resultDataframe = evaluate_metric_combinations_overall(
             mostUsedListSum,
             linearLayers=layerNumbersToCheck,
@@ -886,9 +935,9 @@ def process_sample_evaluation(args):
                     for eval_key, store_suffix in IMAGE_SIM_KEY_MAP.items():
                         if eval_key in image_sim_dict: current_results[f"{IMG_SIM_PREFIX}{store_suffix}"] = image_sim_dict[eval_key]
 
-                    # --- Calculate Activation Similarity ---
+                    # --- Calculate Activation Similarity ---                   
                     if layerNumbersToCheck:
-                        activation_sim_dict = blendActivations(name=f"metric_combo_{combination_str}", mostUsed=mostUsedMetricSources, evaluationActivations=evaluationActivations, layerNumbersToCheck=linearLayers, store_globally=False)
+                        activation_sim_dict = blendActivations(name=f"metric_combo_{combination_str}", mostUsed=mostUsedMetricSources, closestSourceList=metricSources, evaluationActivations=evaluationActivations, layerNumbersToCheck=linearLayers, closestSources=closestSources, mode="Metrics", store_globally=False)
                         for act_key in ACTIVATION_METRIC_KEYS:
                             if act_key in activation_sim_dict: current_results[act_key] = activation_sim_dict[act_key]
 
@@ -912,7 +961,7 @@ def evaluate_metric_combinations_overall(mostUsedList, linearLayers, hidden_size
     print("Metrics: Activation Sim, Image Sim, Source Sims (Cos, LogCos, JSD, Rank, TopK, Dist, Ruzicka, SymmDiff)") # Updated description
 
     if max_workers is None: max_workers = os.cpu_count(); print(f"Using default max_workers = {max_workers}")
-
+    
     futures = []; results_list = []
     with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
         processed_samples = 0
@@ -2409,3 +2458,6 @@ def find_best_metric_weights(pareto_df, closestSources):
 
     else:
         print("\nMOO for the pruned combination did not produce a Pareto DataFrame.")
+        
+
+        

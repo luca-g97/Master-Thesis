@@ -643,7 +643,7 @@ def getMostUsed(sources, mode="", evaluation=""):
     sourceCounter = 0
     for currentLayer, layer in enumerate(sources):
         mostUsedPerLayer = []
-        if evaluation == "Metrics" or evaluation == "Magnitude Truncation":
+        if evaluation == "Metrics" or evaluation == "MT":
             for sourceNumber, value, difference in layer:
                 if(sourceNumber != 'None'):
                     mostUsed.append(sourceNumber)
@@ -655,13 +655,14 @@ def getMostUsed(sources, mode="", evaluation=""):
                 if not isinstance(maxNeurons, int):  # Ensure maxNeurons is an integer
                     maxNeurons = maxNeurons.out_features
                 if(currentNeuron < maxNeurons):
-                    for sourceNumber, value, difference in neuron:
-                        if(sourceNumber != 'None'):
-                            mostUsed.append(sourceNumber)
-                            sourceCounter += 1
-                            differences.append(difference)
-                            if sourceNumber not in mostUsedPerLayer:
-                                mostUsedPerLayer.append(sourceNumber)
+                    if not None in neuron:
+                        for sourceNumber, value, difference in neuron:
+                            if(sourceNumber != 'None'):
+                                mostUsed.append(sourceNumber)
+                                sourceCounter += 1
+                                differences.append(difference)
+                                if sourceNumber not in mostUsedPerLayer:
+                                    mostUsedPerLayer.append(sourceNumber)
         for sourceInLayer in mostUsedPerLayer:
             mostUsedSourcesPerLayer.append(sourceInLayer)
         
@@ -745,7 +746,7 @@ def getMostUsedSources(sources, metricsSources, mtSources, closestSources, evalS
         if metricsEvaluation:
             metricsSourceCounter, metricsMostUsed, metricsDifferences, _ = getMostUsed(metricsSources, weightedMode, evaluation="Metrics")
         if mtEvaluation:
-            mtSourceCounter, mtMostUsed, mtDifferences, _ = getMostUsed(mtSources, weightedMode, evaluation="Magnitude Truncation")
+            mtSourceCounter, mtMostUsed, mtDifferences, _ = getMostUsed(mtSources, weightedMode, evaluation="MT")
     counter = weighted_counter(mostUsed, sourceDifferences)
     metricsCounter = weighted_counter(metricsMostUsed, metricsDifferences)
     mtCounter = weighted_counter(mtMostUsed, mtDifferences)
@@ -757,7 +758,7 @@ def getMostUsedSources(sources, metricsSources, mtSources, closestSources, evalS
     #print("Total closest Sources (Metrics):", metricsSourceCounter, " | ", closestSources, " closest Sources (", weightedMode, ") in format: [SourceNumber, Occurances]: ", metricsCounter.most_common()[:closestSources])
     #if mtEvaluation:
     #print("Total closest Sources (MT):", mtSourceCounter, " | ", closestSources, " closest Sources (", weightedMode, ") in format: [SourceNumber, Occurances]: ", mtCounter.most_common()[:closestSources])
-    return counter.most_common()[:closestSources], metricsCounter.most_common()[:closestSources], mtCounter.most_common()[:closestSources], mostUsedSourcesPerLayerCounter.most_common()[:closestSources]
+    return counter.most_common(), metricsCounter.most_common(), mtCounter.most_common(), mostUsedSourcesPerLayerCounter.most_common()
 
 # Normalize function to convert to integer range for sparse arrays
 def normalize_to_integer_sparse(sparse_data, min_val, max_val):
