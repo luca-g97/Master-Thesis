@@ -547,7 +547,7 @@ def identifyClosestSources(closestSources, outputs, metricsOutputs, mtOutputs, m
 
                 # Store neuron results
                 tuples = tuple(
-                    (closest_indices[i], 
+                    (closest_indices[i],
                      neuron[closest_indices[i]],
                      differences[closest_indices[i]])
                     for i in range(closestSources)
@@ -558,53 +558,53 @@ def identifyClosestSources(closestSources, outputs, metricsOutputs, mtOutputs, m
             metrics_indices = (5, 9, 10, 26, 22, 0, 3, 20, 13, 7, 8, 14) #Best indices so far
             currentMetricsLayer = currentMetricsLayer[:, metrics_indices]
             currentMetricsLayerToCheck = np.array([metricsOutputsToCheck[currentLayer][idx] for idx in metrics_indices])
-            
+
             reference_data = currentMetricsLayerToCheck
             current_data = currentMetricsLayer
             epsilon = 1e-10 # Small value to prevent division by zero
-        
+
             # --- 1. Min-Max Scaling ---
             # Calculate min and max along axis 0 (feature-wise/column-wise)
             min_vals = np.min(reference_data, axis=0)
             max_vals = np.max(reference_data, axis=0)
             range_vals = max_vals - min_vals
-    
+
             # Apply Min-Max scaling: (X - min) / (range + epsilon)
             # Using broadcasting: reference_data (M, D), min/max/range (D,)
             norm_ref_minmax = (reference_data - min_vals) / (range_vals + epsilon)
             norm_curr_minmax = (current_data - min_vals) / (range_vals + epsilon)
             # Note: Features where min == max will result in 0 after scaling due to epsilon.
-    
+
             # --- 2. Z-Score Normalization (Standardization) ---
             # Calculate mean and standard deviation along axis 0 (feature-wise)
             mean_vals = np.mean(reference_data, axis=0)
             std_vals = np.std(reference_data, axis=0)
-    
+
             # Apply Z-score scaling: (X - mean) / (std_dev + epsilon)
             norm_ref_zscore = (reference_data - mean_vals) / (std_vals + epsilon)
             norm_curr_zscore = (current_data - mean_vals) / (std_vals + epsilon)
             # Note: Features with zero standard deviation will result in 0 after scaling.
-    
+
             # Option A: Use Z-score normalized data (Often a good default)
-            
+
             #normalized_currentMetricsLayer = norm_curr_zscore
             #normalized_metricsOutputsToCheck = norm_ref_zscore
-    
+
             # Option B: Use Min-Max normalized data (Uncomment to use)
             #normalized_currentMetricsLayer = norm_curr_minmax
             #normalized_metricsOutputsToCheck = norm_ref_minmax
-    
+
             # Option C: Use Original data (Uncomment to use)
             normalized_currentMetricsLayer = current_data
             normalized_metricsOutputsToCheck = reference_data
-    
+
             # --- 4. Proceed with Distance Calculation (using the selected normalized data) ---
             # Calculate L1 distance (Manhattan)
             metrics_differences = np.sum(np.abs(normalized_currentMetricsLayer - normalized_metricsOutputsToCheck), axis=1)
-    
+
             # Or calculate L2 distance (Euclidean) - often suitable for normalized data
             #metrics_differences = np.linalg.norm(normalized_currentMetricsLayer - normalized_metricsOutputsToCheck, axis=1)
-                    
+
             #metrics_differences = np.sum(np.abs(currentMetricsLayer - metricsOutputsToCheck[currentLayer][np.newaxis, :]), axis=1)
             metrics_sorted_indices = np.argsort(metrics_differences)
             metrics_closest_indices = metrics_sorted_indices[:closestSources]
@@ -616,7 +616,7 @@ def identifyClosestSources(closestSources, outputs, metricsOutputs, mtOutputs, m
                  metrics_differences[metrics_closest_indices[i]])
                 for i in range(closestSources)
             )
-            
+
             # Assign results
             identifiedClosestMetricSources[currentLayer] = tuples
 
@@ -643,7 +643,7 @@ def getMostUsed(sources, mode="", evaluation=""):
     sourceCounter = 0
     for currentLayer, layer in enumerate(sources):
         mostUsedPerLayer = []
-        if evaluation == "Metrics" or evaluation == "MT":
+        if evaluation == "Metrics" or evaluation == "Magnitude Truncation":
             for sourceNumber, value, difference in layer:
                 if(sourceNumber != 'None'):
                     mostUsed.append(sourceNumber)
@@ -655,17 +655,16 @@ def getMostUsed(sources, mode="", evaluation=""):
                 if not isinstance(maxNeurons, int):  # Ensure maxNeurons is an integer
                     maxNeurons = maxNeurons.out_features
                 if(currentNeuron < maxNeurons):
-                    if not None in neuron:
-                        for sourceNumber, value, difference in neuron:
-                            if(sourceNumber != 'None'):
-                                mostUsed.append(sourceNumber)
-                                sourceCounter += 1
-                                differences.append(difference)
-                                if sourceNumber not in mostUsedPerLayer:
-                                    mostUsedPerLayer.append(sourceNumber)
+                    for sourceNumber, value, difference in neuron:
+                        if(sourceNumber != 'None'):
+                            mostUsed.append(sourceNumber)
+                            sourceCounter += 1
+                            differences.append(difference)
+                            if sourceNumber not in mostUsedPerLayer:
+                                mostUsedPerLayer.append(sourceNumber)
         for sourceInLayer in mostUsedPerLayer:
             mostUsedSourcesPerLayer.append(sourceInLayer)
-        
+
     return sourceCounter, mostUsed, differences, mostUsedSourcesPerLayer
 
 def getMostUsedFromDataFrame(df, evalSample, closestSources, weightedMode=""):
@@ -746,7 +745,7 @@ def getMostUsedSources(sources, metricsSources, mtSources, closestSources, evalS
         if metricsEvaluation:
             metricsSourceCounter, metricsMostUsed, metricsDifferences, _ = getMostUsed(metricsSources, weightedMode, evaluation="Metrics")
         if mtEvaluation:
-            mtSourceCounter, mtMostUsed, mtDifferences, _ = getMostUsed(mtSources, weightedMode, evaluation="MT")
+            mtSourceCounter, mtMostUsed, mtDifferences, _ = getMostUsed(mtSources, weightedMode, evaluation="Magnitude Truncation")
     counter = weighted_counter(mostUsed, sourceDifferences)
     metricsCounter = weighted_counter(metricsMostUsed, metricsDifferences)
     mtCounter = weighted_counter(mtMostUsed, mtDifferences)
@@ -758,7 +757,7 @@ def getMostUsedSources(sources, metricsSources, mtSources, closestSources, evalS
     #print("Total closest Sources (Metrics):", metricsSourceCounter, " | ", closestSources, " closest Sources (", weightedMode, ") in format: [SourceNumber, Occurances]: ", metricsCounter.most_common()[:closestSources])
     #if mtEvaluation:
     #print("Total closest Sources (MT):", mtSourceCounter, " | ", closestSources, " closest Sources (", weightedMode, ") in format: [SourceNumber, Occurances]: ", mtCounter.most_common()[:closestSources])
-    return counter.most_common(), metricsCounter.most_common(), mtCounter.most_common(), mostUsedSourcesPerLayerCounter.most_common()
+    return counter.most_common()[:closestSources], metricsCounter.most_common()[:closestSources], mtCounter.most_common()[:closestSources], mostUsedSourcesPerLayerCounter.most_common()[:closestSources]
 
 # Normalize function to convert to integer range for sparse arrays
 def normalize_to_integer_sparse(sparse_data, min_val, max_val):
@@ -1497,7 +1496,7 @@ def getMostUsedSourcesByMetrics(metricsSources, closestSources, evalSample=0, we
     metricsCounter = weighted_counter(mostUsed, differences)
 
     #if(info):
-        #print("Total closest Sources (Metrics):", metricsSourceCounter, " | ", closestSources, " closest Sources (", weightedMode, ") in format: [SourceNumber, Occurances]: ", metricsCounter.most_common()[:closestSources])
+    #print("Total closest Sources (Metrics):", metricsSourceCounter, " | ", closestSources, " closest Sources (", weightedMode, ") in format: [SourceNumber, Occurances]: ", metricsCounter.most_common()[:closestSources])
     return metricsCounter.most_common()[:closestSources]
 
 def getMostUsedByMetrics(sources):

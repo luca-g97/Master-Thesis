@@ -422,72 +422,15 @@ def evaluateImageSimilarity(name, sample, mostUsed):
 
 # Global storage (optional)
 original_activation_similarity, metrics_activation_similarity, mt_activation_similarity = [], [], []
-bestClosestSourcesPerMetric = {"": [], "Metrics": [], "MT": []}
-def blendActivations(name, mostUsed, closestSourceList, evaluationActivations, layerNumbersToCheck, closestSources, mode="", store_globally=False, flattened=True, testForClosestSources=False):
-    if(name == "MT" or name == "Metrics"):
-        mode = name
-    
-    if not flattened:
-        sourcesWeightedPerLayer = []
-        for layerIdx, layerNumber in enumerate(layerNumbersToCheck):
-            _, mostUsedFound, differences, _ = RENN.getMostUsed([closestSourceList[layerIdx]], evaluation=mode)
-            foundWeightedSources = RENN.weighted_counter(mostUsedFound, differences)
-            sourcesWeightedPerLayer.append(foundWeightedSources.most_common())
-    
-    start, end = closestSources, closestSources
-    if testForClosestSources:
-        start, end = closestSources - 20, closestSources + 20
-    
-    bestResults={"cosine_similarity": 0}  
-    bestClosestSources = -1
-    for closestSources in range(start, end):
-        if flattened:
-            results = getClosestSourcesValues(mostUsed, evaluationActivations, layerNumbersToCheck, closestSources, flattened)
-        else:
-            results = getClosestSourcesValues(sourcesWeightedPerLayer, evaluationActivations, layerNumbersToCheck, closestSources, flattened)
-        
-        if (results["cosine_similarity"] > bestResults["cosine_similarity"]):
-            bestResults = results
-            bestClosestSources = closestSources
-    
-    if store_globally:
-        if name == "":
-            original_activation_similarity.append(bestResults)
-        elif name == "Metrics":
-            metrics_activation_similarity.append(bestResults)
-        elif name == "MT":
-            mt_activation_similarity.append(bestResults)
-            
-    bestClosestSourcesPerMetric[mode].append((bestClosestSources, bestResults))
-    # --- Print Results ---
-    if name == "" or name == "Metrics" or name == "MT":
-        if(name == "MT" or name == "Metrics"):
-            name = f"({name})"
-        print(f"\n--- Blended Activation Similarity Scores {name}---")
-        print(f"Optimal closest sources: {bestClosestSources}")
-        for metric, value in bestResults.items():
-            print(f"{metric.replace('_', ' ').title()}: {value:.4f}")
-
-def getClosestSourcesValues(mostUsed, evaluationActivations, layerNumbersToCheck, closestSources, flattened=False):
+def blendActivations(name, mostUsed, evaluationActivations, layerNumbersToCheck, store_globally=False):
+    totalSources = sum(count for _, count in mostUsed)
     blendedActivations = np.zeros_like(evaluationActivations[layerNumbersToCheck])
 
-    if flattened:
-        totalSources = sum(count for _, count in mostUsed[:closestSources])
-        for source, count in mostUsed[:closestSources]:
-            activationsBySources = RENN.activationsBySources[source]
-            for layerIdx, layerNumber in enumerate(layerNumbersToCheck):
-                neurons = activationsBySources[layerNumber]
-                blendedActivations[layerIdx] += neurons * (count / totalSources)
-    else:
-        totalSourcesPerLayer = []
-        for layer in mostUsed:
-            totalSourcesPerLayer.append(sum(count for _, count in layer[:closestSources]))
-        for number, (sourcesWeighted, totalSources) in enumerate(zip(mostUsed[:closestSources], totalSourcesPerLayer)):
-            layerNumber = layerNumbersToCheck[number]
-            for source, count in sourcesWeighted:
-                activationsBySources = RENN.activationsBySources[source]
-                values = activationsBySources[layerNumber]
-                blendedActivations[number] += values * count/totalSources
+    for source, count in mostUsed:
+        activationsBySources = RENN.activationsBySources[source]
+        for layerIdx, layerNumber in enumerate(layerNumbersToCheck):
+            neurons = activationsBySources[layerNumber]
+            blendedActivations[layerIdx] += neurons * (count / totalSources)
 
     # Flatten and reshape for similarity computation
     eval_flat = evaluationActivations[layerNumbersToCheck].flatten().reshape(1, -1).astype(np.float64)
@@ -514,19 +457,31 @@ def getClosestSourcesValues(mostUsed, evaluationActivations, layerNumbersToCheck
         "hamming_distance": hamming_dist,
         "pearson_correlation": pearson_corr if pearson_corr is not None else np.nan,
     }
-                
-    return results   
+
+    if store_globally:
+        if name == "":
+            original_activation_similarity.append(results)
+        elif name == "Metrics":
+            metrics_activation_similarity.append(results)
+        elif name == "MT":
+            mt_activation_similarity.append(results)
+
+    # --- Print Results ---
+    #print("\n--- Blended Activation Similarity Scores ---")
+    #for metric, value in results.items():
+    #    print(f"{metric.replace('_', ' ').title()}: {value:.4f}")
+
+    return results  # Return for immediate use
 
 resultDataframe = ""
 def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
-    global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource, original_image_similarity, metrics_image_similarity, mt_image_similarity, original_activation_similarity, metrics_activation_similarity, mt_activation_similarity, bestClosestSourcesPerMetric, resultDataframe
+    global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource, original_image_similarity, metrics_image_similarity, mt_image_similarity, original_activation_similarity, metrics_activation_similarity, mt_activation_similarity, resultDataframe
 
     original_image_similarity, metrics_image_similarity, mt_image_similarity, original_activation_similarity, metrics_activation_similarity, mt_activation_similarity = [], [], [], [], [], []
-    bestClosestSourcesPerMetric = {"": [], "Metrics": [], "MT": []}
 
     #Make sure to set new dictionaries for the hooks to fill - they are global!
     dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource = RENN.initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model)
-    
+
     if analyze:
         METRICS_COMBINATIONS = RENN.create_global_metric_combinations(3, 3, True)
         #metricsDictionaryForSourceLayerNeuron = createRandomDictionary(metricsDictionaryForSourceLayerNeuron, RENN.metricsActivationsBySources) #Random values per metrics min and max
@@ -551,7 +506,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             blendedMTSourceImageSum = blendImagesTogether(mostUsedMTSourcesWithSum, "Not Weighted")
             layersToCheck = layerNumbersToCheck # Switch to another variable to use correct layers for analyzation
 
-            
+
             #sourcesActivation, metricSourcesActivation, mtSourcesActivation, outputsActivation, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], metricsDictionaryForSourceLayerNeuron[pos], mtDictionaryForSourceLayerNeuron[pos], "Activation") #For Overall Sum-Evaluation
             sourcesActivation, metricSourcesActivation, mtSourcesActivation, outputsActivation, layersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], metricsDictionaryForSourceLayerNeuron[pos], mtDictionaryForSourceLayerNeuron[pos], "Activation") #Uncomment for Overall Activation-Evaluation
             mostUsedSourcesWithActivation, mostUsedMetricSourcesWithActivation, mostUsedMTSourcesWithActivation, mostUsedSourcesPerLayerWithActivation = RENN.getMostUsedSources(sourcesActivation, metricSourcesActivation, mtSourcesActivation, closestSources, "Activation")
@@ -576,20 +531,16 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             #Always use the linear layer values for reference within the evaluation
             mostUsedListSum.append(mostUsedSourcesPerLayerWithSum)
             mostUsedListActivations.append(mostUsedSourcesPerLayerWithActivation)
-            blendActivations("", mostUsedSourcesWithSum, sourcesSum, dictionaryForSourceLayerNeuron[pos], layerNumbersToCheck, closestSources, store_globally=True, testForClosestSources=True)
+            blendActivations("", mostUsedSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layerNumbersToCheck, True)
             evaluateImageSimilarity("", sample, mostUsedSourcesWithSum)
             if metricsEvaluation:
-                blendActivations("Metrics", mostUsedMetricSourcesWithSum, metricSourcesSum, dictionaryForSourceLayerNeuron[pos], layerNumbersToCheck, closestSources, store_globally=True, testForClosestSources=True)
+                blendActivations("Metrics", mostUsedMetricSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layerNumbersToCheck, True)
                 evaluateImageSimilarity("Metrics", sample, mostUsedMetricSourcesWithSum)
             if RENN.mtEvaluation:
-                blendActivations("MT", mostUsedMTSourcesWithSum, mtSourcesSum, dictionaryForSourceLayerNeuron[pos], layerNumbersToCheck, closestSources, store_globally=True, testForClosestSources=True)
+                blendActivations("MT", mostUsedMTSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layerNumbersToCheck, True)
                 evaluateImageSimilarity("MT", sample, mostUsedMTSourcesWithSum)
-   
-      
+
     if analyze:
-        closestSourcesValues = [item[0] for item in bestClosestSourcesPerMetric["Metrics"]]
-        closestSources = sum(closestSourcesValues) / len(closestSourcesValues)
-        
         resultDataframe = evaluate_metric_combinations_overall(
             mostUsedListSum,
             linearLayers=layerNumbersToCheck,
@@ -608,7 +559,7 @@ def createRandomDictionary(original, train_array):
     original_array = original
     original_shape = original_array.shape
     original_dtype = original_array.dtype
-    
+
     # 2. Handle empty array case
     if original_array.size == 0:
         # Create an empty array with the same shape and dtype
@@ -636,7 +587,7 @@ def createRandomDictionary(original, train_array):
                 random_base = rng.random(size=original_shape)
                 scaled_values = min_val + random_base * (max_val - min_val)
                 new_random_array_local_range = scaled_values.astype(original_dtype)
-    
+
     # --- Main logic for 2D or higher arrays ---
     else:
         # 3. Calculate min and max ALONG THE LAST AXIS
@@ -644,67 +595,67 @@ def createRandomDictionary(original, train_array):
         min_per_slice = np.min(original_array, axis=-1, keepdims=True)
         max_per_slice = np.max(original_array, axis=-1, keepdims=True)
         # Shape of min/max_per_slice will be (d1, d2, ..., dn-1, 1)
-    
+
         # 4. Initialize the random number generator
         rng = np.random.default_rng() # Initialize once
-    
+
         # 5. Generate random values based on dtype and LOCAL range
-    
+
         if np.issubdtype(original_dtype, np.integer):
             # --- Integer Type ---
             # Ensure min/max slices are integer type for calculations
             int_min_slice = np.floor(min_per_slice).astype(original_dtype)
             int_max_slice = np.ceil(max_per_slice).astype(original_dtype)
-    
+
             # Calculate integer range per slice [min, max] -> range = max - min
             range_per_slice_int = int_max_slice - int_min_slice
-    
+
             # Mask where min == max (or min > max after floor/ceil)
             mask_min_eq_max = (range_per_slice_int <= 0)
-    
+
             # Initialize result array
             new_random_array_local_range = np.empty(original_shape, dtype=original_dtype)
-    
+
             # Fill constant parts where min >= max for the slice
             # Use np.broadcast_to to fill correctly based on slice min value
             new_random_array_local_range[mask_min_eq_max] = np.broadcast_to(int_min_slice, original_shape)[mask_min_eq_max]
-    
+
             # Generate random values for slices where min < max
             idx_varied = ~mask_min_eq_max
             if np.any(idx_varied):
                 # Generate base floats [0, 1) for the entire shape (simpler than indexing)
                 random_base = rng.random(size=original_shape)
-    
+
                 # Scale to [min, max + 1) to cover the integer range after flooring
                 # Broadcasting automatically applies the correct slice's min/range
                 scaled_floats = int_min_slice + random_base * (range_per_slice_int + 1)
-    
+
                 # Floor and cast to get integers in the range [min, max]
                 generated_values = np.floor(scaled_floats).astype(original_dtype)
-    
+
                 # Apply only where the range was > 0
                 new_random_array_local_range[idx_varied] = generated_values[idx_varied]
-    
+
         else:
             # --- Float Type (or other non-integer) ---
             # Calculate float range per slice
             range_per_slice = max_per_slice - min_per_slice
-    
+
             # Mask where min is close to max for the slice (use tolerance for floats)
             # Use np.broadcast_to to compare shape correctly if needed, but direct comparison should work
             mask_min_eq_max = np.isclose(range_per_slice, 0)
-    
+
             # Generate base random numbers [0, 1)
             random_base = rng.random(size=original_shape)
-    
+
             # Scale using the corresponding slice's min and range
             # Broadcasting applies the correct min/range from (d1,...,dn-1,1) to (d1,...,dn)
             # Where range is ~0, multiplication results in ~0, effectively adding min_per_slice
             scaled_random_values = min_per_slice + random_base * range_per_slice
-    
+
             # Cast to original dtype
             new_random_array_local_range = scaled_random_values.astype(original_dtype)
-    
+
             # Ensure min==max case is exactly min_val (using np.where for precision)
             # Broadcast min_per_slice to match the shape for np.where
             broadcasted_min = np.broadcast_to(min_per_slice, original_shape)
@@ -712,7 +663,7 @@ def createRandomDictionary(original, train_array):
             new_random_array_local_range = np.where(broadcasted_mask, broadcasted_min, new_random_array_local_range)
             # Recast just in case 'where' changed dtype (unlikely but safe)
             new_random_array_local_range = new_random_array_local_range.astype(original_dtype)
-        
+
     return new_random_array_local_range
 
 # --- Existing ---
@@ -935,9 +886,9 @@ def process_sample_evaluation(args):
                     for eval_key, store_suffix in IMAGE_SIM_KEY_MAP.items():
                         if eval_key in image_sim_dict: current_results[f"{IMG_SIM_PREFIX}{store_suffix}"] = image_sim_dict[eval_key]
 
-                    # --- Calculate Activation Similarity ---                   
+                    # --- Calculate Activation Similarity ---
                     if layerNumbersToCheck:
-                        activation_sim_dict = blendActivations(name=f"metric_combo_{combination_str}", mostUsed=mostUsedMetricSources, closestSourceList=metricSources, evaluationActivations=evaluationActivations, layerNumbersToCheck=linearLayers, closestSources=closestSources, mode="Metrics", store_globally=False)
+                        activation_sim_dict = blendActivations(name=f"metric_combo_{combination_str}", mostUsed=mostUsedMetricSources, evaluationActivations=evaluationActivations, layerNumbersToCheck=linearLayers, store_globally=False)
                         for act_key in ACTIVATION_METRIC_KEYS:
                             if act_key in activation_sim_dict: current_results[act_key] = activation_sim_dict[act_key]
 
@@ -961,7 +912,7 @@ def evaluate_metric_combinations_overall(mostUsedList, linearLayers, hidden_size
     print("Metrics: Activation Sim, Image Sim, Source Sims (Cos, LogCos, JSD, Rank, TopK, Dist, Ruzicka, SymmDiff)") # Updated description
 
     if max_workers is None: max_workers = os.cpu_count(); print(f"Using default max_workers = {max_workers}")
-    
+
     futures = []; results_list = []
     with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
         processed_samples = 0
@@ -1111,7 +1062,7 @@ def evaluate_metric_combinations_overall(mostUsedList, linearLayers, hidden_size
     # --- Print Preview and Export ---
     pd.set_option('display.max_rows', 200); pd.set_option('display.max_columns', None); pd.set_option('display.width', 2000); pd.set_option('display.max_colwidth', None)
     print("\n--- Top Results Preview (Full results in CSV) ---"); print(final_df_to_return)
-    
+
     # --- Generate Timestamped Filename ---
     local_time_struct = time.localtime()
     formatted_time = time.strftime("%Y%m%d_%H%M%S", local_time_struct) # Format for filename
@@ -2458,6 +2409,3 @@ def find_best_metric_weights(pareto_df, closestSources):
 
     else:
         print("\nMOO for the pruned combination did not produce a Pareto DataFrame.")
-        
-
-        
