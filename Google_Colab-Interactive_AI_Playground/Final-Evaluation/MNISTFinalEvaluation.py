@@ -377,14 +377,16 @@ def evaluateImageSimilarity(name, sample, mostUsed):
         spearman_rho = np.nan
 
     results = {
-        "kendall_tau": kendall_tau,
-        "spearman_rho": spearman_rho,
-        "cosine_similarity": cosine_similarity,
-        "euclidean_distance": euclidean_distance,
-        "manhattan_distance": manhattan_distance,
-        "jaccard_similarity": jaccard_similarity if jaccard_similarity is not None else np.nan,
-        "hamming_distance": hamming_distance,
-        "pearson_correlation": pearson_correlation if pearson_correlation is not None else np.nan,
+        # Use the exact keys expected by the objective function
+        'Cosine Sim': cosine_similarity,
+        'Euclidean Dst': euclidean_distance,
+        'Manhattan Dst': manhattan_distance,
+        'Pearson Corr': pearson_correlation,
+        'Kendall Tau': kendall_tau,
+        'Spearman Rho': spearman_rho,
+        # Include others if needed, but ensure the main 6 are present
+        'Jaccard Sim': jaccard_similarity,
+        'Hamming Dst': hamming_distance  
     }
 
     # --- Print Results ---
@@ -758,7 +760,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
     if analyze:
         print(f"\n--- Starting Analysis for: {evaluation_name} ---")
         try:
-            METRICS_COMBINATIONS = RENN.create_global_metric_combinations(2, 2, True)
+            METRICS_COMBINATIONS = RENN.create_global_metric_combinations(1, 1, True)
         except NameError:
             print("Error: RENN object not defined. Cannot create metric combinations.")
             return # Or handle appropriately
@@ -1687,7 +1689,7 @@ def evaluate_metric_combinations_overall(evaluation_name, name, linearLayers, cl
             return None
 
     futures = []
-    original_k_results_list = [] # List to store similarity results for the best original k for each sample
+    original_k_results_list = [] # List to store results for the best original k for each sample
 
     # --- Process Pool ---
     with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
@@ -1720,7 +1722,10 @@ def evaluate_metric_combinations_overall(evaluation_name, name, linearLayers, cl
                 # Extract the NESTED dictionaries for storing similarities
                 best_k_activation_results_dict = original_k_search_result.get('activation_similarity')
                 best_k_image_results_dict = original_k_search_result.get('image_similarity')
-
+                
+                #print("Activation:", best_k_activation_results_dict)
+                #print("Image:", best_k_image_results_dict)
+                
                 # Validate extracted results
                 if originalMostUsedSources is None:
                     # print(f"Warning (S:{pos}): 'mostUsedSources' missing from findBestOriginalValues result. Skipping sample.") # Reduce noise
@@ -1811,7 +1816,7 @@ def evaluate_metric_combinations_overall(evaluation_name, name, linearLayers, cl
     # --- >>> DEBUGGING AGGREGATION <<< ---
     try:
         valid_keys_for_agg = set(ALL_METRIC_KEYS_FOR_AGGREGATION)
-        print(f"DEBUG AGG: Expected keys (set, first 10): {list(valid_keys_for_agg)[:10]}")
+        # print(f"DEBUG AGG: Expected keys (set, first 10): {list(valid_keys_for_agg)[:10]}") # Reduce noise
     except NameError:
         print("ERROR: ALL_METRIC_KEYS_FOR_AGGREGATION is not defined globally!")
         return None
@@ -1821,7 +1826,7 @@ def evaluate_metric_combinations_overall(evaluation_name, name, linearLayers, cl
 
     printed_sample_result_keys = False # Flag to print only once
     keys_found_count = 0
-    scores_appended_count = 0 # <<< Initialize new counter
+    scores_appended_count = 0 # Initialize counter
     keys_not_found = set() # Track keys from worker not in expected set
 
     for sample_result_dict in results_list:
@@ -1829,86 +1834,67 @@ def evaluate_metric_combinations_overall(evaluation_name, name, linearLayers, cl
             print(f"Warning: Worker returned non-dict result: {type(sample_result_dict)}")
             continue
 
-        if not printed_sample_result_keys and sample_result_dict:
-            print(f"DEBUG AGG: First non-empty sample_result_dict keys (first 10): {list(sample_result_dict.keys())[:10]}")
-            # Extract and print the metric_key part from the first key tuple
-            first_key_tuple = next(iter(sample_result_dict), None)
-            if isinstance(first_key_tuple, tuple) and len(first_key_tuple) == 2:
-                print(f"DEBUG AGG: Example metric_key from worker: '{first_key_tuple[1]}' (Type: {type(first_key_tuple[1])})")
-            else:
-                print(f"DEBUG AGG: First key is not a (combo_str, metric_key) tuple: {first_key_tuple}")
-            printed_sample_result_keys = True
+        # if not printed_sample_result_keys and sample_result_dict: # Reduce noise
+        #      print(f"DEBUG AGG: First non-empty sample_result_dict keys (first 10): {list(sample_result_dict.keys())[:10]}")
+        #      first_key_tuple = next(iter(sample_result_dict), None)
+        #      if isinstance(first_key_tuple, tuple) and len(first_key_tuple) == 2:
+        #          print(f"DEBUG AGG: Example metric_key from worker: '{first_key_tuple[1]}' (Type: {type(first_key_tuple[1])})")
+        #      else: print(f"DEBUG AGG: First key is not a (combo_str, metric_key) tuple: {first_key_tuple}")
+        #      printed_sample_result_keys = True
 
         for key_tuple, score in sample_result_dict.items():
-            # Check if the key is the expected tuple format
             if isinstance(key_tuple, tuple) and len(key_tuple) == 2:
                 combination_str, metric_key = key_tuple
-                # Check if the extracted metric_key is in the valid set
                 if metric_key in valid_keys_for_agg:
-                    keys_found_count += 1 # Increment if a match is found
-                    # --- Original Aggregation Logic ---
-                    appended = False # Flag to check if append happened
+                    keys_found_count += 1
+                    appended = False
                     if metric_key == BEST_CLOSEST_SOURCES_FOR_ORIGINAL:
                         if score is not None and not (isinstance(score, float) and math.isnan(score)):
-                            try:
-                                results_aggregator[combination_str][metric_key].append(int(score))
-                                appended = True
+                            try: results_aggregator[combination_str][metric_key].append(int(score)); appended = True
                             except (ValueError, TypeError): print(f"Warning: Could not convert score '{score}' for key '{metric_key}' to int.")
                     elif metric_key == BEST_CLOSEST_SOURCES:
                         if score is not None and not (isinstance(score, float) and math.isnan(score)):
-                            try:
-                                results_aggregator[combination_str][metric_key].append(int(score))
-                                appended = True
+                            try: results_aggregator[combination_str][metric_key].append(int(score)); appended = True
                             except (ValueError, TypeError): print(f"Warning: Could not convert score '{score}' for key '{metric_key}' to int.")
                     elif score is not None and np.isfinite(score):
-                        results_aggregator[combination_str][metric_key].append(score)
-                        appended = True
-                    # --- End Original Aggregation Logic ---
-                    if appended:
-                        scores_appended_count += 1 # <<< Increment counter if append occurred
+                        results_aggregator[combination_str][metric_key].append(score); appended = True
+                    if appended: scores_appended_count += 1
                 else:
-                    # Track keys from worker that are not expected
-                    if metric_key not in keys_not_found:
-                        keys_not_found.add(metric_key)
-            else:
-                print(f"Warning: Worker returned result with unexpected key format: {key_tuple}")
+                    if metric_key not in keys_not_found: keys_not_found.add(metric_key)
+            else: print(f"Warning: Worker returned result with unexpected key format: {key_tuple}")
 
-    print(f"DEBUG AGG: Total valid key occurrences aggregated: {keys_found_count}")
-    print(f"DEBUG AGG: Total scores actually appended: {scores_appended_count}") # <<< Print the new counter
-    if keys_not_found:
-        print(f"DEBUG AGG: Keys received from worker but NOT in ALL_METRIC_KEYS_FOR_AGGREGATION: {keys_not_found}")
-    # --- >>> END DEBUGGING AGGREGATION <<< ---
-
-    # --- >>> ADDED DEBUG CHECK for results_aggregator <<< ---
-    print(f"DEBUG AGG: Size of results_aggregator after aggregation loop: {len(results_aggregator)}")
-    if results_aggregator:
-        print(f"DEBUG AGG: Example keys in results_aggregator (first 5): {list(results_aggregator.keys())[:5]}")
-    # --- >>> END ADDED DEBUG CHECK <<< ---
+    # print(f"DEBUG AGG: Total valid key occurrences aggregated: {keys_found_count}") # Reduce noise
+    # print(f"DEBUG AGG: Total scores actually appended: {scores_appended_count}") # Reduce noise
+    # if keys_not_found: print(f"DEBUG AGG: Keys received from worker but NOT in ALL_METRIC_KEYS_FOR_AGGREGATION: {keys_not_found}") # Reduce noise
+    # print(f"DEBUG AGG: Size of results_aggregator after aggregation loop: {len(results_aggregator)}") # Reduce noise
+    # if results_aggregator: print(f"DEBUG AGG: Example keys in results_aggregator (first 5): {list(results_aggregator.keys())[:5]}") # Reduce noise
 
     # --- Calculate Averages for Worker Results ---
-    final_results = {}
-    for combination_str, metric_scores_dict in results_aggregator.items(): # This loop should now execute if keys_found_count > 0
+    final_results_list = [] # <<< Store results as a list of dicts
+    for combination_str, metric_scores_dict in results_aggregator.items():
         avg_scores = {}
-        for metric_key in ALL_METRIC_KEYS_FOR_AGGREGATION: # Iterate through expected keys
-            scores_list = metric_scores_dict.get(metric_key, []) # Get scores if key was found
+        # --- >>> Add the combination string and name as columns <<< ---
+        avg_scores['metric_combination'] = combination_str
+        avg_scores['name'] = name # Add the 'name' passed to the function
+        # --- >>> END Add <<< ---
+        for metric_key in ALL_METRIC_KEYS_FOR_AGGREGATION:
+            scores_list = metric_scores_dict.get(metric_key, [])
             if scores_list:
-                # Use mean for integer k values, nanmean for others
                 if metric_key in [BEST_CLOSEST_SOURCES, BEST_CLOSEST_SOURCES_FOR_ORIGINAL]:
-                    avg_scores[f"avg_{metric_key}"] = np.mean(scores_list) # Average k value
+                    avg_scores[f"avg_{metric_key}"] = np.mean(scores_list)
                 else:
-                    avg_scores[f"avg_{metric_key}"] = np.nanmean(scores_list) # nanmean ignores NaNs
-            else: avg_scores[f"avg_{metric_key}"] = np.nan # No valid scores recorded for this key
-        final_results[combination_str] = avg_scores
+                    avg_scores[f"avg_{metric_key}"] = np.nanmean(scores_list)
+            else: avg_scores[f"avg_{metric_key}"] = np.nan
+        final_results_list.append(avg_scores) # Append dict to list
 
-    if not final_results:
-        print("Error: Aggregation resulted in empty dictionary (final_results). Check aggregation logic and worker return values.")
-        # Add extra debug info here if this still happens
-        print(f"DEBUG AGG: results_aggregator was size {len(results_aggregator)} before averaging loop.")
+    if not final_results_list: # Check if the list is empty
+        print("Error: Aggregation resulted in empty list (final_results_list). Check aggregation logic and worker return values.")
         return None
 
-    # --- Create DataFrame from Aggregated Worker Results ---
+    # --- Create DataFrame from the list of dictionaries ---
     try:
-        results_df = pd.DataFrame.from_dict(final_results, orient='index')
+        # Create DataFrame from the list - 'metric_combination' and 'name' will be columns
+        results_df = pd.DataFrame(final_results_list)
         print(f"Aggregated Worker Results DataFrame shape: {results_df.shape}")
         if results_df.empty: print("Error: Worker results DataFrame is empty after aggregation."); return None
     except Exception as e: print(f"Error creating worker results DataFrame: {e}"); return None
@@ -1918,38 +1904,28 @@ def evaluate_metric_combinations_overall(evaluation_name, name, linearLayers, cl
     overall_original_k_avg_results = {}
     if original_k_results_list:
         original_k_df = pd.DataFrame(original_k_results_list)
-        # Identify columns containing original similarity results (start with 'orig_')
         original_sim_cols = [col for col in original_k_df.columns if col.startswith('orig_')]
         if original_sim_cols:
-            # Calculate mean for each original similarity column, ignoring NaNs
             overall_original_k_avg_results = original_k_df[original_sim_cols].mean(axis=0, skipna=True).to_dict()
             print(f"Calculated averages for {len(overall_original_k_avg_results)} original similarity metrics.")
-            # print(overall_original_k_avg_results) # Optional: print averages
-        else:
-            print("Warning: No original similarity columns found in original_k_results_list (Columns checked: start with 'orig_').")
-    else:
-        print("Warning: No results collected for original k similarities.")
+        else: print("Warning: No original similarity columns found in original_k_results_list (Columns checked: start with 'orig_').")
+    else: print("Warning: No results collected for original k similarities.")
 
     # --- Add Overall Original Averages to the Main DataFrame ---
     if overall_original_k_avg_results:
         print("Adding overall original similarity averages to the main DataFrame...")
         for col_name, avg_value in overall_original_k_avg_results.items():
-            # Add the average value as a new column, repeating for all rows
-            # The col_name already includes 'orig_', add 'overall_' prefix
-            results_df[f"overall_{col_name}"] = avg_value
+            results_df[f"overall_{col_name}"] = avg_value # Add 'overall_' prefix
         print(f"Added {len(overall_original_k_avg_results)} new columns.")
 
 
     # --- Column Ordering (User Provided Logic - Needs Update for new columns) ---
-    prefix = f"avg_" # Prefix for worker aggregated results
-    overall_prefix = f"overall_orig_" # Prefix for the new overall original averages
+    prefix = "avg_" # Prefix for worker aggregated results
+    overall_prefix = "overall_orig_" # Prefix for the new overall original averages
 
     # Define base ordered lists (without prefixes)
-    # Activation keys expected in the 'activation_similarity' dict
     act_sim_ordered_base = ACTIVATION_METRIC_KEYS
-    # Image sim keys derived from the IMAGE_SIM_KEY_MAP values (suffixes)
     img_sim_ordered_base = list(IMAGE_SIM_KEY_MAP.values())
-
     source_sim_ordered_base = [
         SOURCE_COSINE_METRIC, SOURCE_LOG_COSINE_METRIC, SOURCE_RUZICKA_METRIC,
         SOURCE_SPEARMAN_METRIC, SOURCE_KENDALL_METRIC,
@@ -1961,23 +1937,22 @@ def evaluate_metric_combinations_overall(evaluation_name, name, linearLayers, cl
     ]
 
     ordered_columns = []
-    # Add overall original averages first (if they exist)
-    # Sort activation sim and image sim separately if desired
+    # --- >>> Add 'name' and 'metric_combination' as the first columns <<< ---
+    ordered_columns.append('name')
+    ordered_columns.append('metric_combination')
+
+    # Add overall original averages next
     overall_act_cols = sorted([col for col in results_df.columns if col.startswith(f"{overall_prefix}") and not col.startswith(f"{overall_prefix}{IMG_SIM_PREFIX}")])
     overall_img_cols = sorted([col for col in results_df.columns if col.startswith(f"{overall_prefix}{IMG_SIM_PREFIX}")])
     ordered_columns.extend(overall_act_cols)
     ordered_columns.extend(overall_img_cols)
 
-
     # Add worker aggregated averages
-    # Use the base lists defined above
     ordered_columns.extend([f'{prefix}{m}' for m in act_sim_ordered_base if f'{prefix}{m}' in results_df.columns])
-    # Note: act_dist_ordered_base was missing, added based on common metrics
-    act_dist_ordered_base = ['euclidean_distance', 'manhattan_distance', 'hamming_distance']
+    act_dist_ordered_base = ['euclidean_distance', 'manhattan_distance', 'hamming_distance'] # Define if missing
     ordered_columns.extend([f'{prefix}{m}' for m in act_dist_ordered_base if f'{prefix}{m}' in results_df.columns])
     ordered_columns.extend([f'{prefix}{IMG_SIM_PREFIX}{m}' for m in img_sim_ordered_base if f'{prefix}{IMG_SIM_PREFIX}{m}' in results_df.columns])
-    # Note: img_dist_ordered_base was missing, added based on common metrics
-    img_dist_ordered_base = ['euclidean_dst', 'manhattan_dst', 'hamming_dst']
+    img_dist_ordered_base = ['euclidean_dst', 'manhattan_dst', 'hamming_dst'] # Define if missing
     ordered_columns.extend([f'{prefix}{IMG_SIM_PREFIX}{m}' for m in img_dist_ordered_base if f'{prefix}{IMG_SIM_PREFIX}{m}' in results_df.columns])
     ordered_columns.extend([f'{prefix}{m}' for m in source_sim_ordered_base if f'{prefix}{m}' in results_df.columns])
     ordered_columns.extend([f'{prefix}{m}' for m in source_dist_ordered_base if f'{prefix}{m}' in results_df.columns])
@@ -1988,63 +1963,45 @@ def evaluate_metric_combinations_overall(evaluation_name, name, linearLayers, cl
     remaining_cols = sorted(list(results_df_cols - ordered_cols_set))
     ordered_columns.extend(remaining_cols)
 
-    # Filter list to only include columns actually present in DataFrame (redundant check but safe)
+    # Filter list to only include columns actually present in DataFrame
     final_ordered_columns = [col for col in ordered_columns if col in results_df_cols]
-    # Ensure no duplicates if column names overlap somehow
-    final_ordered_columns = list(dict.fromkeys(final_ordered_columns))
-
+    final_ordered_columns = list(dict.fromkeys(final_ordered_columns)) # Remove duplicates
 
     try:
-        results_df = results_df[final_ordered_columns]
+        results_df = results_df[final_ordered_columns] # Reorder
         print("Reordered DataFrame columns.")
     except KeyError as e:
         print(f"Warning: Column reordering failed due to missing key: {e}. Using default order.")
-        # print(f"Available columns: {results_df.columns.tolist()}") # Debugging line
-        # print(f"Attempted order: {final_ordered_columns}") # Debugging line
     except Exception as e:
         print(f"Warning: Column reordering failed: {e}. Using default order.")
 
 
     # --- Row Sorting Priority (User Provided Logic - Needs Update for new columns) ---
-    # Define priority list including potential new overall columns
     metrics_priority_list = [
-        # Add overall original metrics if desired for sorting
         f'{overall_prefix}cosine_similarity',
-        f'{overall_prefix}{IMG_SIM_PREFIX}cosine_sim', # Adjust key based on IMAGE_SIM_KEY_MAP
-        # Original priority list with 'avg_' prefix
+        f'{overall_prefix}{IMG_SIM_PREFIX}cosine_sim',
         f'{prefix}{SOURCE_INTERSECT_K_METRIC}',
-        f'{prefix}cosine_similarity', # Activation Cosine
+        f'{prefix}cosine_similarity',
         f'{prefix}{IMG_SIM_PREFIX}cosine_sim',
         f'{prefix}{SOURCE_COSINE_METRIC}',
         # ... (rest of the original priority list) ...
         f'{prefix}{SOURCE_KENDALL_METRIC}',
-        f'{prefix}kendall_tau', # Activation kendall
+        f'{prefix}kendall_tau',
     ]
-    # (Keep similarity_keywords and distance_keywords definitions)
     similarity_keywords = ['similarity', 'correlation', 'tau', 'rho', 'spearman', 'kendall', 'precision', 'recall', 'intersect', 'ruzicka', 'cosine']
     distance_keywords = ['distance', 'dst', 'jsd', 'euclidean', 'manhattan', 'diff', 'hamming']
 
-
     sort_by_columns = []; sort_ascending_flags = []; sort_descriptions = []
     for metric_col in metrics_priority_list:
-        if metric_col not in results_df.columns: continue # Skip if column doesn't exist
-
-        ascending_order = False # Default: Higher is better
-        sort_type = " (Desc)"
-        # Determine metric name without prefix for keyword checking
+        if metric_col not in results_df.columns: continue
+        ascending_order = False; sort_type = " (Desc)"
         metric_name_lower = metric_col.replace(prefix, '').replace(overall_prefix, '').lower()
-
-        # Check if it's explicitly a distance metric where lower is better
         is_distance = any(keyword in metric_name_lower for keyword in distance_keywords)
-        # Check source distance keys specifically (without prefix)
         is_explicit_source_dist = any(dist_key in metric_col for dist_key in [
             SOURCE_JSD_METRIC, SOURCE_EUCLIDEAN_METRIC, SOURCE_MANHATTAN_METRIC, SOURCE_SYMM_DIFF_METRIC
         ])
-
         if is_explicit_source_dist or (is_distance and not any(sim_key in metric_name_lower for sim_key in similarity_keywords)):
             ascending_order = True; sort_type = " (Asc)"
-        # No need for elif, default is Descending/False
-
         sort_by_columns.append(metric_col); sort_ascending_flags.append(ascending_order)
         sort_descriptions.append(f"{metric_col.replace(prefix, '').replace(overall_prefix, '')}{sort_type}")
 
@@ -2058,7 +2015,7 @@ def evaluate_metric_combinations_overall(evaluation_name, name, linearLayers, cl
             final_df_to_return = results_df.sort_values(by=sort_by_columns, ascending=sort_ascending_flags, na_position='last')
         except Exception as e:
             print(f"\nError during final row sorting: {e}. Returning unsorted DataFrame.")
-            final_df_to_return = results_df # Return unsorted on error
+            final_df_to_return = results_df
 
     end_time = time.time()
     print(f"\nEvaluation for {evaluation_name} ({name}) complete in {end_time - start_time:.2f} seconds.")

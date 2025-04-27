@@ -233,7 +233,6 @@ def run_training_loop():
                     "seed": param_space[i+1][0],
                     "layerSize": param_space[i+1][1],
                     "train_sample_count": param_space[i+1][2],
-                    "activationType": param_space[i+1][3]
                 }
                 save_checkpoint(next_params)
             else:
