@@ -467,7 +467,8 @@ def blendActivations(name, mostUsed, evaluationActivations, layerNumbersToCheck,
                 currentMostUsed = mostUsed[0] # Use the inner list for BTO
             else:
                 currentMostUsed = mostUsed # Use directly otherwise
-
+            
+            #print("currentMostUsed", currentMostUsed)
             if not isinstance(currentMostUsed, list) or not all(isinstance(item, (tuple, list)) and len(item) == 2 for item in currentMostUsed):
                 raise TypeError(f"Invalid structure for mostUsed in overallEvaluation=True. Expected list of (source, count), got {type(currentMostUsed)}")
 
@@ -493,6 +494,7 @@ def blendActivations(name, mostUsed, evaluationActivations, layerNumbersToCheck,
 
 
             for (source, count) in currentMostUsed:
+                source = int(source)
                 # Skip if count is invalid
                 if not (isinstance(count, (float, int, np.number)) and math.isfinite(count)):
                     continue
@@ -558,7 +560,7 @@ def blendActivations(name, mostUsed, evaluationActivations, layerNumbersToCheck,
                     if not (isinstance(count, (float, int, np.number)) and math.isfinite(count)):
                         continue
 
-                    if RENN.activationsBySources[source] is None:
+                    if RENN.activationsBySources[int(source)] is None:
                         print(f"WARNING blendActivations ({name}, Layer {layerNumber}): Source '{source}' not found in RENN.activationsBySources. Skipping.")
                         continue
 
@@ -770,8 +772,8 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
 
         all_combinations_to_process = []
         # --- Pre-calculate all combination names ---
-        for blendType in ["BTL", "BTO"]:
-            for countType in ["-CTA", "-CTW"]:
+        for blendType in ["BTO", "BTL"]:
+            for countType in ["-CTW", "-CTA"]:
                 for distanceType in ["-DTE", "-DTA"]:
                     for normalizationType in ["-NTS", "-NTA","-NTZ", "-NTM"]:
                         mode = "Activation" if normalizationType == "-NTA" else "Sum"
@@ -1077,63 +1079,77 @@ def calculate_jsd(list1, list2):
         # print(f"DEBUG: JSD calculation error: {e}")
         return 1.0 # Max distance on error
 
+# --- MODIFIED calculate_rank_correlation ---
 def calculate_rank_correlation(list1, list2):
-    """ Calculates Spearman and Kendall rank correlation based on scores. Returns (NaN, NaN) on error/insufficient data. """
-    spearman_corr, kendall_tau = np.nan, np.nan # Default return
+    """ Calculates Spearman and Kendall rank correlation based on scores. Returns (0.0, 0.0) on error/insufficient data or if correlation is NaN. """
+    spearman_corr, kendall_tau = np.nan, np.nan # Start with NaN
     try:
         if not isinstance(list1, list) or not isinstance(list2, list):
             raise ValueError("Inputs must be lists")
         # Ensure items are tuples and scores are extractable and numeric
-        dict1 = {item[0]: item[1] for item in list1 if isinstance(item, (tuple, list)) and len(item) == 2 and isinstance(item[1], (int, float)) and np.isfinite(item[1])}
-        dict2 = {item[0]: item[1] for item in list2 if isinstance(item, (tuple, list)) and len(item) == 2 and isinstance(item[1], (int, float)) and np.isfinite(item[1])}
-        if not dict1 or not dict2: return np.nan, np.nan # Need data in both
+        dict1 = {item[0]: item[1] for item in list1 if isinstance(item, (tuple, list)) and len(item) == 2 and isinstance(item[1], (int, float, np.number)) and math.isfinite(item[1])}
+        dict2 = {item[0]: item[1] for item in list2 if isinstance(item, (tuple, list)) and len(item) == 2 and isinstance(item[1], (int, float, np.number)) and math.isfinite(item[1])}
+        if not dict1 or not dict2:
+            # print("DEBUG RankCorr: One or both input dicts empty after filtering.") # Reduce noise
+            return 0.0, 0.0 # Return 0 if no data
 
         common_ids = sorted(list(set(dict1.keys()) & set(dict2.keys()))) # Sort for consistency
-        if len(common_ids) < 2: return np.nan, np.nan # Need at least 2 common points
-
-        # Get scores for common IDs
-        scores1 = [dict1[id] for id in common_ids]
-        scores2 = [dict2[id] for id in common_ids]
-
-        # Check for zero variance in scores (can cause issues)
-        if np.std(scores1) < EPSILON or np.std(scores2) < EPSILON:
-            # If one list is constant and the other isn't, corr is NaN (or 0).
-            # If both are constant, corr is undefined (NaN) but often treated as 1 or 0. Let's return 0.
-            return 0.0, 0.0 # Or return np.nan, np.nan ? Let's be conservative: 0.0
-
-        if spearmanr is None or kendalltau is None: raise ImportError("spearmanr or kendalltau not available")
-
-        # Calculate directly on scores or ranks? Original did ranks. Let's stick to ranks.
-        # Need ranks based on full lists to handle ties correctly
-        sorted_list1 = sorted(dict1.items(), key=lambda x: x[1], reverse=True)
-        sorted_list2 = sorted(dict2.items(), key=lambda x: x[1], reverse=True)
-        # Assign ranks, average for ties (scipy does this internally, simpler to use scores if rank method isn't specified)
-        # Reverting to correlation on scores for simplicity unless ranks are strictly needed
-        # temp_spearman, _ = spearmanr(scores1, scores2)
-        # temp_kendall, _ = kendalltau(scores1, scores2)
+        # --- MODIFICATION: Require >= 2 common points ---
+        if len(common_ids) < 2:
+            # print(f"DEBUG RankCorr: Insufficient common IDs ({len(common_ids)}). Returning 0.") # Reduce noise
+            return 0.0, 0.0 # Return 0 if insufficient common points
+        # --- END MODIFICATION ---
 
         # Let's use ranks as per original code intent:
+        sorted_list1 = sorted(dict1.items(), key=lambda x: x[1], reverse=True)
+        sorted_list2 = sorted(dict2.items(), key=lambda x: x[1], reverse=True)
         rank_map1 = {id: rank + 1 for rank, (id, _) in enumerate(sorted_list1)}
         rank_map2 = {id: rank + 1 for rank, (id, _) in enumerate(sorted_list2)}
         ranks1 = [rank_map1[id] for id in common_ids]
         ranks2 = [rank_map2[id] for id in common_ids]
-        if np.std(ranks1) < EPSILON or np.std(ranks2) < EPSILON: return 0.0, 0.0 # Corr=0 if ranks are constant
 
-        temp_spearman, _ = spearmanr(ranks1, ranks2)
-        temp_kendall, _ = kendalltau(ranks1, ranks2)
+        if spearmanr is None or kendalltau is None: raise ImportError("spearmanr or kendalltau not available")
 
-        # Assign only if calculation succeeds and is finite
-        if np.isfinite(temp_spearman): spearman_corr = temp_spearman
-        if np.isfinite(temp_kendall): kendall_tau = temp_kendall
+        # Calculate correlations on ranks
+        try:
+            temp_spearman, _ = spearmanr(ranks1, ranks2)
+            # Assign only if calculation succeeds and is finite
+            if np.isfinite(temp_spearman):
+                spearman_corr = temp_spearman
+            # else: # Optional: Warn if scipy returns non-finite
+            # print(f"DEBUG RankCorr: Spearman returned non-finite: {temp_spearman}")
+        except Exception as spearman_e:
+            print(f"ERROR RankCorr: spearmanr failed: {spearman_e}")
+            # Keep spearman_corr as np.nan
+
+        try:
+            temp_kendall, _ = kendalltau(ranks1, ranks2)
+            # Assign only if calculation succeeds and is finite
+            if np.isfinite(temp_kendall):
+                kendall_tau = temp_kendall
+            # else: # Optional: Warn if scipy returns non-finite
+            # print(f"DEBUG RankCorr: Kendall returned non-finite: {temp_kendall}")
+        except Exception as kendall_e:
+            print(f"ERROR RankCorr: kendalltau failed: {kendall_e}")
+            # Keep kendall_tau as np.nan
+
 
     except (IndexError, TypeError, ValueError) as e:
-        # print(f"DEBUG: Rank correlation ValueError/TypeError: {e}")
+        print(f"ERROR Rank correlation (Input/Processing): {e}") # Keep error prints
+        pass # Return default NaNs
+    except ImportError as e:
+        print(f"ERROR Rank correlation: {e}") # Keep error prints
         pass # Return default NaNs
     except Exception as e:
-        # print(f"DEBUG: Unexpected Rank correlation error: {e}")
+        print(f"ERROR Unexpected Rank correlation: {e}") # Keep error prints
+        traceback.print_exc()
         pass # Return default NaNs
-    # Ensure tuple is always returned
-    return spearman_corr, kendall_tau
+
+    # --- MODIFICATION: Return 0.0 if result is still NaN ---
+    # Ensure tuple is always returned, substituting NaN with 0.0
+    final_spearman = spearman_corr if np.isfinite(spearman_corr) else 0.0
+    final_kendall = kendall_tau if np.isfinite(kendall_tau) else 0.0
+    return final_spearman, final_kendall
 
 def calculate_top_k_overlap(list1, list2, k):
     """ Calculates Intersection@k, Precision@k, Recall@k based on scores. Includes debugging. """
@@ -1375,7 +1391,6 @@ def check_activations_for_nan(activations):
     return False # Default if type is unknown or not checkable
 
 # --- Main Worker Function ---
-# --- Main Worker Function ---
 def process_sample_evaluation(args):
     """
     Processes evaluation for a single sample across metric combinations and k values.
@@ -1392,27 +1407,29 @@ def process_sample_evaluation(args):
 
     # --- Initial Checks ---
     if metricsSampleActivations is None: return None
-
+    
     # --- Prepare/Validate/Aggregate original sources ---
     originalSources_processed = None
     original_sources_contain_nan = False # Flag
     try:
         # print(f"DEBUG WORKER (S:{pos}): Raw originalMostUsedSources_input type={type(originalMostUsedSources_input)}, len={len(originalMostUsedSources_input) if hasattr(originalMostUsedSources_input, '__len__') else 'N/A'}")
         # if isinstance(originalMostUsedSources_input, list): print(f"DEBUG WORKER (S:{pos}): Raw originalMostUsedSources_input (first 5): {originalMostUsedSources_input[:5]}")
-        is_original_nested = isinstance(originalMostUsedSources_input, (list, tuple)) and \
+        is_original_nested = isinstance(originalMostUsedSources_input, list) and \
                              len(originalMostUsedSources_input) > 0 and \
-                             isinstance(originalMostUsedSources_input[0], (list, tuple))
-        if is_original_nested and "BTL" in name:
-            # print(f"DEBUG WORKER (S:{pos}): Processing original sources via BTL aggregate_source_layers...")
+                             all(isinstance(inner_item, (list, tuple)) for inner_item in originalMostUsedSources_input)
+        if is_original_nested:
+            # print(f"DEBUG WORKER (S:{pos}): Processing original sources via aggregate_source_layers (Nested Input)...")
             originalSources_processed = aggregate_source_layers(originalMostUsedSources_input)
-            original_sources_contain_nan = check_list_for_nan_scores(originalSources_processed, f"S:{pos} Original Aggregated")
-        elif not is_original_nested:
+            if "BTO" in name and "-CTW" in name:
+                originalSources_processed = [(str(item[0]), item[1]) for item in originalMostUsedSources_input[0]]
+                
+        elif isinstance(originalMostUsedSources_input, list): # Input is likely already flat
             # print(f"DEBUG WORKER (S:{pos}): Processing original sources via flat list standardization...")
             originalSources_processed = [(str(item[0]), item[1]) for item in originalMostUsedSources_input if isinstance(item, (tuple, list)) and len(item) == 2 and isinstance(item[1], (int, float, np.number)) and math.isfinite(item[1])]
-        else: # Nested but not BTL
-            # print(f"DEBUG WORKER (S:{pos}): Processing original sources via nested non-BTL (raw)...")
-            originalSources_processed = originalMostUsedSources_input
-            original_sources_contain_nan = check_nested_list_for_nan_scores(originalSources_processed)
+        else:
+            print(f"ERROR: Sample {pos} received unexpected type for originalMostUsedSources_input: {type(originalMostUsedSources_input)}. Setting processed to empty list.")
+            originalSources_processed = []
+        original_sources_contain_nan = check_list_for_nan_scores(originalSources_processed, f"S:{pos} Original Processed")
         if originalSources_processed is None: raise ValueError("Original sources became None")
         # print(f"DEBUG WORKER (S:{pos}): Processed originalSources_processed type={type(originalSources_processed)}, len={len(originalSources_processed) if hasattr(originalSources_processed, '__len__') else 'N/A'}")
         # if isinstance(originalSources_processed, list): print(f"DEBUG WORKER (S:{pos}): Processed originalSources_processed (first 5): {originalSources_processed[:5]}")
@@ -1431,7 +1448,7 @@ def process_sample_evaluation(args):
         current_combination_results = {key: np.nan for key in ALL_METRIC_KEYS_FOR_AGGREGATION}
 
         # --- Loop through k values ---
-        for currentClosestSources in range(max(1, closestSources-20), closestSources+21):
+        for currentClosestSources in range(max(1, closestSources-25), closestSources+25):
             current_k_results = {key: np.nan for key in ALL_METRIC_KEYS_FOR_AGGREGATION}
             mostUsedMetricSources_from_renn = None
             mostUsedMetricSources_processed_flat = None
@@ -1464,7 +1481,7 @@ def process_sample_evaluation(args):
                                 mostUsedMetricSources_processed_flat = aggregate_source_layers(mostUsedMetricSources_from_renn)
                             else:
                                 metric_processing_path = "BTL - Keep Raw (Flat Input)"
-                                print(f"WARNING (S:{pos}, K:{currentClosestSources}): BTL mode expected nested input from RENN, but received flat. Using flat list for all calculations.")
+                                # print(f"WARNING (S:{pos}, K:{currentClosestSources}): BTL mode expected nested input from RENN, but received flat. Using flat list for all calculations.") # Reduce noise
                                 mostUsedMetricSources_processed_flat = [(str(item[0]), item[1]) for item in mostUsedMetricSources_from_renn if isinstance(item, (tuple, list)) and len(item) == 2 and isinstance(item[1], (int, float, np.number)) and np.isfinite(item[1])]
                                 mostUsedMetricSources_for_blend = mostUsedMetricSources_processed_flat
                         else: # BTO or other modes
@@ -1487,12 +1504,15 @@ def process_sample_evaluation(args):
                         traceback.print_exc()
                         continue
                 else: continue
+                
+                #print(originalSources_processed)
+                #print(mostUsedMetricSources_for_blend)
 
                 # --- Calculations use the appropriate PROCESSED lists ---
-                valid_original_structure = isinstance(originalSources_processed, list) and (not originalSources_processed or isinstance(originalSources_processed[0], tuple))
-                valid_metric_flat_structure = isinstance(mostUsedMetricSources_processed_flat, list) and (not mostUsedMetricSources_processed_flat or isinstance(mostUsedMetricSources_processed_flat[0], tuple))
-                if not valid_original_structure: print(f"DEBUG CALC CHECK (S:{pos}, K:{currentClosestSources}): originalSources_processed has invalid structure for calculations: type={type(originalSources_processed)}")
-                if not valid_metric_flat_structure: print(f"DEBUG CALC CHECK (S:{pos}, K:{currentClosestSources}): mostUsedMetricSources_processed_flat has invalid structure for calculations: type={type(mostUsedMetricSources_processed_flat)}")
+                valid_original_structure = isinstance(originalSources_processed, list) and (not originalSources_processed or isinstance(originalSources_processed[0], (tuple, list)))
+                valid_metric_flat_structure = isinstance(mostUsedMetricSources_processed_flat, list) and (not mostUsedMetricSources_processed_flat or isinstance(mostUsedMetricSources_processed_flat[0], (tuple, list)))
+                # if not valid_original_structure: print(f"DEBUG CALC CHECK (S:{pos}, K:{currentClosestSources}): originalSources_processed has invalid structure for calculations: type={type(originalSources_processed)}") # Reduce noise
+                # if not valid_metric_flat_structure: print(f"DEBUG CALC CHECK (S:{pos}, K:{currentClosestSources}): mostUsedMetricSources_processed_flat has invalid structure for calculations: type={type(mostUsedMetricSources_processed_flat)}") # Reduce noise
 
                 if mostUsedMetricSources_processed_flat is not None and originalSources_processed is not None and \
                         len(mostUsedMetricSources_processed_flat) > 0 and len(originalSources_processed) > 0 and \
@@ -1514,34 +1534,33 @@ def process_sample_evaluation(args):
                     if not np.isfinite(source_jsd): print(f"DEBUG WORKER (S:{pos}, K:{currentClosestSources}, C:{combination_str}): NaN/Inf detected in {SOURCE_JSD_METRIC}: {source_jsd}")
                     current_k_results[SOURCE_JSD_METRIC] = source_jsd
 
-                    if nan_in_inputs: spearman, kendall = np.nan, np.nan
-                    else:
-                        try: spearman, kendall = calculate_rank_correlation(originalSources_processed, mostUsedMetricSources_processed_flat)
-                        except Exception as rank_e: print(f"ERROR: S:{pos} K:{currentClosestSources} - calculate_rank_correlation call failed: {rank_e}"); spearman, kendall = np.nan, np.nan
+                    # --- Call Rank Correlation ---
+                    spearman, kendall = calculate_rank_correlation(originalSources_processed, mostUsedMetricSources_processed_flat)
                     if not np.isfinite(spearman): print(f"DEBUG WORKER (S:{pos}, K:{currentClosestSources}, C:{combination_str}): NaN/Inf detected in spearman: {spearman}")
                     if not np.isfinite(kendall): print(f"DEBUG WORKER (S:{pos}, K:{currentClosestSources}, C:{combination_str}): NaN/Inf detected in kendall: {kendall}")
                     current_k_results[SOURCE_SPEARMAN_METRIC] = spearman
                     current_k_results[SOURCE_KENDALL_METRIC] = kendall
 
+                    # --- Call Top K ---
                     intersect_k, precision_k, recall_k = calculate_top_k_overlap(originalSources_processed, mostUsedMetricSources_processed_flat, currentClosestSources)
                     current_k_results[SOURCE_INTERSECT_K_METRIC] = intersect_k
                     current_k_results[SOURCE_PRECISION_K_METRIC] = precision_k
                     current_k_results[SOURCE_RECALL_K_METRIC] = recall_k
                     if not np.isfinite(current_k_results.get(SOURCE_INTERSECT_K_METRIC, np.nan)): print(f"DEBUG WORKER (S:{pos}, K:{currentClosestSources}, C:{combination_str}): Assigned NaN/Inf for {SOURCE_INTERSECT_K_METRIC}")
 
-                    if nan_in_inputs: euclidean, manhattan = np.nan, np.nan
-                    else:
-                        try: euclidean, manhattan = calculate_vector_distances(originalSources_processed, mostUsedMetricSources_processed_flat)
-                        except Exception as dist_e: print(f"ERROR: S:{pos} K:{currentClosestSources} - calculate_vector_distances call failed: {dist_e}"); euclidean, manhattan = np.nan, np.nan
+                    # --- Call Vector Distances ---
+                    euclidean, manhattan = calculate_vector_distances(originalSources_processed, mostUsedMetricSources_processed_flat)
                     if not np.isfinite(euclidean): print(f"DEBUG WORKER (S:{pos}, K:{currentClosestSources}, C:{combination_str}): NaN/Inf detected in source_euclidean: {euclidean}")
                     if not np.isfinite(manhattan): print(f"DEBUG WORKER (S:{pos}, K:{currentClosestSources}, C:{combination_str}): NaN/Inf detected in source_manhattan: {manhattan}")
                     current_k_results[SOURCE_EUCLIDEAN_METRIC] = euclidean
                     current_k_results[SOURCE_MANHATTAN_METRIC] = manhattan
 
-                    source_ruzicka = np.nan if nan_in_inputs else calculate_ruzicka_similarity(originalSources_processed, mostUsedMetricSources_processed_flat)
+                    # --- Call Ruzicka ---
+                    source_ruzicka = calculate_ruzicka_similarity(originalSources_processed, mostUsedMetricSources_processed_flat)
                     if not np.isfinite(source_ruzicka): print(f"DEBUG WORKER (S:{pos}, K:{currentClosestSources}, C:{combination_str}): NaN/Inf detected in source_ruzicka: {source_ruzicka}")
                     current_k_results[SOURCE_RUZICKA_METRIC] = source_ruzicka
 
+                    # --- Call Symmetric Difference ---
                     source_symm_diff = calculate_symmetric_difference_size(originalSources_processed, mostUsedMetricSources_processed_flat)
                     if not np.isfinite(source_symm_diff): print(f"DEBUG WORKER (S:{pos}, K:{currentClosestSources}, C:{combination_str}): NaN/Inf detected in source_symm_diff: {source_symm_diff}")
                     current_k_results[SOURCE_SYMM_DIFF_METRIC] = source_symm_diff
@@ -1626,7 +1645,7 @@ def process_sample_evaluation(args):
                 if current_k_results is not None and OPTIMIZATION_METRIC in current_k_results:
                     current_optimization_score = current_k_results.get(OPTIMIZATION_METRIC, np.nan)
                     if not np.isfinite(current_optimization_score):
-                        print(f"DEBUG WORKER (S:{pos}, K:{currentClosestSources}, C:{combination_str}): Optimization metric '{OPTIMIZATION_METRIC}' is non-finite: {current_optimization_score}")
+                        print(f"DEBUG WORKER ({name} -> S:{pos}, K:{currentClosestSources}, C:{combination_str}): Optimization metric '{OPTIMIZATION_METRIC}' is non-finite: {current_optimization_score}")
                     if np.isfinite(current_optimization_score) and current_optimization_score > currentBestValue:
                         update_combination_results = True
                         currentBestValue = current_optimization_score
@@ -2119,7 +2138,7 @@ def findBestOriginalValues(name, sample, original_values, closestSources, mode):
     bestMostUsedSources = {'name': name, 'activation_similarity': {'cosine_similarity': -1}, 'image_similarity': [], 'mostUsedSources': [], 'closestSources': None} # Initialize with -1
 
     # Define the range based on the input 'closestSources' parameter
-    search_range = range(max(1, closestSources - 20), closestSources + 20) # Ensure range starts at 1 minimum
+    search_range = range(max(1, closestSources - 25), closestSources + 25) # Ensure range starts at 1 minimum
 
     for currentClosestSourcesValue in search_range:
         try:
