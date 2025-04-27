@@ -776,8 +776,8 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
         # --- Pre-calculate all combination names ---
         for blendType in ["BTO", "BTL"]:
             for countType in ["-CTW", "-CTA"]:
-                for distanceType in ["-DTE", "-DTA"]:
-                    for normalizationType in ["-NTS", "-NTA","-NTZ", "-NTM"]:
+                for distanceType in ["-DTA", "-DTE"]:
+                    for normalizationType in ["-NTS","-NTZ", "-NTM", "-NTA"]:
                         mode = "Activation" if normalizationType == "-NTA" else "Sum"
                         name = blendType+countType+distanceType+normalizationType
                         all_combinations_to_process.append({'name': name, 'mode': mode})
