@@ -1131,6 +1131,13 @@ def identifyClosestSourcesByMetricCombination(name, closestSources, metricsOutpu
         if "-DTE" in name:
             metrics_differences = np.linalg.norm(normalized_currentMetricsLayer - normalized_metricsOutputsToCheck, axis=1)
 
+        # --- >>> Replace NaN/Inf distances with a large number <<<---
+        large_finite_val = np.finfo(np.float64).max
+        # Apply nan_to_num directly to the calculated metrics_differences
+        metrics_differences = np.nan_to_num(metrics_differences.astype(np.float64), # Ensure float64 for nan_to_num
+                                            nan=large_finite_val,
+                                            posinf=large_finite_val,
+                                            neginf=-large_finite_val) # Use neginf for safety
         #metrics_differences = np.sum(np.abs(currentMetricsLayer - metricsOutputsToCheck[currentLayer][np.newaxis, :]), axis=1)
         metrics_sorted_indices = np.argsort(metrics_differences)
         metrics_closest_indices = metrics_sorted_indices[:closestSources]
@@ -1148,28 +1155,43 @@ def identifyClosestSourcesByMetricCombination(name, closestSources, metricsOutpu
     return identifiedClosestMetricSources, layerNumbersToCheck
 
 def getMostUsedSourcesByMetrics(name, metricsSources, closestSources, evalSample=0, weightedMode="", info=True):
-    sourceCounter, mostUsed, differences = getMostUsedByMetrics(metricsSources)
-    
-    if "-CTW" in name:
-        metricsCounter = weighted_counter(mostUsed, differences)
-    if "-CTA" in name:
-        metricsCounter = Counter(mostUsed)
+    sourceCounter, mostUsed, differences, mostUsedSourcesPerLayer, differencesPerLayer = getMostUsedByMetrics(metricsSources)
+
+    counterResults = []
+    listToUse = [mostUsed]
+    differencesToUse = [differences]
+    if "BTL" in name:
+        listToUse = mostUsedSourcesPerLayer
+        differencesToUse = differencesPerLayer
+
+    for sourcesFound, differencesFound in zip(listToUse, differencesToUse):
+        if "-CTW" in name:
+            counter = weighted_counter(sourcesFound, differencesFound)
+        if "-CTA" in name:
+            counter = Counter(sourcesFound)
+        counterResults.append(counter.most_common()[:closestSources])
         
-    #if(info):
-    #print("Total closest Sources (Metrics):", metricsSourceCounter, " | ", closestSources, " closest Sources (", weightedMode, ") in format: [SourceNumber, Occurances]: ", metricsCounter.most_common()[:closestSources])
-    return metricsCounter.most_common()[:closestSources]
+    return counterResults
 
 def getMostUsedByMetrics(sources):
     mostUsed = []
+    mostUsedSourcesPerLayer = []
     differences = []
+    differencesPerLayer = []
     sourceCounter = 0
     for currentLayer, layer in enumerate(sources):
+        mostUsedPerLayer = []
+        differencesInLayer = []
         for sourceNumber, difference in layer:
             if(sourceNumber != 'None'):
                 mostUsed.append(sourceNumber)
                 differences.append(difference)
                 sourceCounter += 1
-    return sourceCounter, mostUsed, differences
+                mostUsedPerLayer.append(sourceNumber)
+                differencesInLayer.append(sourceNumber)
+        mostUsedSourcesPerLayer.append(mostUsedPerLayer)
+        differencesPerLayer.append(differencesInLayer)
+    return sourceCounter, mostUsed, differences, mostUsedSourcesPerLayer, differencesPerLayer
 
 def identifyClosestSourcesForOriginal(outputs, closestSources, mode=""):
     global layers

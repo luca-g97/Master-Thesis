@@ -63,12 +63,12 @@ print(f"Using device type: {device}")
 
 # --- Configuration ---
 # Fixed values
-eval_samples = 10  # Reduced for testing, adjust as needed len(testSetMNIST)
+eval_samples = 2  # Reduced for testing, adjust as needed
 INTEGER_LIMIT = 4294967295
 seeds = [random.randint(0, INTEGER_LIMIT) for _ in range(10)]
-layerSizes = [128, 512, 2048, 8192]
-train_samples_options = [100, 1000, 10000, 60000] # Assuming 60k is full MNIST train set size
-activation_types = ['ReLU', 'Sigmoid', 'Tanh']
+layerSizes = [128, 512, 2048]
+train_samples_options = [100, 10000, 60000] # Assuming 60k is full MNIST train set size
+#activation_types = ['ReLU', 'Sigmoid', 'Tanh']
 
 # MNIST specific settings (assuming these are fixed for the loop)
 test_samples = 10000 # Assuming full MNIST test set size
@@ -81,7 +81,7 @@ loss_function = "MSE"
 optimizer = "Adam"
 
 # RENN specific settings
-closestSources = 42
+closestSources = 25 # Adjusted because best results seemed likely to be on lower bounds
 showClosestMostUsedSources = 3
 visualizationChoice = "Weighted"
 
@@ -96,7 +96,7 @@ def load_checkpoint():
             with open(CHECKPOINT_FILE, 'r') as f:
                 checkpoint = json.load(f)
                 # Validate checkpoint structure if necessary
-                if all(k in checkpoint for k in ["seed", "layerSize", "train_sample_count", "activationType"]):
+                if all(k in checkpoint for k in ["seed", "layerSize", "train_sample_count"]):
                     logging.info(f"Resuming from checkpoint: {checkpoint}")
                     return checkpoint
                 else:
@@ -148,7 +148,7 @@ def run_training_loop():
 
 
     # Define the parameter space using itertools.product
-    param_space = list(itertools.product(seeds, layerSizes, train_samples_options, activation_types))
+    param_space = list(itertools.product(seeds, layerSizes, train_samples_options))
 
     # Load checkpoint and determine starting point
     checkpoint = load_checkpoint()
@@ -157,7 +157,7 @@ def run_training_loop():
         try:
             # Find the index corresponding to the checkpoint
             start_index = param_space.index(
-                (checkpoint['seed'], checkpoint['layerSize'], checkpoint['train_sample_count'], checkpoint['activationType'])
+                (checkpoint['seed'], checkpoint['layerSize'], checkpoint['train_sample_count'])
             )
             logging.info(f"Found checkpoint. Resuming from iteration {start_index + 1}/{len(param_space)}.")
         except ValueError:
@@ -166,13 +166,13 @@ def run_training_loop():
 
 
     # Iterate through the parameter space starting from the checkpoint
-    for i, (seed, layerSize, train_sample_count, activationType) in enumerate(tqdm(param_space, desc="Overall Progress", initial=start_index)):
+    for i, (seed, layerSize, train_sample_count) in enumerate(tqdm(param_space, desc="Overall Progress", initial=start_index)):
 
         if i < start_index:
             continue # Skip iterations before the checkpoint
 
         logging.info(f"\n--- Starting Iteration {i+1}/{len(param_space)} ---")
-        logging.info(f"Params: seed={seed}, layerSize={layerSize}, train_samples={train_sample_count}, activation={activationType}")
+        logging.info(f"Params: seed={seed}, layerSize={layerSize}, train_samples={train_sample_count}")
 
         # --- Configure iteration-specific settings ---
         # Set seed for reproducibility for this specific iteration
@@ -189,12 +189,12 @@ def run_training_loop():
 
         # Define model layers for this iteration
         # Using fixed structure as per original code, adjust if needed
-        normalLayers = [['Linear', layerSize, activationType], ['Linear', layerSize, activationType]]
+        normalLayers = [['Linear', layerSize, 'ReLU'], ['Linear', layerSize, 'ReLU']]
         neuronChoices = [((0, layerSize), True), ((0, layerSize), True)] # Assuming these ranges are correct
 
         hidden_sizes = [(normalLayer, normalLayerSize, activationLayer)
                         for normalLayer, normalLayerSize, activationLayer in normalLayers]
-        hidden_sizes.append(('Linear', 10, activationType)) # Output layer
+        hidden_sizes.append(('Linear', 10, 'ReLU')) # Output layer
 
         visualizeCustom = [
             ((normalLayer[0], normalLayer[1]), activationLayer) # Assuming layer indices match normalLayers
@@ -220,7 +220,8 @@ def run_training_loop():
 
             logging.info("Running RENN Visualization...")
             start_time = timeit.default_timer()
-            MNIST.visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, True)
+            evaluation_name = f"S={seed}-L={layerSize}-T={train_sample_count}"
+            MNIST.visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, evaluation_name, True)
             elapsed_time = timeit.default_timer() - start_time
             logging.info(f"RENN Visualization Time: {elapsed_time:.2f} seconds")
 
@@ -241,7 +242,7 @@ def run_training_loop():
 
 
         except Exception as e:
-            logging.error(f"Error during iteration {i+1} with params: {seed, layerSize, train_sample_count, activationType}")
+            logging.error(f"Error during iteration {i+1} with params: {seed, layerSize, train_sample_count}")
             logging.error(f"Error details: {e}", exc_info=True) # Log traceback
             # Decide if you want to stop or continue to the next iteration
             # Option 1: Stop the script
@@ -252,7 +253,6 @@ def run_training_loop():
                 "seed": seed,
                 "layerSize": layerSize,
                 "train_sample_count": train_sample_count,
-                "activationType": activationType
             }
             save_checkpoint(current_params)
             sys.exit(1) # Exit the script

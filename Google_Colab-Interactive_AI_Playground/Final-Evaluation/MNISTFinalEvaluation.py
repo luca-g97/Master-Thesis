@@ -22,6 +22,11 @@ from PIL import Image
 import plotly.graph_objects as go
 import plotly.subplots as sp
 import itertools
+import functools # For caching
+import hashlib
+import math
+import traceback
+import collections.abc # For checking nested structures more robustly
 
 CHECKPOINT_DIR = "checkpoints_mnist_viz" # Directory to store checkpoint files
 
@@ -138,7 +143,8 @@ def train(epochs=10):
                 val_loss += loss.item()
 
         # Print statistics
-        #print(f'Epoch {epoch+1}, Train Loss: {train_loss/len(train_dataloader)}, Validation Loss: {val_loss/len(test_dataloader)}')
+        if epoch == epochs-1:
+            print(f'Epoch {epoch+1}, Train Loss: {train_loss/len(train_dataloader)}, Validation Loss: {val_loss/len(test_dataloader)}')
 
 def trainModel(hidden_sizes, loss_function, optimizer, learning_rate, epochs):
     initializeTraining(hidden_sizes, loss_function, optimizer, learning_rate)
@@ -313,19 +319,18 @@ def blendIndividualImagesTogether(mostUsedSources, closestSources, layer=False):
         if(total > 0):
             if(closestSources < 2):
                 if(layer):
-                    image_numpy += x_train[wSource[0]].numpy()*255
+                    image_numpy += x_train[int(wSource[0])].numpy()*255
                 else:
-                    image_numpy += x_train[wSource.source].numpy()*255
+                    image_numpy += x_train[int(wSource.source)].numpy()*255
             else:
                 if(layer):
-                    image_numpy += (x_train[wSource[0]].numpy()*255 * wSource[1] / total)
+                    image_numpy += (x_train[int(wSource[0])].numpy()*255 * wSource[1] / total)
                 else:
                     #print(f"Diff: {wSource.difference}, Total: {total}, Calculation: {(1 - (wSource.difference / total)) / closestSources}")
-                    image_numpy += (x_train[wSource.source].numpy()*255 * (1 - (wSource.difference / total)) / closestSources)
+                    image_numpy += (x_train[int(wSource.source)].numpy()*255 * (1 - (wSource.difference / total)) / closestSources)
 
     image = Image.fromarray(image_numpy).convert("RGBA")
     return image
-
 """# Evaluation: Prediction"""
 
 def predict(sample):
@@ -428,38 +433,220 @@ def computeSimilarity(sample, train_sample):
 
 # Global storage (optional)
 original_activation_similarity, metrics_activation_similarity, mt_activation_similarity = [], [], []
+# --- blendActivations function with added NaN checks ---
 def blendActivations(name, mostUsed, evaluationActivations, layerNumbersToCheck, store_globally=False, overallEvaluation=True):
-    blendedActivations = np.zeros_like(evaluationActivations[layerNumbersToCheck])
-    
-    if overallEvaluation:
-        if "BTO" in name:
-            mostUsed = mostUsed[0]
-        totalSources = sum(count for (_, count) in mostUsed)
-        for (source, count) in mostUsed:
-            activationsBySources = RENN.activationsBySources[source]
-            for layerIdx, layerNumber in enumerate(layerNumbersToCheck):
-                neurons = activationsBySources[layerNumber]
-                blendedActivations[layerIdx] += neurons * (count / totalSources)
-    else:
-        for layerIdx, mostUsedSourcesPerLayer in enumerate(mostUsed):
-            totalSources = sum(count for _, count in mostUsedSourcesPerLayer)
-            layerNumber = layerNumbersToCheck[layerIdx]
-            for source, count in mostUsedSourcesPerLayer:
+    """
+    Blends activations based on most used sources and computes similarity metrics.
+    Includes checks for NaNs generated during the blending process.
+    """
+    global original_activation_similarity, metrics_activation_similarity, mt_activation_similarity # Ensure RENN is accessible
+
+    if not layerNumbersToCheck:
+        print(f"WARNING blendActivations ({name}): layerNumbersToCheck is empty. Returning NaNs.")
+        return {key: np.nan for key in ACTIVATION_METRIC_KEYS}
+
+    # Initialize blendedActivations based on the shape of the first layer's activations
+    # This assumes all layers in evaluationActivations[layerNumbersToCheck] have the same shape.
+    try:
+        # Get the shape of the target activations for the layers being checked
+        target_shape = evaluationActivations[layerNumbersToCheck].shape
+        blendedActivations = np.zeros(target_shape, dtype=np.float64) # Use float64 for accumulation
+    except IndexError:
+        print(f"ERROR blendActivations ({name}): Invalid layer indices in layerNumbersToCheck: {layerNumbersToCheck} for evaluationActivations shape {evaluationActivations.shape}")
+        return {key: np.nan for key in ACTIVATION_METRIC_KEYS}
+    except Exception as e:
+        print(f"ERROR blendActivations ({name}): Could not initialize blendedActivations. Error: {e}")
+        return {key: np.nan for key in ACTIVATION_METRIC_KEYS}
+
+    nan_introduced_during_blending = False # Flag
+
+    try:
+        if overallEvaluation:
+            # Handle BTO case where mostUsed might be nested one level deeper
+            if "BTO" in name and isinstance(mostUsed, list) and len(mostUsed) == 1 and isinstance(mostUsed[0], list):
+                currentMostUsed = mostUsed[0] # Use the inner list for BTO
+            else:
+                currentMostUsed = mostUsed # Use directly otherwise
+
+            if not isinstance(currentMostUsed, list) or not all(isinstance(item, (tuple, list)) and len(item) == 2 for item in currentMostUsed):
+                raise TypeError(f"Invalid structure for mostUsed in overallEvaluation=True. Expected list of (source, count), got {type(currentMostUsed)}")
+
+            # Calculate totalSources, checking for NaN counts
+            valid_counts = [count for _, count in currentMostUsed if isinstance(count, (float, int, np.number)) and math.isfinite(count)]
+            if len(valid_counts) != len(currentMostUsed):
+                print(f"WARNING blendActivations ({name}, Overall): NaN/Inf found in source counts. Using only finite counts.")
+                nan_introduced_during_blending = True # Counts had issues
+
+            if not valid_counts:
+                print(f"ERROR blendActivations ({name}, Overall): No valid source counts found. Cannot blend.")
+                nan_introduced_during_blending = True
+                totalSources = 0 # Avoid division by zero later, but result will be wrong
+            else:
+                totalSources = sum(valid_counts)
+
+            # Check if totalSources is zero or NaN
+            if totalSources < EPSILON or math.isnan(totalSources):
+                print(f"WARNING blendActivations ({name}, Overall): totalSources is near zero ({totalSources}) or NaN. Blending may produce NaN/Inf.")
+                nan_introduced_during_blending = True # Mark potential issue
+                # Avoid division by zero later if totalSources is zero
+                totalSources = EPSILON if totalSources < EPSILON else totalSources
+
+
+            for (source, count) in currentMostUsed:
+                # Skip if count is invalid
+                if not (isinstance(count, (float, int, np.number)) and math.isfinite(count)):
+                    continue
+
+                # Ensure source is a valid key/index for RENN.activationsBySources
+                if RENN.activationsBySources[source] is None:
+                    print(f"WARNING blendActivations ({name}, Overall): Source '{source}' not found in RENN.activationsBySources. Skipping.")
+                    print(RENN.activationsBySources)
+                    continue
+
                 activationsBySources = RENN.activationsBySources[source]
-                neurons = activationsBySources[layerNumber]
-                blendedActivations[layerIdx] += neurons * (count / totalSources)
-    
+                for layerIdx, layerNumber in enumerate(layerNumbersToCheck):
+                    # Ensure layerNumber is valid for the fetched activations
+                    if layerNumber >= len(activationsBySources):
+                        print(f"WARNING blendActivations ({name}, Overall): layerNumber {layerNumber} invalid for source '{source}' activations (len: {len(activationsBySources)}). Skipping layer.")
+                        continue
+
+                    neurons = np.asarray(activationsBySources[layerNumber], dtype=np.float64) # Ensure numpy array and float64
+
+                    # Check neurons for NaN/Inf before blending
+                    if check_activations_for_nan(neurons):
+                        print(f"WARNING blendActivations ({name}, Overall): NaN/Inf found in 'neurons' for source '{source}', layer {layerNumber}. Skipping contribution.")
+                        nan_introduced_during_blending = True
+                        continue # Skip adding NaN/Inf values
+
+                    # Perform blending if totalSources is valid
+                    if not math.isnan(totalSources) and totalSources > EPSILON:
+                        blendedActivations[layerIdx] += neurons * (count / totalSources)
+                    # else: # Already warned about totalSources issue
+
+        else: # Not overallEvaluation (per-layer blending)
+            if len(mostUsed) != len(layerNumbersToCheck):
+                raise ValueError(f"Length mismatch: mostUsed ({len(mostUsed)}) vs layerNumbersToCheck ({len(layerNumbersToCheck)}) for per-layer blending.")
+
+            for layerIdx, mostUsedSourcesPerLayer in enumerate(mostUsed):
+                if not isinstance(mostUsedSourcesPerLayer, list) or not all(isinstance(item, (tuple, list)) and len(item) == 2 for item in mostUsedSourcesPerLayer):
+                    raise TypeError(f"Invalid structure for mostUsedSourcesPerLayer at layerIdx {layerIdx}. Expected list of (source, count), got {type(mostUsedSourcesPerLayer)}")
+
+                layerNumber = layerNumbersToCheck[layerIdx]
+
+                # Calculate totalSources for this layer, checking for NaN counts
+                valid_counts = [count for _, count in mostUsedSourcesPerLayer if isinstance(count, (float, int, np.number)) and math.isfinite(count)]
+                if len(valid_counts) != len(mostUsedSourcesPerLayer):
+                    print(f"WARNING blendActivations ({name}, Layer {layerNumber}): NaN/Inf found in source counts. Using only finite counts.")
+                    nan_introduced_during_blending = True # Counts had issues
+
+                if not valid_counts:
+                    print(f"ERROR blendActivations ({name}, Layer {layerNumber}): No valid source counts found. Cannot blend for this layer.")
+                    nan_introduced_during_blending = True
+                    totalSources = 0 # Avoid division by zero later
+                else:
+                    totalSources = sum(valid_counts)
+
+                # Check if totalSources is zero or NaN
+                if totalSources < EPSILON or math.isnan(totalSources):
+                    print(f"WARNING blendActivations ({name}, Layer {layerNumber}): totalSources is near zero ({totalSources}) or NaN. Blending may produce NaN/Inf.")
+                    nan_introduced_during_blending = True # Mark potential issue
+                    totalSources = EPSILON if totalSources < EPSILON else totalSources
+
+
+                for source, count in mostUsedSourcesPerLayer:
+                    # Skip if count is invalid
+                    if not (isinstance(count, (float, int, np.number)) and math.isfinite(count)):
+                        continue
+
+                    if RENN.activationsBySources[source] is None:
+                        print(f"WARNING blendActivations ({name}, Layer {layerNumber}): Source '{source}' not found in RENN.activationsBySources. Skipping.")
+                        continue
+
+                    activationsBySources = RENN.activationsBySources[source]
+                    if layerNumber >= len(activationsBySources):
+                        print(f"WARNING blendActivations ({name}, Layer {layerNumber}): layerNumber {layerNumber} invalid for source '{source}' activations (len: {len(activationsBySources)}). Skipping layer contribution.")
+                        continue
+
+                    neurons = np.asarray(activationsBySources[layerNumber], dtype=np.float64)
+
+                    # Check neurons for NaN/Inf before blending
+                    if check_activations_for_nan(neurons):
+                        print(f"WARNING blendActivations ({name}, Layer {layerNumber}): NaN/Inf found in 'neurons' for source '{source}'. Skipping contribution.")
+                        nan_introduced_during_blending = True
+                        continue
+
+                    # Perform blending if totalSources is valid
+                    if not math.isnan(totalSources) and totalSources > EPSILON:
+                        blendedActivations[layerIdx] += neurons * (count / totalSources)
+                    # else: # Already warned about totalSources issue
+
+    except Exception as e:
+        print(f"ERROR blendActivations ({name}): Unexpected error during blending loop: {e}")
+        traceback.print_exc()
+        nan_introduced_during_blending = True # Mark as potential issue
+
+    # Check final blendedActivations for NaN/Inf
+    if check_activations_for_nan(blendedActivations):
+        print(f"WARNING blendActivations ({name}): Final 'blendedActivations' contains NaN/Inf.")
+        nan_introduced_during_blending = True # Confirm issue
+
     # Flatten and reshape for similarity computation
-    eval_flat = evaluationActivations[layerNumbersToCheck].flatten().reshape(1, -1).astype(np.float64)
-    blend_flat = blendedActivations.flatten().reshape(1, -1).astype(np.float64)
+    try:
+        eval_activations_subset = evaluationActivations[layerNumbersToCheck]
+        # Check before flattening
+        if check_activations_for_nan(eval_activations_subset):
+            print(f"WARNING blendActivations ({name}): 'evaluationActivations' subset for layers {layerNumbersToCheck} contains NaN/Inf before flattening.")
+            nan_introduced_during_blending = True
+
+        eval_flat = eval_activations_subset.flatten().reshape(1, -1).astype(np.float64)
+        blend_flat = blendedActivations.flatten().reshape(1, -1).astype(np.float64) # Already checked blendedActivations
+
+        # Final check before computeSimilarity
+        eval_flat_has_nan = check_activations_for_nan(eval_flat)
+        blend_flat_has_nan = check_activations_for_nan(blend_flat)
+
+        if eval_flat_has_nan:
+            print(f"WARNING blendActivations ({name}): 'eval_flat' contains NaN/Inf right before computeSimilarity.")
+        if blend_flat_has_nan:
+            print(f"WARNING blendActivations ({name}): 'blend_flat' contains NaN/Inf right before computeSimilarity.")
+
+    except Exception as e:
+        print(f"ERROR blendActivations ({name}): Error during flattening/reshaping: {e}")
+        traceback.print_exc()
+        # Cannot compute similarity if flattening failed
+        return {key: np.nan for key in ACTIVATION_METRIC_KEYS}
+
 
     # --- Compute Metrics ---
-    cosine_sim, euclidean_dist, manhattan_dist, jaccard_sim, hamming_dist, pearson_corr = computeSimilarity(eval_flat, blend_flat)
+    # Proceed even if NaNs were detected, computeSimilarity should handle/warn
+    try:
+        cosine_sim, euclidean_dist, manhattan_dist, jaccard_sim, hamming_dist, pearson_corr = computeSimilarity(eval_flat, blend_flat)
+    except Exception as cs_e:
+        print(f"ERROR blendActivations ({name}): computeSimilarity failed: {cs_e}")
+        traceback.print_exc()
+        # Assign NaNs if computeSimilarity fails catastrophically
+        cosine_sim, euclidean_dist, manhattan_dist, jaccard_sim, hamming_dist, pearson_corr = [np.nan] * 6
 
-    if not (np.isnan(eval_flat).any() or np.isnan(blend_flat).any() or np.std(eval_flat) < EPSILON or np.std(blend_flat) < EPSILON):
-        kendall_tau, _ = kendalltau(eval_flat.squeeze(), blend_flat.squeeze())
-        spearman_rho, _ = spearmanr(eval_flat.squeeze(), blend_flat.squeeze())
+
+    # Compute rank correlations only if inputs are finite and have variance
+    # Use the flags checked just before computeSimilarity
+    if not (eval_flat_has_nan or blend_flat_has_nan or np.std(eval_flat) < EPSILON or np.std(blend_flat) < EPSILON):
+        try:
+            kendall_tau, _ = kendalltau(eval_flat.squeeze(), blend_flat.squeeze())
+        except Exception as e:
+            print(f"ERROR blendActivations ({name}): kendalltau failed: {e}")
+            kendall_tau = np.nan
+        try:
+            spearman_rho, _ = spearmanr(eval_flat.squeeze(), blend_flat.squeeze())
+        except Exception as e:
+            print(f"ERROR blendActivations ({name}): spearmanr failed: {e}")
+            spearman_rho = np.nan
     else:
+        # Print info if skipping due to NaN/Inf or no variance
+        if eval_flat_has_nan or blend_flat_has_nan:
+            print(f"INFO blendActivations ({name}): Skipping rank correlations due to NaN/Inf in flattened vectors.")
+        elif np.std(eval_flat) < EPSILON or np.std(blend_flat) < EPSILON:
+            print(f"INFO blendActivations ({name}): Skipping rank correlations due to zero variance in flattened vectors.")
         kendall_tau = np.nan
         spearman_rho = np.nan
 
@@ -470,84 +657,273 @@ def blendActivations(name, mostUsed, evaluationActivations, layerNumbersToCheck,
         "cosine_similarity": cosine_sim,
         "euclidean_distance": euclidean_dist,
         "manhattan_distance": manhattan_dist,
-        "jaccard_similarity": jaccard_sim if jaccard_sim is not None else np.nan,
+        "jaccard_similarity": jaccard_sim if jaccard_sim is not None else np.nan, # Handle None from computeSimilarity
         "hamming_distance": hamming_dist,
-        "pearson_correlation": pearson_corr if pearson_corr is not None else np.nan,
+        "pearson_correlation": pearson_corr if pearson_corr is not None else np.nan, # Handle None from computeSimilarity
     }
 
+    # --- Store Globally (Optional) ---
     if store_globally:
-        if name == "":
-            original_activation_similarity.append(results)
-        elif name == "Metrics":
-            metrics_activation_similarity.append(results)
-        elif name == "MT":
-            mt_activation_similarity.append(results)
+        # This part needs access to these lists, ensure they are global or passed
+        try:
+            if name == "":
+                original_activation_similarity.append(results)
+            elif name == "Metrics":
+                metrics_activation_similarity.append(results)
+            elif name == "MT":
+                mt_activation_similarity.append(results)
+        except NameError as ne:
+            print(f"ERROR blendActivations ({name}): Global list for storing results not found: {ne}")
 
-    # --- Print Results ---
+
+    # --- Print Results (Optional) ---
     #print("\n--- Blended Activation Similarity Scores ---")
     #for metric, value in results.items():
     #    print(f"{metric.replace('_', ' ').title()}: {value:.4f}")
 
     return results  # Return for immediate use
 
-def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
+def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, evaluation_name, analyze=False):
+    """
+    Performs analysis with checkpointing and prepares data for visualization.
+    """
+    # Use global variables as defined in the original function
     global dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource, original_image_similarity, metrics_image_similarity, mt_image_similarity, original_activation_similarity, metrics_activation_similarity, mt_activation_similarity, resultDataframe
 
-    original_image_similarity, metrics_image_similarity, mt_image_similarity, original_activation_similarity, metrics_activation_similarity, mt_activation_similarity = [], [], [], [], [], []
+    # --- Reset/Initialize global lists/dictionaries ---
+    original_image_similarity, metrics_image_similarity, mt_image_similarity = [], [], []
+    original_activation_similarity, metrics_activation_similarity, mt_activation_similarity = [], [], []
+    # Make sure RENN, eval_dataloader, eval_samples, model are accessible here
+    try:
+        dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource = RENN.initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model)
+    except NameError as e:
+        print(f"Error: Required variable '{e.name}' not defined. Cannot initialize hooks.")
+        return # Or handle appropriately
 
-    #Make sure to set new dictionaries for the hooks to fill - they are global!
-    dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource = RENN.initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model)
+    # --- Configuration & Checkpointing Setup ---
+    checkpoint_dir = "checkpoints" # Directory to store checkpoint files
+    os.makedirs(checkpoint_dir, exist_ok=True) # Ensure checkpoint directory exists
+
+    # Generate a unique ID for this parameter set to avoid checkpoint conflicts
+    # Include parameters that define the scope of the analysis loop
+    param_string = f"{evaluation_name}-{hidden_sizes}-{closestSources}"
+    # Add more parameters to the string if they affect the loop's iterations or results
+    run_id = hashlib.md5(param_string.encode()).hexdigest()[:8] # Short hash
+
+    checkpoint_file = os.path.join(checkpoint_dir, f"checkpoint_{run_id}_{evaluation_name}.csv")
+    print(f"Using checkpoint file: {checkpoint_file}")
+
+    # --- Load existing checkpoint data ---
+    processed_combinations = set()
+    results_list_from_checkpoint = [] # Store dataframes loaded from checkpoint
+
+    if os.path.exists(checkpoint_file):
+        print(f"Found existing checkpoint file: {checkpoint_file}. Resuming...")
+        try:
+            checkpoint_df = pd.read_csv(checkpoint_file)
+            # Assuming 'name' column uniquely identifies a completed iteration within this run
+            if 'name' in checkpoint_df.columns:
+                # Ensure we only load combinations for the *current* evaluation_name if the file might be shared (though run_id helps)
+                # This check might be redundant if run_id is sufficiently unique
+                if 'evaluation_name' in checkpoint_df.columns:
+                    processed_combinations = set(checkpoint_df[checkpoint_df['evaluation_name'] == evaluation_name]['name'].unique())
+                else:
+                    # If evaluation_name column doesn't exist assume all names are for this run
+                    processed_combinations = set(checkpoint_df['name'].unique())
+
+                # Store the loaded dataframe
+                # Filter again to be absolutely sure, if evaluation_name exists
+                if 'evaluation_name' in checkpoint_df.columns:
+                    results_list_from_checkpoint.append(checkpoint_df[checkpoint_df['evaluation_name'] == evaluation_name])
+                else:
+                    results_list_from_checkpoint.append(checkpoint_df)
+
+                print(f"Loaded {len(processed_combinations)} previously completed combinations for '{evaluation_name}'.")
+            else:
+                print("Warning: Checkpoint file found but lacks 'name' column. Starting fresh for this run.")
+                # Optionally delete the corrupt checkpoint file here
+                # os.remove(checkpoint_file)
+        except pd.errors.EmptyDataError:
+            print("Checkpoint file is empty. Starting fresh for this run.")
+        except Exception as e:
+            print(f"Error reading checkpoint file: {e}. Starting fresh for this run.")
+            # Optionally backup/delete the corrupt checkpoint file here
+            # os.rename(checkpoint_file, checkpoint_file + ".error")
+
+    # --- Analysis Section ---
+    results_this_run = [] # Holds results generated only in the current execution
 
     if analyze:
-        METRICS_COMBINATIONS = RENN.create_global_metric_combinations(3, 3, True)
+        print(f"\n--- Starting Analysis for: {evaluation_name} ---")
+        try:
+            METRICS_COMBINATIONS = RENN.create_global_metric_combinations(2, 2, True)
+        except NameError:
+            print("Error: RENN object not defined. Cannot create metric combinations.")
+            return # Or handle appropriately
 
-    # Layer selection logic
-    linearLayers = [idx * 2 for idx, (name, layerNumber, activation) in enumerate(layers)]
+        # Layer selection logic - ensure 'layers' is defined
+        try:
+            linearLayers = [idx * 2 for idx, (name, layerNumber, activation) in enumerate(layers)]
+        except NameError:
+            print("Error: 'layers' variable not defined. Cannot determine linear layers.")
+            return # Or handle appropriately
 
-    results = []
-    if analyze:
-        for blendType in ["BTO", "BTL"]:
-            for countType in ["-CTW", "-CTA"]:
-                for distanceType in ["-DTA", "-DTE"]:
-                    for normalizationType in ["-NT", "-NTZ", "-NTM"]:
-                        for modeType in ["S", "A"]:
-                            mode = "Activation" if modeType == "A" else "Sum"
-                            name = blendType+countType+distanceType+normalizationType+modeType
+        all_combinations_to_process = []
+        # --- Pre-calculate all combination names ---
+        for blendType in ["BTL", "BTO"]:
+            for countType in ["-CTA", "-CTW"]:
+                for distanceType in ["-DTE", "-DTA"]:
+                    for normalizationType in ["-NTS", "-NTA","-NTZ", "-NTM"]:
+                        mode = "Activation" if normalizationType == "-NTA" else "Sum"
+                        name = blendType+countType+distanceType+normalizationType
+                        all_combinations_to_process.append({'name': name, 'mode': mode})
 
-                            results.append(evaluate_metric_combinations_overall(
-                                name,
-                                linearLayers=linearLayers,
-                                closestSources=closestSources,
-                                all_metric_combinations=METRICS_COMBINATIONS,
-                                mode=mode #Change to Activation for Overall Activation-Evaluation
-                            ))
+        total_combinations = len(all_combinations_to_process)
+        print(f"Total combinations to process: {total_combinations}")
+        print(f"Already processed: {len(processed_combinations)}")
 
-    # --- Combine results into a single DataFrame ---
-    if results:
-        resultDataframe = pd.concat(results, ignore_index=True)
-        print(f"Successfully concatenated {len(results)} results into DataFrame.")
+        processed_count_this_run = 0
+        # --- Iterate through combinations ---
+        for i, combo in enumerate(all_combinations_to_process):
+            name = combo['name']
+            mode = combo['mode']
+
+            if name in processed_combinations:
+                # print(f"Skipping already processed: {name}")
+                continue # Skip this iteration
+
+            print(f"Processing combination {i+1-len(processed_combinations)}/{total_combinations-len(processed_combinations)} (Overall {i+1}): {name} (Mode: {mode})")
+
+            try:
+                # --- Call the evaluation function ---
+                single_result_df = evaluate_metric_combinations_overall(
+                    evaluation_name=evaluation_name,
+                    name=name,
+                    linearLayers=linearLayers,
+                    closestSources=closestSources,
+                    all_metric_combinations=METRICS_COMBINATIONS,
+                    mode=mode # Change to Activation for Overall Activation-Evaluation
+                )
+
+                # --- Check if result is valid (basic check) ---
+                if single_result_df is None or single_result_df.empty:
+                    print(f"Warning: Evaluation for {name} returned empty result. Skipping checkpoint write.")
+                    continue
+
+                # --- Append result to the checkpoint file ---
+                # Write header only if file doesn't exist or is empty
+                header = not os.path.exists(checkpoint_file) or os.path.getsize(checkpoint_file) == 0
+                # Append the new result
+                single_result_df.to_csv(checkpoint_file, mode='a', header=header, index=False)
+
+                # --- Update state for this run ---
+                processed_combinations.add(name) # Add to set to avoid re-processing if loop continues
+                results_this_run.append(single_result_df) # Keep track of results from *this* run
+                processed_count_this_run += 1
+                # print(f"-> Successfully processed and checkpointed: {name}")
+
+
+            except Exception as e:
+                print(f"\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+                print(f"ERROR during evaluation or checkpointing for: {name}")
+                print(f"Evaluation Name: {evaluation_name}")
+                print(f"Error details: {e}")
+                print(f"Run interrupted. Rerun the script to resume from the last checkpoint.")
+                print(f"Checkpoint file: {checkpoint_file}")
+                print(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
+                # Re-raise the exception to stop the script
+                raise e
+
+        print(f"\nFinished processing all combinations for {evaluation_name}.")
+        print(f"Processed {processed_count_this_run} new combinations in this run.")
+
+    # --- Combine results into the global resultDataframe ---
+    # Combine results loaded from checkpoint (if any) and results from this run
+    all_results_list = results_list_from_checkpoint + results_this_run
+
+    if all_results_list:
+        # Reload the definitive checkpoint file after the loop finishes for consistency
+        try:
+            print(f"Loading final results from checkpoint file: {checkpoint_file}")
+            # Read the whole file again to ensure consistency
+            final_df_from_checkpoint = pd.read_csv(checkpoint_file)
+            # Filter specifically for the current evaluation run if the column exists
+            if 'evaluation_name' in final_df_from_checkpoint.columns:
+                resultDataframe = final_df_from_checkpoint[final_df_from_checkpoint['evaluation_name'] == evaluation_name].copy()
+            else:
+                resultDataframe = final_df_from_checkpoint.copy()
+
+            print(f"Successfully loaded {len(resultDataframe)} total results for '{evaluation_name}'.")
+        except Exception as e:
+            print(f"Error loading final results from checkpoint file: {e}. Using in-memory results.")
+            # Fallback to in-memory combined list if loading fails
+            if all_results_list:
+                # Need to filter the list again in case checkpoint contained other runs
+                filtered_list = [df for df in all_results_list if evaluation_name in df['evaluation_name'].unique()]
+                if filtered_list:
+                    resultDataframe = pd.concat(filtered_list, ignore_index=True)
+                    print(f"Concatenated {len(resultDataframe)} in-memory results for '{evaluation_name}'.")
+                else:
+                    print(f"No in-memory results found for '{evaluation_name}'. Creating empty DataFrame.")
+                    resultDataframe = pd.DataFrame()
+            else:
+                resultDataframe = pd.DataFrame() # Create empty DF
+    elif not analyze:
+        print("Analysis was skipped (analyze=False). No results generated or loaded.")
+        resultDataframe = pd.DataFrame() # Ensure it's empty
     else:
-        print("Warning: No results were generated during the analysis. Creating empty DataFrame.")
+        print(f"Warning: No results were generated or loaded for '{evaluation_name}'. Creating empty DataFrame.")
         resultDataframe = pd.DataFrame() # Create an empty DF if no results
 
-    # --- Generate Timestamped Filename ---
+    # --- Generate Timestamped Filename for Final Output ---
     local_time_struct = time.localtime()
     formatted_time = time.strftime("%Y%m%d_%H%M%S", local_time_struct) # Format for filename
-    # Example: Construct filename with parameters (ensure variables like train_samples exist)
+    # Construct filename with parameters
     try:
-        filename_params = f"Results_S{RENN.seed}_E{eval_samples}_T{train_samples}_L{hidden_sizes[0][1]}"
+        # Make sure these variables are defined in the accessible scope
+        filename_params = f"Results_{evaluation_name}_E{eval_samples}"
         output_csv_filename = f"{filename_params}-{formatted_time}.csv"
-    except NameError:
-        print("Warning: Could not create detailed filename, using default.")
-        output_csv_filename = f"{formatted_time}_metric_evaluation_results.csv" # Fallback
+    except NameError as e:
+        print(f"Warning: Could not create detailed filename due to missing variable ({e}), using default.")
+        output_csv_filename = f"{evaluation_name}_metric_evaluation_results_{run_id}_{formatted_time}.csv" # Fallback includes run_id
+    except IndexError:
+        print(f"Warning: Could not access hidden_sizes[0][1] for filename, using default.")
+        output_csv_filename = f"{evaluation_name}_metric_evaluation_results_{run_id}_{formatted_time}.csv" # Fallback includes run_id
+    except Exception as e:
+        print(f"Warning: An unexpected error occurred creating filename: {e}, using default.")
+        output_csv_filename = f"{evaluation_name}_metric_evaluation_results_{run_id}_{formatted_time}.csv" # Fallback includes run_id
 
 
     # --- Export Full Results to CSV ---
-    try:
-        resultDataframe.to_csv(output_csv_filename)
-        print(f"\nFull results successfully exported to: {output_csv_filename}")
-    except Exception as e:
-        print(f"\nWarning: Failed to export results to CSV file '{output_csv_filename}': {e}")
+    if not resultDataframe.empty:
+        try:
+            resultDataframe.to_csv(output_csv_filename, index=False)
+            print(f"\nFull results for '{evaluation_name}' successfully exported to: {output_csv_filename}")
+
+            # --- Clean up checkpoint file upon successful completion of THIS evaluation run ---
+            # Only remove if the analysis actually ran and finished
+            if analyze and os.path.exists(checkpoint_file):
+                # Check if all combinations for *this* run are in the final dataframe
+                # This is a safety check before removing the checkpoint
+                if len(resultDataframe['name'].unique()) == total_combinations:
+                    print(f"Analysis complete. Removing checkpoint file: {checkpoint_file}")
+                    try:
+                        os.remove(checkpoint_file)
+                    except OSError as e:
+                        print(f"Warning: Could not remove checkpoint file '{checkpoint_file}': {e}")
+                else:
+                    print(f"Warning: Final result count ({len(resultDataframe['name'].unique())}) doesn't match expected total ({total_combinations}). Checkpoint file '{checkpoint_file}' kept.")
+
+
+        except Exception as e:
+            print(f"\nWarning: Failed to export results to CSV file '{output_csv_filename}': {e}")
+            print(f"Checkpoint file '{checkpoint_file}' has been kept for recovery.")
+    else:
+        print(f"\nResult DataFrame for '{evaluation_name}' is empty. No final CSV file generated.")
+        # Decide whether to remove an empty/partial checkpoint file
+        # if analyze and os.path.exists(checkpoint_file):
+        #     print(f"Removing potentially empty/partial checkpoint file: {checkpoint_file}")
+        #     os.remove(checkpoint_file)
 
 # ==============================================================
 # Helper Functions for Metric Calculations
@@ -760,39 +1136,69 @@ def calculate_rank_correlation(list1, list2):
     return spearman_corr, kendall_tau
 
 def calculate_top_k_overlap(list1, list2, k):
-    """ Calculates Intersection@k, Precision@k, Recall@k based on scores. """
+    """ Calculates Intersection@k, Precision@k, Recall@k based on scores. Includes debugging. """
     intersection_count, precision_at_k, recall_at_k = 0, 0.0, 0.0 # Defaults
     try:
-        if k <= 0: return 0, 0.0, 0.0
+        if k <= 0:
+            # print(f"DEBUG TopK: k={k} is non-positive, returning defaults.") # Reduce noise
+            return 0.0, 0.0, 0.0 # Return floats
         if not isinstance(list1, list) or not isinstance(list2, list):
+            # --- Added Debug for TopK Input Validation ---
+            print(f"DEBUG TopK (k={k}): Invalid input types! list1: {type(list1)}, list2: {type(list2)}")
             raise ValueError("Inputs must be lists")
 
-        # Ensure items are tuples and scores are sortable
-        valid_list1 = [item for item in list1 if isinstance(item, (tuple, list)) and len(item) == 2 and isinstance(item[1], (int, float)) and np.isfinite(item[1])]
-        valid_list2 = [item for item in list2 if isinstance(item, (tuple, list)) and len(item) == 2 and isinstance(item[1], (int, float)) and np.isfinite(item[1])]
-        # If either list becomes empty after validation, overlap is 0
-        if not valid_list1 or not valid_list2: return 0, 0.0, 0.0
+        # Ensure items are tuples and scores are sortable and finite
+        valid_list1 = [item for item in list1 if isinstance(item, (tuple, list)) and len(item) == 2 and isinstance(item[1], (int, float, np.number)) and math.isfinite(item[1])]
+        valid_list2 = [item for item in list2 if isinstance(item, (tuple, list)) and len(item) == 2 and isinstance(item[1], (int, float, np.number)) and math.isfinite(item[1])]
 
-        # Sort by score (second element)
+        # If either list becomes empty after validation, overlap is 0
+        if not valid_list1 or not valid_list2:
+            # print(f"DEBUG TopK: One or both lists empty after validation (len1={len(valid_list1)}, len2={len(valid_list2)}).") # Reduce noise
+            return 0.0, 0.0, 0.0 # Return floats
+
+        # Sort by score (second element) descending
         sorted_list1 = sorted(valid_list1, key=lambda x: x[1], reverse=True)
         sorted_list2 = sorted(valid_list2, key=lambda x: x[1], reverse=True)
 
-        top_k_ids1 = set(str(item[0]) for item in sorted_list1[:k]) # Use str IDs
-        top_k_ids2 = set(str(item[0]) for item in sorted_list2[:k]) # Use str IDs
+        # Get top K IDs as strings
+        top_k_ids1 = set(str(item[0]) for item in sorted_list1[:k])
+        top_k_ids2 = set(str(item[0]) for item in sorted_list2[:k])
 
         intersection_set = top_k_ids1 & top_k_ids2
-        intersection_count = len(intersection_set)
-        precision_at_k = intersection_count / k if k > 0 else 0.0
-        num_relevant_in_top_k1 = len(top_k_ids1)
-        recall_at_k = intersection_count / num_relevant_in_top_k1 if num_relevant_in_top_k1 > 0 else 0.0
+        intersection_count = len(intersection_set) # This should be an integer
+
+        # Precision: Intersection / k
+        precision_at_k = float(intersection_count) / k if k > 0 else 0.0
+
+        # Recall: Intersection / number of items in the ground truth's top k
+        # Assuming list1 is the ground truth
+        num_relevant_in_top_k1 = len(top_k_ids1) # Number of unique items in list1's top k
+        recall_at_k = float(intersection_count) / num_relevant_in_top_k1 if num_relevant_in_top_k1 > 0 else 0.0
+
+        # --- >>> ADDED NaN Check before returning <<< ---
+        if not np.isfinite(intersection_count) or not np.isfinite(precision_at_k) or not np.isfinite(recall_at_k):
+            print(f"DEBUG TopK (k={k}): Returning non-finite value!")
+            print(f"  Input list1 len (valid): {len(valid_list1)}")
+            print(f"  Input list2 len (valid): {len(valid_list2)}")
+            print(f"  top_k_ids1 (len={len(top_k_ids1)}): {list(top_k_ids1)[:5]}...")
+            print(f"  top_k_ids2 (len={len(top_k_ids2)}): {list(top_k_ids2)[:5]}...")
+            print(f"  intersection_count: {intersection_count}")
+            print(f"  precision_at_k: {precision_at_k}")
+            print(f"  recall_at_k: {recall_at_k}")
+            # Force return NaN if any component is non-finite
+            return np.nan, np.nan, np.nan
+
 
     except (IndexError, TypeError, ValueError) as e:
-        # print(f"DEBUG: TopK overlap error: {e}")
-        pass # Return defaults 0, 0.0, 0.0
+        print(f"ERROR TopK overlap (k={k}): {e}") # Print error if it occurs
+        return np.nan, np.nan, np.nan # Return NaNs on error
     except Exception as e:
-        # print(f"DEBUG: Unexpected TopK overlap error: {e}")
-        pass # Return defaults 0, 0.0, 0.0
-    return intersection_count, precision_at_k, recall_at_k
+        print(f"ERROR Unexpected TopK overlap (k={k}): {e}") # Print error if it occurs
+        traceback.print_exc()
+        return np.nan, np.nan, np.nan # Return NaNs on error
+
+    # Ensure float return types for all
+    return float(intersection_count), float(precision_at_k), float(recall_at_k)
 
 
 def calculate_vector_distances(list1, list2):
@@ -910,7 +1316,71 @@ ALL_METRIC_KEYS_FOR_AGGREGATION = ACTIVATION_METRIC_KEYS + IMAGE_METRIC_KEYS_PRE
 # ==============================================================
 # Worker Function (incorporating user's structure and debugging)
 # ==============================================================
+# --- Helper functions for NaN checks (Copied/adapted from previous context) ---
+def check_list_for_nan_scores(source_list, list_name="Unnamed List"):
+    """Checks a list of (id, score) tuples for NaN scores using math.isnan."""
+    if not isinstance(source_list, list):
+        return False
+    nan_found = False
+    for i, item in enumerate(source_list):
+        if isinstance(item, (tuple, list)) and len(item) == 2:
+            score = item[1]
+            if isinstance(score, (float, np.floating)) and math.isnan(score): # Check numpy floats too
+                nan_found = True
+                # print(f"DEBUG NaN Check: NaN found in {list_name} at index {i}, item: {item}") # Uncomment for deep debug
+                break # Found one, no need to check further for this call
+        # else: # Optional: Warn about malformed items if needed
+        # print(f"DEBUG NaN Check: Item at index {i} in {list_name} is not a valid (id, score) tuple: {item}")
+    return nan_found
+
+def check_nested_list_for_nan_scores(nested_list):
+    """Checks a potentially nested list for NaN scores using math.isnan."""
+    if not isinstance(nested_list, collections.abc.Iterable) or isinstance(nested_list, (str, bytes)):
+        return False
+    for item in nested_list:
+        if isinstance(item, tuple) and len(item) == 2:
+            score = item[1]
+            if isinstance(score, (float, np.floating)) and math.isnan(score): # Check numpy floats too
+                return True
+        elif isinstance(item, collections.abc.Iterable) and not isinstance(item, (str, bytes)):
+            if check_nested_list_for_nan_scores(item):
+                return True
+    return False
+
+def check_activations_for_nan(activations):
+    """Checks activation data (assuming NumPy array or similar) for NaNs."""
+    if activations is None: # Handle None case
+        return False
+    if isinstance(activations, np.ndarray):
+        return np.isnan(activations).any()
+    elif isinstance(activations, list):
+        try:
+            # Use a generator expression for potentially better memory efficiency
+            def flatten(items):
+                for x in items:
+                    if isinstance(x, collections.abc.Iterable) and not isinstance(x, (str, bytes)):
+                        yield from flatten(x)
+                    else:
+                        yield x
+            # Check if any numeric item is NaN
+            for item in flatten(activations):
+                if isinstance(item, (float, np.floating)) and math.isnan(item): # Check numpy floats too
+                    return True
+            return False # No NaNs found
+        except (TypeError, ValueError):
+            return False # Cannot easily check non-numeric lists
+    # Add checks for other types like tensors if necessary
+    # elif torch.is_tensor(activations):
+    #    return torch.isnan(activations).any()
+    return False # Default if type is unknown or not checkable
+
+# --- Main Worker Function ---
+# --- Main Worker Function ---
 def process_sample_evaluation(args):
+    """
+    Processes evaluation for a single sample across metric combinations and k values.
+    Includes targeted warnings printed ONLY if NaNs are detected in calculated results.
+    """
     # --- Function arguments ---
     (pos, sample, originalMostUsedSources_input, evaluationActivations, # Renamed input arg
      metricsSampleActivations, linearLayers, all_metric_combinations, closestSources,
@@ -921,425 +1391,650 @@ def process_sample_evaluation(args):
     sample_results = {}
 
     # --- Initial Checks ---
-    if metricsSampleActivations is None:
-        print(f"Warning: Sample {pos} has no metricsSampleActivations. Skipping.")
-        return None # Need metric scores
+    if metricsSampleActivations is None: return None
 
     # --- Prepare/Validate/Aggregate original sources ---
     originalSources_processed = None
+    original_sources_contain_nan = False # Flag
     try:
-        # Check if the input looks nested (list containing lists/tuples)
+        # print(f"DEBUG WORKER (S:{pos}): Raw originalMostUsedSources_input type={type(originalMostUsedSources_input)}, len={len(originalMostUsedSources_input) if hasattr(originalMostUsedSources_input, '__len__') else 'N/A'}")
+        # if isinstance(originalMostUsedSources_input, list): print(f"DEBUG WORKER (S:{pos}): Raw originalMostUsedSources_input (first 5): {originalMostUsedSources_input[:5]}")
         is_original_nested = isinstance(originalMostUsedSources_input, (list, tuple)) and \
                              len(originalMostUsedSources_input) > 0 and \
                              isinstance(originalMostUsedSources_input[0], (list, tuple))
-
-        if is_original_nested and "BTL" in name: # Aggregate only if nested AND BTL
-            # print(f"DEBUG: S:{pos} - Aggregating original sources (Nested BTL).") # Optional debug
+        if is_original_nested and "BTL" in name:
+            # print(f"DEBUG WORKER (S:{pos}): Processing original sources via BTL aggregate_source_layers...")
             originalSources_processed = aggregate_source_layers(originalMostUsedSources_input)
-        elif not is_original_nested: # Assume it's already flat [(id, score)], just validate/standardize
-            # print(f"DEBUG: S:{pos} - Original sources seem flat, validating.") # Optional debug
-            originalSources_processed = [(str(item[0]), item[1]) for item in originalMostUsedSources_input if isinstance(item, (tuple, list)) and len(item) == 2 and isinstance(item[1], (int, float)) and np.isfinite(item[1])]
-            if len(originalSources_processed) != len(originalMostUsedSources_input):
-                print(f"Warning: Sample {pos} original sources had invalid flat items.")
-        else:
-            #print(f"Warning: Sample {pos} has nested original sources but not BTL. Using raw input structure.") # Or aggregate?
-            originalSources_processed = originalMostUsedSources_input # Keep original structure if not BTL?
-
-        # Ensure it's not None after processing
-        if originalSources_processed is None:
-            raise ValueError("Original sources became None after processing.")
-
+            original_sources_contain_nan = check_list_for_nan_scores(originalSources_processed, f"S:{pos} Original Aggregated")
+        elif not is_original_nested:
+            # print(f"DEBUG WORKER (S:{pos}): Processing original sources via flat list standardization...")
+            originalSources_processed = [(str(item[0]), item[1]) for item in originalMostUsedSources_input if isinstance(item, (tuple, list)) and len(item) == 2 and isinstance(item[1], (int, float, np.number)) and math.isfinite(item[1])]
+        else: # Nested but not BTL
+            # print(f"DEBUG WORKER (S:{pos}): Processing original sources via nested non-BTL (raw)...")
+            originalSources_processed = originalMostUsedSources_input
+            original_sources_contain_nan = check_nested_list_for_nan_scores(originalSources_processed)
+        if originalSources_processed is None: raise ValueError("Original sources became None")
+        # print(f"DEBUG WORKER (S:{pos}): Processed originalSources_processed type={type(originalSources_processed)}, len={len(originalSources_processed) if hasattr(originalSources_processed, '__len__') else 'N/A'}")
+        # if isinstance(originalSources_processed, list): print(f"DEBUG WORKER (S:{pos}): Processed originalSources_processed (first 5): {originalSources_processed[:5]}")
+        # print(f"DEBUG WORKER (S:{pos}): original_sources_contain_nan flag: {original_sources_contain_nan}")
+        if original_sources_contain_nan: print(f"WARNING: Sample {pos} - Processed original sources contain NaN scores (before loops).")
     except Exception as e:
         print(f"ERROR: Sample {pos} failed preparing original sources: {e}. Returning None.")
+        traceback.print_exc()
         return None
 
-    # original_source_ids = set(src_id for src_id, count in originalSources_processed if isinstance(originalSources_processed[0], (tuple,list))) # Adjusted check
-    # ^ This check might fail if originalSources_processed is nested and not BTL
 
     # --- Loop through metric combinations ---
     for metric_combination in all_metric_combinations:
         combination_str = str(metric_combination)
-        # --- Variables specific to the user's requested logic ---
-        currentBestValue = -np.inf # Initialize tracker for the 'best' score found *so far*
-        current_combination_results = {key: np.nan for key in ALL_METRIC_KEYS_FOR_AGGREGATION} # Results for this combination
+        currentBestValue = -np.inf
+        current_combination_results = {key: np.nan for key in ALL_METRIC_KEYS_FOR_AGGREGATION}
 
         # --- Loop through k values ---
-        for currentClosestSources in range(max(1, closestSources-20), closestSources+21): # Ensure k>=1
-            # --- Initialize for this k ---
-            current_k_results = {key: np.nan for key in ALL_METRIC_KEYS_FOR_AGGREGATION} # Results for THIS k
-            mostUsedMetricSources_from_renn = None # Output from RENN
-            mostUsedMetricSources_processed = None # Processed/Aggregated version
-            activation_sim_dict = None # Output from blendActivations
+        for currentClosestSources in range(max(1, closestSources-20), closestSources+21):
+            current_k_results = {key: np.nan for key in ALL_METRIC_KEYS_FOR_AGGREGATION}
+            mostUsedMetricSources_from_renn = None
+            mostUsedMetricSources_processed_flat = None
+            mostUsedMetricSources_for_blend = None
+            activation_sim_dict = None
+            printed_nan_skip_warning_k = False
+            printed_blend_skip_warning_k = False
 
             try:
                 # --- RENN Calls ---
                 metricSources, layerNumbersToCheck = RENN.identifyClosestSourcesByMetricCombination(
                     name, currentClosestSources, metricsSampleActivations, metric_combination, mode=mode
                 )
-
-                if not layerNumbersToCheck:
-                    # print(f"DEBUG: S:{pos} K:{currentClosestSources} - No layers to check. Skipping k.") # Optional Debug
-                    continue # Skip this k
-
+                if not layerNumbersToCheck: continue
                 mostUsedMetricSources_from_renn = RENN.getMostUsedSourcesByMetrics(
                     name, metricSources, currentClosestSources, weightedMode=mode
                 )
 
                 # --- Prepare/Validate/Aggregate metric sources ---
                 if mostUsedMetricSources_from_renn is not None:
-                    # Check if the RENN output looks nested
-                    is_metric_nested = isinstance(mostUsedMetricSources_from_renn, (list, tuple)) and \
+                    is_metric_nested = isinstance(mostUsedMetricSources_from_renn, list) and \
                                        len(mostUsedMetricSources_from_renn) > 0 and \
-                                       isinstance(mostUsedMetricSources_from_renn[0], (list, tuple))
+                                       all(isinstance(inner_item, (list, tuple)) for inner_item in mostUsedMetricSources_from_renn)
+                    metric_processing_path = "Unknown"
                     try:
-                        if is_metric_nested and "BTL" in name: # Aggregate only if nested AND BTL
-                            # print(f"DEBUG: S:{pos} K:{currentClosestSources} - Aggregating metric sources (Nested BTL).") # Optional debug
-                            mostUsedMetricSources_processed = aggregate_source_layers(mostUsedMetricSources_from_renn)
-                        elif not is_metric_nested: # Assume flat, just validate/standardize
-                            # print(f"DEBUG: S:{pos} K:{currentClosestSources} - Metric sources seem flat, validating.") # Optional debug
-                            mostUsedMetricSources_processed = [(str(item[0]), item[1]) for item in mostUsedMetricSources_from_renn if isinstance(item, (tuple, list)) and len(item) == 2 and isinstance(item[1], (int, float)) and np.isfinite(item[1])]
-                            if len(mostUsedMetricSources_processed) != len(mostUsedMetricSources_from_renn):
-                                print(f"Warning: Sample {pos}, k={currentClosestSources} metric sources had invalid flat items.")
-                        else: # Nested but not BTL
-                            #print(f"Warning: Sample {pos}, k={currentClosestSources} has nested metric sources but not BTL. Using raw input structure.") # Or aggregate?
-                            mostUsedMetricSources_processed = mostUsedMetricSources_from_renn # Keep original structure if not BTL?
-
-                        # Ensure it's not None after processing
-                        if mostUsedMetricSources_processed is None:
-                            raise ValueError("Metric sources became None after processing.")
-
+                        if "BTL" in name:
+                            if is_metric_nested:
+                                metric_processing_path = "BTL - Aggregate (Nested Input)"
+                                mostUsedMetricSources_for_blend = mostUsedMetricSources_from_renn
+                                mostUsedMetricSources_processed_flat = aggregate_source_layers(mostUsedMetricSources_from_renn)
+                            else:
+                                metric_processing_path = "BTL - Keep Raw (Flat Input)"
+                                print(f"WARNING (S:{pos}, K:{currentClosestSources}): BTL mode expected nested input from RENN, but received flat. Using flat list for all calculations.")
+                                mostUsedMetricSources_processed_flat = [(str(item[0]), item[1]) for item in mostUsedMetricSources_from_renn if isinstance(item, (tuple, list)) and len(item) == 2 and isinstance(item[1], (int, float, np.number)) and np.isfinite(item[1])]
+                                mostUsedMetricSources_for_blend = mostUsedMetricSources_processed_flat
+                        else: # BTO or other modes
+                            if is_metric_nested:
+                                metric_processing_path = "BTO/Other - Aggregate (Nested Input)"
+                                mostUsedMetricSources_processed_flat = aggregate_source_layers(mostUsedMetricSources_from_renn)
+                                mostUsedMetricSources_for_blend = mostUsedMetricSources_processed_flat
+                            else:
+                                metric_processing_path = "BTO/Other - Validate/Standardize (Flat Input)"
+                                mostUsedMetricSources_processed_flat = [(str(item[0]), item[1]) for item in mostUsedMetricSources_from_renn if isinstance(item, (tuple, list)) and len(item) == 2 and isinstance(item[1], (int, float, np.number)) and np.isfinite(item[1])]
+                                mostUsedMetricSources_for_blend = mostUsedMetricSources_processed_flat
+                        if mostUsedMetricSources_processed_flat is None: raise ValueError("Metric sources (flat) became None")
+                        if mostUsedMetricSources_for_blend is None: raise ValueError("Metric sources (for blend) became None")
+                        nan_in_flat_list = check_list_for_nan_scores(mostUsedMetricSources_processed_flat, f"S:{pos} K:{currentClosestSources} Metric Flat")
+                        nan_in_blend_list = check_nested_list_for_nan_scores(mostUsedMetricSources_for_blend) if is_metric_nested and "BTL" in name else check_list_for_nan_scores(mostUsedMetricSources_for_blend, f"S:{pos} K:{currentClosestSources} Metric Blend")
+                        if nan_in_flat_list: print(f"WARNING: Sample {pos}, k={currentClosestSources} - Processed metric sources (flat) contain NaN scores.")
+                        if nan_in_blend_list: print(f"WARNING: Sample {pos}, k={currentClosestSources} - Processed metric sources (for blend) contain NaN scores.")
                     except Exception as e:
-                        print(f"ERROR: Sample {pos}, k={currentClosestSources} failed preparing metric sources: {e}. Skipping k.")
-                        continue # Skip this k value
-                else:
-                    # print(f"DEBUG: S:{pos} K:{currentClosestSources} - RENN returned None/empty metric sources. Skipping calculations.") # Optional Debug
-                    continue # Skip calculations if no sources from RENN
+                        print(f"ERROR: Sample {pos}, k={currentClosestSources} failed preparing metric sources (Path: {metric_processing_path}): {e}. Skipping k.")
+                        traceback.print_exc()
+                        continue
+                else: continue
 
-                # --- Calculations use the PROCESSED lists ---
-                # Check if processed lists exist and are non-empty
-                # Also check if the processed original list structure matches the processed metric list structure if needed by calcs
-                if mostUsedMetricSources_processed is not None and originalSources_processed is not None and \
-                        len(mostUsedMetricSources_processed) > 0 and len(originalSources_processed) > 0 and \
-                        isinstance(originalSources_processed, list) and isinstance(mostUsedMetricSources_processed, list): # Basic list check
+                # --- Calculations use the appropriate PROCESSED lists ---
+                valid_original_structure = isinstance(originalSources_processed, list) and (not originalSources_processed or isinstance(originalSources_processed[0], tuple))
+                valid_metric_flat_structure = isinstance(mostUsedMetricSources_processed_flat, list) and (not mostUsedMetricSources_processed_flat or isinstance(mostUsedMetricSources_processed_flat[0], tuple))
+                if not valid_original_structure: print(f"DEBUG CALC CHECK (S:{pos}, K:{currentClosestSources}): originalSources_processed has invalid structure for calculations: type={type(originalSources_processed)}")
+                if not valid_metric_flat_structure: print(f"DEBUG CALC CHECK (S:{pos}, K:{currentClosestSources}): mostUsedMetricSources_processed_flat has invalid structure for calculations: type={type(mostUsedMetricSources_processed_flat)}")
 
-                    # --- UNCOMMENT DEBUG PRINTS BELOW TO TRACE ---
-                    # print(f"DEBUG: S:{pos} K:{currentClosestSources} - Data exists. Len Orig: {len(originalSources_processed)}, Len Metric: {len(mostUsedMetricSources_processed)}")
+                if mostUsedMetricSources_processed_flat is not None and originalSources_processed is not None and \
+                        len(mostUsedMetricSources_processed_flat) > 0 and len(originalSources_processed) > 0 and \
+                        valid_original_structure and valid_metric_flat_structure:
 
-                    # --- Calculate ALL Source Similarities/Distances ---
-                    # print(f"DEBUG: S:{pos} K:{currentClosestSources} - Before Cosine Sim")
-                    current_k_results[SOURCE_COSINE_METRIC] = calculate_source_cosine_similarity(originalSources_processed, mostUsedMetricSources_processed)
+                    nan_in_metric_sources_processed = check_list_for_nan_scores(mostUsedMetricSources_processed_flat, f"S:{pos} K:{currentClosestSources} Metric Flat (Pre-Calc Check)")
+                    nan_in_inputs = original_sources_contain_nan or nan_in_metric_sources_processed
 
-                    # print(f"DEBUG: S:{pos} K:{currentClosestSources} - Before Log Cosine Sim")
-                    current_k_results[SOURCE_LOG_COSINE_METRIC] = calculate_log_cosine_similarity(originalSources_processed, mostUsedMetricSources_processed)
+                    # --- Calculate Source Similarities/Distances (using FLAT list) ---
+                    source_cos_sim = np.nan if nan_in_inputs else calculate_source_cosine_similarity(originalSources_processed, mostUsedMetricSources_processed_flat)
+                    if not np.isfinite(source_cos_sim): print(f"DEBUG WORKER (S:{pos}, K:{currentClosestSources}, C:{combination_str}): NaN/Inf detected in {SOURCE_COSINE_METRIC}: {source_cos_sim}")
+                    current_k_results[SOURCE_COSINE_METRIC] = source_cos_sim
 
-                    # print(f"DEBUG: S:{pos} K:{currentClosestSources} - Before JSD")
-                    current_k_results[SOURCE_JSD_METRIC] = calculate_jsd(originalSources_processed, mostUsedMetricSources_processed) # Use processed!
+                    source_log_cos_sim = np.nan if nan_in_inputs else calculate_log_cosine_similarity(originalSources_processed, mostUsedMetricSources_processed_flat)
+                    if not np.isfinite(source_log_cos_sim): print(f"DEBUG WORKER (S:{pos}, K:{currentClosestSources}, C:{combination_str}): NaN/Inf detected in {SOURCE_LOG_COSINE_METRIC}: {source_log_cos_sim}")
+                    current_k_results[SOURCE_LOG_COSINE_METRIC] = source_log_cos_sim
 
-                    # print(f"DEBUG: S:{pos} K:{currentClosestSources} - Before Spearman")
-                    # Call directly, handle errors internally or with try/except
-                    try:
-                        spearman, kendall = calculate_rank_correlation(originalSources_processed, mostUsedMetricSources_processed)
-                    except Exception as rank_e:
-                        print(f"ERROR: S:{pos} K:{currentClosestSources} - calculate_rank_correlation call failed: {rank_e}")
-                        spearman, kendall = np.nan, np.nan
-                    # print(f"DEBUG: S:{pos} K:{currentClosestSources} - After Spearman. Result: {(spearman, kendall)}")
+                    source_jsd = np.nan if nan_in_inputs else calculate_jsd(originalSources_processed, mostUsedMetricSources_processed_flat)
+                    if not np.isfinite(source_jsd): print(f"DEBUG WORKER (S:{pos}, K:{currentClosestSources}, C:{combination_str}): NaN/Inf detected in {SOURCE_JSD_METRIC}: {source_jsd}")
+                    current_k_results[SOURCE_JSD_METRIC] = source_jsd
+
+                    if nan_in_inputs: spearman, kendall = np.nan, np.nan
+                    else:
+                        try: spearman, kendall = calculate_rank_correlation(originalSources_processed, mostUsedMetricSources_processed_flat)
+                        except Exception as rank_e: print(f"ERROR: S:{pos} K:{currentClosestSources} - calculate_rank_correlation call failed: {rank_e}"); spearman, kendall = np.nan, np.nan
+                    if not np.isfinite(spearman): print(f"DEBUG WORKER (S:{pos}, K:{currentClosestSources}, C:{combination_str}): NaN/Inf detected in spearman: {spearman}")
+                    if not np.isfinite(kendall): print(f"DEBUG WORKER (S:{pos}, K:{currentClosestSources}, C:{combination_str}): NaN/Inf detected in kendall: {kendall}")
                     current_k_results[SOURCE_SPEARMAN_METRIC] = spearman
                     current_k_results[SOURCE_KENDALL_METRIC] = kendall
 
-                    # print(f"DEBUG: S:{pos} K:{currentClosestSources} - Before TopK")
-                    intersect_k, precision_k, recall_k = calculate_top_k_overlap(originalSources_processed, mostUsedMetricSources_processed, currentClosestSources)
+                    intersect_k, precision_k, recall_k = calculate_top_k_overlap(originalSources_processed, mostUsedMetricSources_processed_flat, currentClosestSources)
                     current_k_results[SOURCE_INTERSECT_K_METRIC] = intersect_k
                     current_k_results[SOURCE_PRECISION_K_METRIC] = precision_k
                     current_k_results[SOURCE_RECALL_K_METRIC] = recall_k
+                    if not np.isfinite(current_k_results.get(SOURCE_INTERSECT_K_METRIC, np.nan)): print(f"DEBUG WORKER (S:{pos}, K:{currentClosestSources}, C:{combination_str}): Assigned NaN/Inf for {SOURCE_INTERSECT_K_METRIC}")
 
-                    # print(f"DEBUG: S:{pos} K:{currentClosestSources} - Before Vector Dist")
-                    try:
-                        euclidean, manhattan = calculate_vector_distances(originalSources_processed, mostUsedMetricSources_processed)
-                    except Exception as dist_e:
-                        print(f"ERROR: S:{pos} K:{currentClosestSources} - calculate_vector_distances call failed: {dist_e}")
-                        euclidean, manhattan = np.nan, np.nan
-                    # print(f"DEBUG: S:{pos} K:{currentClosestSources} - After Vector Dist. Result: {(euclidean, manhattan)}")
+                    if nan_in_inputs: euclidean, manhattan = np.nan, np.nan
+                    else:
+                        try: euclidean, manhattan = calculate_vector_distances(originalSources_processed, mostUsedMetricSources_processed_flat)
+                        except Exception as dist_e: print(f"ERROR: S:{pos} K:{currentClosestSources} - calculate_vector_distances call failed: {dist_e}"); euclidean, manhattan = np.nan, np.nan
+                    if not np.isfinite(euclidean): print(f"DEBUG WORKER (S:{pos}, K:{currentClosestSources}, C:{combination_str}): NaN/Inf detected in source_euclidean: {euclidean}")
+                    if not np.isfinite(manhattan): print(f"DEBUG WORKER (S:{pos}, K:{currentClosestSources}, C:{combination_str}): NaN/Inf detected in source_manhattan: {manhattan}")
                     current_k_results[SOURCE_EUCLIDEAN_METRIC] = euclidean
                     current_k_results[SOURCE_MANHATTAN_METRIC] = manhattan
 
-                    # print(f"DEBUG: S:{pos} K:{currentClosestSources} - Before Ruzicka")
-                    current_k_results[SOURCE_RUZICKA_METRIC] = calculate_ruzicka_similarity(originalSources_processed, mostUsedMetricSources_processed)
-                    # print(f"DEBUG: S:{pos} K:{currentClosestSources} - Before SymmDiff")
-                    current_k_results[SOURCE_SYMM_DIFF_METRIC] = calculate_symmetric_difference_size(originalSources_processed, mostUsedMetricSources_processed)
-                    current_k_results[BEST_CLOSEST_SOURCES] = currentClosestSources # Store k for this successful iteration
+                    source_ruzicka = np.nan if nan_in_inputs else calculate_ruzicka_similarity(originalSources_processed, mostUsedMetricSources_processed_flat)
+                    if not np.isfinite(source_ruzicka): print(f"DEBUG WORKER (S:{pos}, K:{currentClosestSources}, C:{combination_str}): NaN/Inf detected in source_ruzicka: {source_ruzicka}")
+                    current_k_results[SOURCE_RUZICKA_METRIC] = source_ruzicka
+
+                    source_symm_diff = calculate_symmetric_difference_size(originalSources_processed, mostUsedMetricSources_processed_flat)
+                    if not np.isfinite(source_symm_diff): print(f"DEBUG WORKER (S:{pos}, K:{currentClosestSources}, C:{combination_str}): NaN/Inf detected in source_symm_diff: {source_symm_diff}")
+                    current_k_results[SOURCE_SYMM_DIFF_METRIC] = source_symm_diff
+
+                    if nan_in_inputs and not printed_nan_skip_warning_k: printed_nan_skip_warning_k = True
+
+                    current_k_results[BEST_CLOSEST_SOURCES] = currentClosestSources
                     current_k_results[BEST_CLOSEST_SOURCES_FOR_ORIGINAL] = bestClosestSourcesForOriginal
 
-                    # --- Calculate Image Similarity ---
+                    # --- Calculate Image Similarity (using FLAT list) ---
                     if evaluationActivations is not None:
-                        # print(f"DEBUG: S:{pos} K:{currentClosestSources} - Before Image Sim")
-                        image_sim_dict = evaluateImageSimilarityByMetrics(name="Metrics", combination=combination_str, sample=sample, mostUsed=mostUsedMetricSources_processed, storeGlobally=False)
-                        if image_sim_dict:
-                            for eval_key, store_suffix in IMAGE_SIM_KEY_MAP.items():
-                                if eval_key in image_sim_dict: current_k_results[f"{IMG_SIM_PREFIX}{store_suffix}"] = image_sim_dict[eval_key]
+                        try:
+                            image_sim_dict = evaluateImageSimilarityByMetrics(name="Metrics", combination=combination_str, sample=sample, mostUsed=mostUsedMetricSources_processed_flat, storeGlobally=False)
+                            if image_sim_dict:
+                                for eval_key, store_suffix in IMAGE_SIM_KEY_MAP.items():
+                                    if eval_key in image_sim_dict:
+                                        val = image_sim_dict[eval_key]
+                                        if not np.isfinite(val): print(f"DEBUG WORKER (S:{pos}, K:{currentClosestSources}, C:{combination_str}): NaN/Inf detected in image_sim {eval_key}: {val}")
+                                        current_k_results[f"{IMG_SIM_PREFIX}{store_suffix}"] = val
+                            else:
+                                for eval_key, store_suffix in IMAGE_SIM_KEY_MAP.items(): current_k_results[f"{IMG_SIM_PREFIX}{store_suffix}"] = np.nan
+                        except Exception as img_sim_e:
+                            print(f"ERROR: S:{pos} K:{currentClosestSources} - evaluateImageSimilarityByMetrics call failed: {img_sim_e}")
+                            for eval_key, store_suffix in IMAGE_SIM_KEY_MAP.items(): current_k_results[f"{IMG_SIM_PREFIX}{store_suffix}"] = np.nan
 
-                    # --- Calculate Activation Similarity ---
+                    # --- Calculate Activation Similarity (using NESTED or FLAT list based on BTL/BTO) ---
                     if layerNumbersToCheck:
-                        # *** VERIFY: What structure does blendActivations expect for mostUsed? ***
-                        required_most_used_for_blend = mostUsedMetricSources_processed # ASSUMPTION: Needs processed/aggregated. CHANGE if needed!
-                        # If it needs the original potentially nested structure from RENN:
-                        # required_most_used_for_blend = mostUsedMetricSources_from_renn
+                        required_most_used_for_blend = mostUsedMetricSources_for_blend # Use the correct variable
+                        eval_activations_contain_nan_this_k = check_activations_for_nan(evaluationActivations)
+                        blend_sources_have_nan = check_nested_list_for_nan_scores(required_most_used_for_blend) if is_metric_nested and "BTL" in name else check_list_for_nan_scores(required_most_used_for_blend)
 
-                        overall_eval_flag = False
-                        if "BTO" in name: overall_eval_flag = True
-                        elif "BTL" in name: overall_eval_flag = False
+                        if eval_activations_contain_nan_this_k or blend_sources_have_nan:
+                            if not printed_blend_skip_warning_k:
+                                reason = "evalActivations" if eval_activations_contain_nan_this_k else "processed metric sources for blend"
+                                # print(f"INFO: S:{pos} K:{currentClosestSources} - Skipping blendActivations due to NaN found in {reason}.") # Reduce noise
+                                printed_blend_skip_warning_k = True
+                            for act_key in ACTIVATION_METRIC_KEYS: current_k_results[act_key] = np.nan
+                            activation_sim_dict = None
+                        else:
+                            try:
+                                overall_eval_flag = "BTO" in name
+                                activation_sim_dict = blendActivations(
+                                    name=f"metric_combo_{combination_str}_k{currentClosestSources}",
+                                    mostUsed=required_most_used_for_blend,
+                                    evaluationActivations=evaluationActivations,
+                                    layerNumbersToCheck=linearLayers,
+                                    store_globally=False,
+                                    overallEvaluation=overall_eval_flag
+                                )
+                                if activation_sim_dict:
+                                    for act_key in ACTIVATION_METRIC_KEYS:
+                                        if act_key in activation_sim_dict:
+                                            val = activation_sim_dict[act_key]
+                                            if not np.isfinite(val): print(f"DEBUG WORKER (S:{pos}, K:{currentClosestSources}, C:{combination_str}): NaN/Inf detected in activation_sim {act_key}: {val}")
+                                            current_k_results[act_key] = val
+                                        else: current_k_results[act_key] = np.nan
+                                else:
+                                    # print(f"WARNING: S:{pos} K:{currentClosestSources} - blendActivations returned None.") # Reduce noise
+                                    for act_key in ACTIVATION_METRIC_KEYS: current_k_results[act_key] = np.nan
+                            except Exception as blend_e:
+                                print(f"\n--- ERROR inside blendActivations call (S:{pos}, K:{currentClosestSources}) --- Error: {blend_e}")
+                                # traceback.print_exc()
+                                for act_key in ACTIVATION_METRIC_KEYS: current_k_results[act_key] = np.nan
+                                activation_sim_dict = None
+                else:
+                    current_k_results = {key: np.nan for key in ALL_METRIC_KEYS_FOR_AGGREGATION}
 
-                        # print(f"DEBUG: S:{pos} K:{currentClosestSources} - Before Blend Act")
-                        activation_sim_dict = blendActivations(
-                            name=f"metric_combo_{combination_str}_k{currentClosestSources}",
-                            mostUsed=required_most_used_for_blend, # Use the verified variable
-                            evaluationActivations=evaluationActivations,
-                            layerNumbersToCheck=linearLayers,
-                            store_globally=False,
-                            overallEvaluation=overall_eval_flag
-                        )
-                        # print(f"DEBUG: S:{pos} K:{currentClosestSources} - After Blend Act. Dict created: {activation_sim_dict is not None}")
-                        if activation_sim_dict:
-                            for act_key in ACTIVATION_METRIC_KEYS:
-                                if act_key in activation_sim_dict: current_k_results[act_key] = activation_sim_dict[act_key]
-
-                # else: # Handle case where processed lists are empty or None
-                # print(f"DEBUG: S:{pos} K:{currentClosestSources} - Skipping calculations due to empty/None processed lists.")
-
+            # --- Catch block for errors OUTSIDE the blendActivations call ---
             except Exception as e:
-                print(f"\n--- WORKER ERROR (PID {os.getpid()}) processing k={currentClosestSources}, combination {combination_str} for sample {pos} ---")
-                print(f"Error in main calculation try block: {e}")
-                # import traceback
-                # traceback.print_exc() # Uncomment for full traceback
-                current_k_results = {key: np.nan for key in ALL_METRIC_KEYS_FOR_AGGREGATION} # Reset k results
-                activation_sim_dict = None # Reset activation dict
-                print(f"--- WORKER (PID {os.getpid()}) continuing ---")
-                continue # Explicitly continue to next k
+                if not ('blend_e' in locals() and isinstance(e, blend_e.__class__)):
+                    print(f"\n--- WORKER ERROR (PID {os.getpid()}) processing k={currentClosestSources}, combination {combination_str} for sample {pos} ---")
+                    print(f"Error in main calculation try block (outside blendActivations): {e}")
+                    # traceback.print_exc()
+                    current_k_results = {key: np.nan for key in ALL_METRIC_KEYS_FOR_AGGREGATION}
+                    activation_sim_dict = None
+                    print(f"--- WORKER (PID {os.getpid()}) continuing ---")
+                    continue
 
-            # --- User's Logic Block for Storing Results (Safer Checks) ---
-            # This block overwrites current_combination_results if the condition is met.
-            # It does NOT find the best k over the whole range.
+            # --- User's Logic Block for Storing Results ---
             update_combination_results = False
             try:
-                # Check if activation_sim_dict exists from this iteration and has the score
                 if current_k_results is not None and OPTIMIZATION_METRIC in current_k_results:
-                    # Use .get for safety, provide NaN default
-                    current_activation_score = current_k_results.get(OPTIMIZATION_METRIC, np.nan)
-
-                    # Check if score is valid and better than the tracking variable
-                    if not np.isnan(current_activation_score) and current_activation_score > currentBestValue:
+                    current_optimization_score = current_k_results.get(OPTIMIZATION_METRIC, np.nan)
+                    if not np.isfinite(current_optimization_score):
+                        print(f"DEBUG WORKER (S:{pos}, K:{currentClosestSources}, C:{combination_str}): Optimization metric '{OPTIMIZATION_METRIC}' is non-finite: {current_optimization_score}")
+                    if np.isfinite(current_optimization_score) and current_optimization_score > currentBestValue:
                         update_combination_results = True
-                        currentBestValue = current_activation_score # Update tracker
+                        currentBestValue = current_optimization_score
+                # else: # Reduce noise
+                # print(f"DEBUG WORKER (S:{pos}, K:{currentClosestSources}, C:{combination_str}): Optimization metric '{OPTIMIZATION_METRIC}' key missing in current_k_results.")
             except Exception as if_block_e:
                 print(f"DEBUG: Error in final 'if' check k={currentClosestSources}, sample {pos}: {if_block_e}")
-                pass # Avoid crashing here, flag remains False
+                pass
 
             if update_combination_results:
-                # print(f"DEBUG: S:{pos} K:{currentClosestSources} - Updating results for combination {combination_str} based on score {currentBestCosineSimilarity}") # Optional Debug
-                current_combination_results = current_k_results.copy() # Store this k's results
+                current_combination_results = current_k_results.copy()
             # --- End of User's Logic Block ---
 
         # --- Storing results for the combination ---
-        # Store whatever is in current_combination_results (NaNs or last k that met condition)
         for metric_key, value in current_combination_results.items():
+            if not np.isfinite(value) and not math.isnan(value): # Check for Inf only
+                print(f"DEBUG WORKER (S:{pos}, C:{combination_str}): Storing non-finite value for {metric_key}: {value}")
             sample_results[(combination_str, metric_key)] = value
-            # print(f"DEBUG: S:{pos} - Storing final result for Combo: {combination_str}, Key: {metric_key}, Value: {value}") # Very verbose
 
     return sample_results
-
-
 # ==============================================================
 # Main Evaluation Function (Multiprocessing Version - User Provided Structure)
 # ==============================================================
-def evaluate_metric_combinations_overall(name, linearLayers, closestSources, all_metric_combinations, mode="Sum", max_workers=None):
+def evaluate_metric_combinations_overall(evaluation_name, name, linearLayers, closestSources, all_metric_combinations, mode="Sum", max_workers=None):
     # --- Setup ---
     start_time = time.time()
-    print(f"\nStarting evaluation with multiprocessing (max_workers={max_workers or os.cpu_count()})... for {name}")
+    print(f"\nStarting evaluation with multiprocessing (max_workers={max_workers or os.cpu_count()})... for {evaluation_name} ({name})")
     print("Metrics: Activation Sim, Image Sim, Source Sims (Cos, LogCos, JSD, Rank, TopK, Dist, Ruzicka, SymmDiff)")
+    print(f"Finding best original k via external call around center value: {closestSources}")
 
+    # --- Input Validation ---
     if max_workers is None: max_workers = os.cpu_count(); print(f"Using default max_workers = {max_workers}")
     if not all_metric_combinations: print("Error: No metric combinations provided."); return None
+    # Check for existence of necessary globals/functions
+    required_globals = ['eval_dataloader', 'dictionaryForSourceLayerNeuron', 'metricsDictionaryForSourceLayerNeuron', 'findBestOriginalValues', 'process_sample_evaluation', 'ALL_METRIC_KEYS_FOR_AGGREGATION', 'BEST_CLOSEST_SOURCES_FOR_ORIGINAL', 'BEST_CLOSEST_SOURCES', 'ACTIVATION_METRIC_KEYS', 'IMAGE_SIM_KEY_MAP', 'IMG_SIM_PREFIX'] # Add others as needed
+    for req_glob in required_globals:
+        if req_glob not in globals() or globals()[req_glob] is None:
+            print(f"Error: Required global variable/function '{req_glob}' is not defined or is None.")
+            return None
 
-    futures = []; results_list = []
+    futures = []
+    original_k_results_list = [] # List to store similarity results for the best original k for each sample
+
     # --- Process Pool ---
     with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
         processed_samples = 0
-        # Submit tasks for each sample (using placeholder dataloader)
+        # Submit tasks for each sample
         for pos, (sample, true) in enumerate(eval_dataloader):
             if processed_samples >= eval_samples: break
-            
-            # --- Get Sample-Specific Data (Using Placeholders) ---
-            try:
-                # originalMostUsedSources_input = mostUsedList[pos] if pos < len(mostUsedList) else [] # Original line commented out
-                # Get original sources using placeholder function - MUST match expected structure (flat/nested)
-                originalMostUsedSources_input = findBestOriginalValues(name, sample, dictionaryForSourceLayerNeuron[pos], closestSources, mode)
-                originalMostUsedSources, bestClosestSourcesForOriginal = originalMostUsedSources_input['mostUsedSources'], originalMostUsedSources_input['closestSources']
-                evaluationActivations = dictionaryForSourceLayerNeuron[pos] # Can be None if pos not in dict
-                metricsSampleActivations = metricsDictionaryForSourceLayerNeuron[pos] # Can be None
 
-                if metricsSampleActivations is None:
-                    print(f"Warning: Skipping sample {pos}, metricsSampleActivations is None.")
+            bestClosestSourcesForOriginal = np.nan # Initialize
+            originalMostUsedSources = None # Initialize
+
+            # --- Get Sample-Specific Data & Find Best Original k ---
+            try:
+                # Get original activations
+                evaluationActivations = dictionaryForSourceLayerNeuron[pos] # Original activations
+                if evaluationActivations is None:
+                    # print(f"Warning (S:{pos}): Original activations not found. Skipping sample.") # Reduce noise
                     continue
-                # Basic check if it's array-like, worker handles None check again
+
+                # --- Call external function to find best original k ---
+                original_k_search_result = findBestOriginalValues(name, sample, evaluationActivations, closestSources, mode)
+
+                if original_k_search_result is None:
+                    # print(f"Warning (S:{pos}): findBestOriginalValues returned None. Skipping sample.") # Reduce noise
+                    continue
+
+                # Extract results needed
+                originalMostUsedSources = original_k_search_result.get('mostUsedSources')
+                bestClosestSourcesForOriginal = original_k_search_result.get('closestSources')
+                # Extract the NESTED dictionaries for storing similarities
+                best_k_activation_results_dict = original_k_search_result.get('activation_similarity')
+                best_k_image_results_dict = original_k_search_result.get('image_similarity')
+
+                # Validate extracted results
+                if originalMostUsedSources is None:
+                    # print(f"Warning (S:{pos}): 'mostUsedSources' missing from findBestOriginalValues result. Skipping sample.") # Reduce noise
+                    continue
+                # Check bestClosestSourcesForOriginal validity
+                if bestClosestSourcesForOriginal is None or (isinstance(bestClosestSourcesForOriginal, float) and math.isnan(bestClosestSourcesForOriginal)):
+                    # print(f"Warning (S:{pos}): No valid 'closestSources' (best_k_original) found/returned by findBestOriginalValues. Skipping sample.") # Reduce noise
+                    continue
+                else:
+                    # Ensure it's an integer if valid
+                    try:
+                        bestClosestSourcesForOriginal = int(bestClosestSourcesForOriginal)
+                    except (ValueError, TypeError):
+                        print(f"Warning (S:{pos}): Could not convert best_k_original '{bestClosestSourcesForOriginal}' to int. Skipping sample.")
+                        continue
+
+
+                # --- Store the original k similarity results for overall averaging later ---
+                original_k_data = {'sample_pos': pos} # Include sample identifier if needed later
+                # Extract from the nested activation_similarity dict
+                if isinstance(best_k_activation_results_dict, dict):
+                    for key in ACTIVATION_METRIC_KEYS: # Iterate through expected activation keys
+                        original_k_data[f"orig_{key}"] = best_k_activation_results_dict.get(key, np.nan)
+                else:
+                    # print(f"Warning (S:{pos}): 'activation_similarity' missing or not a dict in findBestOriginalValues result.") # Reduce noise
+                    for key in ACTIVATION_METRIC_KEYS: original_k_data[f"orig_{key}"] = np.nan
+
+                # Extract from the nested image_similarity dict using the map
+                if isinstance(best_k_image_results_dict, dict):
+                    for eval_key, store_suffix in IMAGE_SIM_KEY_MAP.items():
+                        target_key = f"orig_{IMG_SIM_PREFIX}{store_suffix}"
+                        if eval_key in best_k_image_results_dict:
+                            original_k_data[target_key] = best_k_image_results_dict[eval_key]
+                        else: original_k_data[target_key] = np.nan
+                else:
+                    # print(f"Warning (S:{pos}): 'image_similarity' missing or not a dict in findBestOriginalValues result.") # Reduce noise
+                    for eval_key, store_suffix in IMAGE_SIM_KEY_MAP.items():
+                        original_k_data[f"orig_{IMG_SIM_PREFIX}{store_suffix}"] = np.nan
+
+                original_k_results_list.append(original_k_data)
+
+
+                # --- Prepare data for the worker (evaluating metric combinations) ---
+                metricsSampleActivations = metricsDictionaryForSourceLayerNeuron[pos]
+                if metricsSampleActivations is None:
+                    # print(f"Warning (S:{pos}): metricsSampleActivations is None. Skipping task submission.") # Reduce noise
+                    continue
                 if not hasattr(metricsSampleActivations, 'shape'):
-                    print(f"Warning: Skipping sample {pos}, metricsSampleActivations is not array-like.")
+                    # print(f"Warning (S:{pos}): metricsSampleActivations is not array-like. Skipping task submission.") # Reduce noise
                     continue
 
                 # Ensure sample data is tensor (placeholder logic)
                 if hasattr(sample, 'float'): sample_data = sample.float()
-                else: sample_data = sample # Assume already correct type
+                else: sample_data = sample
 
             except Exception as data_prep_e:
-                print(f"Warning: Data preparation failed for sample {pos}: {data_prep_e}. Skipping.")
+                print(f"Warning: Data preparation or findBestOriginalValues call failed for sample {pos}: {data_prep_e}. Skipping.")
+                traceback.print_exc()
                 continue
 
             # --- Arguments for worker ---
             args = (pos, sample_data, originalMostUsedSources, evaluationActivations,
-                    metricsSampleActivations, linearLayers, all_metric_combinations, closestSources, mode, name, bestClosestSourcesForOriginal
+                    metricsSampleActivations, linearLayers, all_metric_combinations,
+                    closestSources, # Pass the original center k
+                    mode, name, bestClosestSourcesForOriginal # Pass the found best k
                     )
             futures.append(executor.submit(process_sample_evaluation, args))
             processed_samples += 1
 
         print(f"Submitted {len(futures)} tasks to workers.")
         # --- Retrieve Results ---
+        results_list = [] # Re-initialize here
         for i, future in enumerate(concurrent.futures.as_completed(futures)):
-            # print(f"DEBUG: Waiting for result {i+1}/{len(futures)}") # Optional progress
             try:
-                result = future.result() # This is where the "unpacking" error was reported
+                result = future.result()
                 if result is not None: results_list.append(result)
-                # print(f"DEBUG: Got result {i+1}/{len(futures)}") # Optional progress
             except Exception as e:
-                # This is where the error from the worker is re-raised
                 print(f"\n--- ERROR retrieving result for task {i+1}: {e} ---")
-                # import traceback # Optional traceback for debugging here
                 # traceback.print_exc()
 
-    # --- Aggregation ---
-    print(f"\nCollected results from {len(results_list)} completed tasks.")
-    if not results_list: print("Error: No results collected."); return None
+    # --- Aggregation of Worker Results (Metric Combinations) ---
+    print(f"\nCollected results from {len(results_list)} completed worker tasks.")
+    if not results_list: print("Error: No results collected from workers."); return None
 
-    print("Aggregating results...")
+    print("Aggregating worker results...")
     results_aggregator = defaultdict(lambda: defaultdict(list))
-    valid_keys_for_agg = set(ALL_METRIC_KEYS_FOR_AGGREGATION) # Use set for faster lookup
-    for sample_result_dict in results_list:
-        if not isinstance(sample_result_dict, dict): continue # Skip if result format is wrong
-        for (combination_str, metric_key), score in sample_result_dict.items():
-            # Only aggregate keys defined in the list and ignore NaNs during aggregation mean calculation
-            if metric_key in valid_keys_for_agg:
-                if score is not None and np.isfinite(score): # Check for finite numbers
-                    results_aggregator[combination_str][metric_key].append(score)
-                elif metric_key == BEST_CLOSEST_SOURCES and not np.isnan(score): # Keep best K value even if NaN metric
-                    results_aggregator[combination_str][metric_key].append(int(score)) # Store k as int
-                # else: store NaN? No, nanmean handles empty lists later
 
-    # --- Calculate Averages ---
+    # --- >>> DEBUGGING AGGREGATION <<< ---
+    try:
+        valid_keys_for_agg = set(ALL_METRIC_KEYS_FOR_AGGREGATION)
+        print(f"DEBUG AGG: Expected keys (set, first 10): {list(valid_keys_for_agg)[:10]}")
+    except NameError:
+        print("ERROR: ALL_METRIC_KEYS_FOR_AGGREGATION is not defined globally!")
+        return None
+    except Exception as e:
+        print(f"ERROR: Problem with ALL_METRIC_KEYS_FOR_AGGREGATION: {e}")
+        return None
+
+    printed_sample_result_keys = False # Flag to print only once
+    keys_found_count = 0
+    scores_appended_count = 0 # <<< Initialize new counter
+    keys_not_found = set() # Track keys from worker not in expected set
+
+    for sample_result_dict in results_list:
+        if not isinstance(sample_result_dict, dict):
+            print(f"Warning: Worker returned non-dict result: {type(sample_result_dict)}")
+            continue
+
+        if not printed_sample_result_keys and sample_result_dict:
+            print(f"DEBUG AGG: First non-empty sample_result_dict keys (first 10): {list(sample_result_dict.keys())[:10]}")
+            # Extract and print the metric_key part from the first key tuple
+            first_key_tuple = next(iter(sample_result_dict), None)
+            if isinstance(first_key_tuple, tuple) and len(first_key_tuple) == 2:
+                print(f"DEBUG AGG: Example metric_key from worker: '{first_key_tuple[1]}' (Type: {type(first_key_tuple[1])})")
+            else:
+                print(f"DEBUG AGG: First key is not a (combo_str, metric_key) tuple: {first_key_tuple}")
+            printed_sample_result_keys = True
+
+        for key_tuple, score in sample_result_dict.items():
+            # Check if the key is the expected tuple format
+            if isinstance(key_tuple, tuple) and len(key_tuple) == 2:
+                combination_str, metric_key = key_tuple
+                # Check if the extracted metric_key is in the valid set
+                if metric_key in valid_keys_for_agg:
+                    keys_found_count += 1 # Increment if a match is found
+                    # --- Original Aggregation Logic ---
+                    appended = False # Flag to check if append happened
+                    if metric_key == BEST_CLOSEST_SOURCES_FOR_ORIGINAL:
+                        if score is not None and not (isinstance(score, float) and math.isnan(score)):
+                            try:
+                                results_aggregator[combination_str][metric_key].append(int(score))
+                                appended = True
+                            except (ValueError, TypeError): print(f"Warning: Could not convert score '{score}' for key '{metric_key}' to int.")
+                    elif metric_key == BEST_CLOSEST_SOURCES:
+                        if score is not None and not (isinstance(score, float) and math.isnan(score)):
+                            try:
+                                results_aggregator[combination_str][metric_key].append(int(score))
+                                appended = True
+                            except (ValueError, TypeError): print(f"Warning: Could not convert score '{score}' for key '{metric_key}' to int.")
+                    elif score is not None and np.isfinite(score):
+                        results_aggregator[combination_str][metric_key].append(score)
+                        appended = True
+                    # --- End Original Aggregation Logic ---
+                    if appended:
+                        scores_appended_count += 1 # <<< Increment counter if append occurred
+                else:
+                    # Track keys from worker that are not expected
+                    if metric_key not in keys_not_found:
+                        keys_not_found.add(metric_key)
+            else:
+                print(f"Warning: Worker returned result with unexpected key format: {key_tuple}")
+
+    print(f"DEBUG AGG: Total valid key occurrences aggregated: {keys_found_count}")
+    print(f"DEBUG AGG: Total scores actually appended: {scores_appended_count}") # <<< Print the new counter
+    if keys_not_found:
+        print(f"DEBUG AGG: Keys received from worker but NOT in ALL_METRIC_KEYS_FOR_AGGREGATION: {keys_not_found}")
+    # --- >>> END DEBUGGING AGGREGATION <<< ---
+
+    # --- >>> ADDED DEBUG CHECK for results_aggregator <<< ---
+    print(f"DEBUG AGG: Size of results_aggregator after aggregation loop: {len(results_aggregator)}")
+    if results_aggregator:
+        print(f"DEBUG AGG: Example keys in results_aggregator (first 5): {list(results_aggregator.keys())[:5]}")
+    # --- >>> END ADDED DEBUG CHECK <<< ---
+
+    # --- Calculate Averages for Worker Results ---
     final_results = {}
-    for combination_str, metric_scores_dict in results_aggregator.items():
+    for combination_str, metric_scores_dict in results_aggregator.items(): # This loop should now execute if keys_found_count > 0
         avg_scores = {}
-        for metric_key in ALL_METRIC_KEYS_FOR_AGGREGATION:
-            scores_list = metric_scores_dict.get(metric_key, [])
+        for metric_key in ALL_METRIC_KEYS_FOR_AGGREGATION: # Iterate through expected keys
+            scores_list = metric_scores_dict.get(metric_key, []) # Get scores if key was found
             if scores_list:
-                # Use nanmean for most metrics, mean for integer k value
-                if metric_key == BEST_CLOSEST_SOURCES:
+                # Use mean for integer k values, nanmean for others
+                if metric_key in [BEST_CLOSEST_SOURCES, BEST_CLOSEST_SOURCES_FOR_ORIGINAL]:
                     avg_scores[f"avg_{metric_key}"] = np.mean(scores_list) # Average k value
                 else:
                     avg_scores[f"avg_{metric_key}"] = np.nanmean(scores_list) # nanmean ignores NaNs
-            else: avg_scores[f"avg_{metric_key}"] = np.nan # No valid scores recorded
+            else: avg_scores[f"avg_{metric_key}"] = np.nan # No valid scores recorded for this key
         final_results[combination_str] = avg_scores
 
-    if not final_results: print("Error: Aggregation resulted in empty dictionary."); return None
+    if not final_results:
+        print("Error: Aggregation resulted in empty dictionary (final_results). Check aggregation logic and worker return values.")
+        # Add extra debug info here if this still happens
+        print(f"DEBUG AGG: results_aggregator was size {len(results_aggregator)} before averaging loop.")
+        return None
 
-    # --- Create DataFrame ---
+    # --- Create DataFrame from Aggregated Worker Results ---
     try:
         results_df = pd.DataFrame.from_dict(final_results, orient='index')
-        print(f"Aggregated DataFrame shape: {results_df.shape}")
-        if results_df.empty: print("Error: DataFrame is empty after aggregation."); return None
-    except Exception as e: print(f"Error creating DataFrame: {e}"); return None
+        print(f"Aggregated Worker Results DataFrame shape: {results_df.shape}")
+        if results_df.empty: print("Error: Worker results DataFrame is empty after aggregation."); return None
+    except Exception as e: print(f"Error creating worker results DataFrame: {e}"); return None
 
-    # --- Column Ordering (User Provided Logic) ---
-    prefix = f"avg_" # Correct prefix used in aggregation
-    ordered_columns = []
-    act_sim_ordered = ['cosine_similarity', 'pearson_correlation', 'kendall_tau', 'spearman_rho', 'jaccard_similarity']
-    act_dist_ordered = ['euclidean_distance', 'manhattan_distance', 'hamming_distance']
-    img_sim_ordered = ['cosine_sim', 'pearson_corr', 'kendall_tau', 'spearman_rho', 'jaccard_sim']
-    img_dist_ordered = ['euclidean_dst', 'manhattan_dst', 'hamming_dst']
-    source_sim_ordered = [
+    # --- Calculate Overall Averages for Original Best K Similarities ---
+    print("\nCalculating overall averages for best original k similarities...")
+    overall_original_k_avg_results = {}
+    if original_k_results_list:
+        original_k_df = pd.DataFrame(original_k_results_list)
+        # Identify columns containing original similarity results (start with 'orig_')
+        original_sim_cols = [col for col in original_k_df.columns if col.startswith('orig_')]
+        if original_sim_cols:
+            # Calculate mean for each original similarity column, ignoring NaNs
+            overall_original_k_avg_results = original_k_df[original_sim_cols].mean(axis=0, skipna=True).to_dict()
+            print(f"Calculated averages for {len(overall_original_k_avg_results)} original similarity metrics.")
+            # print(overall_original_k_avg_results) # Optional: print averages
+        else:
+            print("Warning: No original similarity columns found in original_k_results_list (Columns checked: start with 'orig_').")
+    else:
+        print("Warning: No results collected for original k similarities.")
+
+    # --- Add Overall Original Averages to the Main DataFrame ---
+    if overall_original_k_avg_results:
+        print("Adding overall original similarity averages to the main DataFrame...")
+        for col_name, avg_value in overall_original_k_avg_results.items():
+            # Add the average value as a new column, repeating for all rows
+            # The col_name already includes 'orig_', add 'overall_' prefix
+            results_df[f"overall_{col_name}"] = avg_value
+        print(f"Added {len(overall_original_k_avg_results)} new columns.")
+
+
+    # --- Column Ordering (User Provided Logic - Needs Update for new columns) ---
+    prefix = f"avg_" # Prefix for worker aggregated results
+    overall_prefix = f"overall_orig_" # Prefix for the new overall original averages
+
+    # Define base ordered lists (without prefixes)
+    # Activation keys expected in the 'activation_similarity' dict
+    act_sim_ordered_base = ACTIVATION_METRIC_KEYS
+    # Image sim keys derived from the IMAGE_SIM_KEY_MAP values (suffixes)
+    img_sim_ordered_base = list(IMAGE_SIM_KEY_MAP.values())
+
+    source_sim_ordered_base = [
         SOURCE_COSINE_METRIC, SOURCE_LOG_COSINE_METRIC, SOURCE_RUZICKA_METRIC,
         SOURCE_SPEARMAN_METRIC, SOURCE_KENDALL_METRIC,
         SOURCE_PRECISION_K_METRIC, SOURCE_RECALL_K_METRIC, SOURCE_INTERSECT_K_METRIC
     ]
-    source_dist_ordered = [
+    source_dist_ordered_base = [
         SOURCE_JSD_METRIC, SOURCE_EUCLIDEAN_METRIC, SOURCE_MANHATTAN_METRIC,
-        SOURCE_SYMM_DIFF_METRIC, BEST_CLOSEST_SOURCES, BEST_CLOSEST_SOURCES_FOR_ORIGINAL # BEST_CLOSEST_SOURCES is the K value
+        SOURCE_SYMM_DIFF_METRIC, BEST_CLOSEST_SOURCES, BEST_CLOSEST_SOURCES_FOR_ORIGINAL
     ]
-    # Add avg_ prefix correctly
-    ordered_columns.extend([f'{prefix}{m}' for m in act_sim_ordered])
-    ordered_columns.extend([f'{prefix}{m}' for m in act_dist_ordered])
-    ordered_columns.extend([f'{prefix}{IMG_SIM_PREFIX}{m}' for m in img_sim_ordered])
-    ordered_columns.extend([f'{prefix}{IMG_SIM_PREFIX}{m}' for m in img_dist_ordered])
-    ordered_columns.extend([f'{prefix}{m}' for m in source_sim_ordered])
-    ordered_columns.extend([f'{prefix}{m}' for m in source_dist_ordered])
+
+    ordered_columns = []
+    # Add overall original averages first (if they exist)
+    # Sort activation sim and image sim separately if desired
+    overall_act_cols = sorted([col for col in results_df.columns if col.startswith(f"{overall_prefix}") and not col.startswith(f"{overall_prefix}{IMG_SIM_PREFIX}")])
+    overall_img_cols = sorted([col for col in results_df.columns if col.startswith(f"{overall_prefix}{IMG_SIM_PREFIX}")])
+    ordered_columns.extend(overall_act_cols)
+    ordered_columns.extend(overall_img_cols)
+
+
+    # Add worker aggregated averages
+    # Use the base lists defined above
+    ordered_columns.extend([f'{prefix}{m}' for m in act_sim_ordered_base if f'{prefix}{m}' in results_df.columns])
+    # Note: act_dist_ordered_base was missing, added based on common metrics
+    act_dist_ordered_base = ['euclidean_distance', 'manhattan_distance', 'hamming_distance']
+    ordered_columns.extend([f'{prefix}{m}' for m in act_dist_ordered_base if f'{prefix}{m}' in results_df.columns])
+    ordered_columns.extend([f'{prefix}{IMG_SIM_PREFIX}{m}' for m in img_sim_ordered_base if f'{prefix}{IMG_SIM_PREFIX}{m}' in results_df.columns])
+    # Note: img_dist_ordered_base was missing, added based on common metrics
+    img_dist_ordered_base = ['euclidean_dst', 'manhattan_dst', 'hamming_dst']
+    ordered_columns.extend([f'{prefix}{IMG_SIM_PREFIX}{m}' for m in img_dist_ordered_base if f'{prefix}{IMG_SIM_PREFIX}{m}' in results_df.columns])
+    ordered_columns.extend([f'{prefix}{m}' for m in source_sim_ordered_base if f'{prefix}{m}' in results_df.columns])
+    ordered_columns.extend([f'{prefix}{m}' for m in source_dist_ordered_base if f'{prefix}{m}' in results_df.columns])
+
     # Find remaining columns and add them sorted
     results_df_cols = set(results_df.columns)
     ordered_cols_set = set(ordered_columns)
     remaining_cols = sorted(list(results_df_cols - ordered_cols_set))
     ordered_columns.extend(remaining_cols)
-    # Filter list to only include columns actually present in DataFrame
+
+    # Filter list to only include columns actually present in DataFrame (redundant check but safe)
     final_ordered_columns = [col for col in ordered_columns if col in results_df_cols]
+    # Ensure no duplicates if column names overlap somehow
+    final_ordered_columns = list(dict.fromkeys(final_ordered_columns))
+
 
     try:
         results_df = results_df[final_ordered_columns]
         print("Reordered DataFrame columns.")
+    except KeyError as e:
+        print(f"Warning: Column reordering failed due to missing key: {e}. Using default order.")
+        # print(f"Available columns: {results_df.columns.tolist()}") # Debugging line
+        # print(f"Attempted order: {final_ordered_columns}") # Debugging line
     except Exception as e:
         print(f"Warning: Column reordering failed: {e}. Using default order.")
 
-    # --- Row Sorting Priority (User Provided Logic - Adjusted Prefix) ---
+
+    # --- Row Sorting Priority (User Provided Logic - Needs Update for new columns) ---
+    # Define priority list including potential new overall columns
     metrics_priority_list = [
+        # Add overall original metrics if desired for sorting
+        f'{overall_prefix}cosine_similarity',
+        f'{overall_prefix}{IMG_SIM_PREFIX}cosine_sim', # Adjust key based on IMAGE_SIM_KEY_MAP
+        # Original priority list with 'avg_' prefix
         f'{prefix}{SOURCE_INTERSECT_K_METRIC}',
         f'{prefix}cosine_similarity', # Activation Cosine
         f'{prefix}{IMG_SIM_PREFIX}cosine_sim',
         f'{prefix}{SOURCE_COSINE_METRIC}',
-        f'{prefix}{SOURCE_LOG_COSINE_METRIC}',
-        f'{prefix}{SOURCE_RUZICKA_METRIC}',
-        f'{prefix}{SOURCE_SPEARMAN_METRIC}',
-        f'{prefix}{SOURCE_PRECISION_K_METRIC}',
-        f'{prefix}{SOURCE_RECALL_K_METRIC}',
-        f'{prefix}{SOURCE_JSD_METRIC}', # Lower is better
-        f'{prefix}{SOURCE_EUCLIDEAN_METRIC}', # Lower is better
-        f'{prefix}{SOURCE_MANHATTAN_METRIC}', # Lower is better
-        f'{prefix}{SOURCE_SYMM_DIFF_METRIC}', # Lower is better
-        f'{prefix}euclidean_distance', # Activation Euclidean
-        f'{prefix}{IMG_SIM_PREFIX}euclidean_dst',
+        # ... (rest of the original priority list) ...
         f'{prefix}{SOURCE_KENDALL_METRIC}',
         f'{prefix}kendall_tau', # Activation kendall
     ]
+    # (Keep similarity_keywords and distance_keywords definitions)
     similarity_keywords = ['similarity', 'correlation', 'tau', 'rho', 'spearman', 'kendall', 'precision', 'recall', 'intersect', 'ruzicka', 'cosine']
     distance_keywords = ['distance', 'dst', 'jsd', 'euclidean', 'manhattan', 'diff', 'hamming']
 
+
     sort_by_columns = []; sort_ascending_flags = []; sort_descriptions = []
     for metric_col in metrics_priority_list:
-        if metric_col not in results_df.columns: continue
+        if metric_col not in results_df.columns: continue # Skip if column doesn't exist
+
         ascending_order = False # Default: Higher is better
-        sort_type = " (Desc)"; metric_col_lower = metric_col.lower()
+        sort_type = " (Desc)"
+        # Determine metric name without prefix for keyword checking
+        metric_name_lower = metric_col.replace(prefix, '').replace(overall_prefix, '').lower()
 
         # Check if it's explicitly a distance metric where lower is better
-        is_distance = any(keyword in metric_col_lower for keyword in distance_keywords)
+        is_distance = any(keyword in metric_name_lower for keyword in distance_keywords)
+        # Check source distance keys specifically (without prefix)
         is_explicit_source_dist = any(dist_key in metric_col for dist_key in [
             SOURCE_JSD_METRIC, SOURCE_EUCLIDEAN_METRIC, SOURCE_MANHATTAN_METRIC, SOURCE_SYMM_DIFF_METRIC
         ])
 
-        if is_explicit_source_dist or (is_distance and not any(sim_key in metric_col_lower for sim_key in similarity_keywords)):
+        if is_explicit_source_dist or (is_distance and not any(sim_key in metric_name_lower for sim_key in similarity_keywords)):
             ascending_order = True; sort_type = " (Asc)"
         # No need for elif, default is Descending/False
 
         sort_by_columns.append(metric_col); sort_ascending_flags.append(ascending_order)
-        sort_descriptions.append(f"{metric_col.replace(prefix, '')}{sort_type}")
+        sort_descriptions.append(f"{metric_col.replace(prefix, '').replace(overall_prefix, '')}{sort_type}")
 
     # --- Perform Final Row Sort ---
     final_df_to_return = results_df # Default if sorting fails
     if not sort_by_columns:
         print("\nWarning: No valid columns found for sorting rows. Returning unsorted DataFrame.")
     else:
-        print(f"\n--- Final Ranking Sorted By Rows: {' -> '.join(sort_descriptions)} ---")
+        #print(f"\n--- Final Ranking Sorted By Rows: {' -> '.join(sort_descriptions)} ---")
         try:
             final_df_to_return = results_df.sort_values(by=sort_by_columns, ascending=sort_ascending_flags, na_position='last')
         except Exception as e:
@@ -1347,7 +2042,7 @@ def evaluate_metric_combinations_overall(name, linearLayers, closestSources, all
             final_df_to_return = results_df # Return unsorted on error
 
     end_time = time.time()
-    print(f"\nEvaluation for {name} complete in {end_time - start_time:.2f} seconds.")
+    print(f"\nEvaluation for {evaluation_name} ({name}) complete in {end_time - start_time:.2f} seconds.")
     print(f"Returning final DataFrame ({final_df_to_return.shape}).")
     return final_df_to_return
 
@@ -1420,12 +2115,8 @@ def evaluateImageSimilarityByMetrics(name, combination, sample, mostUsed, storeG
 
     return results_dict
 
-all_run_results = []
 def findBestOriginalValues(name, sample, original_values, closestSources, mode):
-    # Assume RENN and blendActivations are defined elsewhere
-    global all_run_results # Use the renamed global list
-
-    bestMostUsedSources = {'activation_similarity': {'cosine_similarity': -1}, 'image_similarity': [], 'mostUsedSources': [], 'closestSources': None} # Initialize with -1
+    bestMostUsedSources = {'name': name, 'activation_similarity': {'cosine_similarity': -1}, 'image_similarity': [], 'mostUsedSources': [], 'closestSources': None} # Initialize with -1
 
     # Define the range based on the input 'closestSources' parameter
     search_range = range(max(1, closestSources - 20), closestSources + 20) # Ensure range starts at 1 minimum
@@ -1443,10 +2134,10 @@ def findBestOriginalValues(name, sample, original_values, closestSources, mode):
                 imageResults = evaluateImageSimilarity(name, sample, mostUsedSources[0])
             if "BTL" in name:
                 imageResults = evaluateImageSimilarity(name, sample, flattenedMostUsedSources)
-            
+
             # Check if results is valid and contains 'cosine_similarity'
             if activationResults and 'cosine_similarity' in activationResults and activationResults['cosine_similarity'] > bestMostUsedSources['activation_similarity']['cosine_similarity']:
-                bestMostUsedSources = {'activation_similarity': activationResults, 'image_similarity': imageResults, 'mostUsedSources': mostUsedSources, 'closestSources': currentClosestSourcesValue}
+                bestMostUsedSources = {'name': name, 'activation_similarity': activationResults, 'image_similarity': imageResults, 'mostUsedSources': mostUsedSources, 'closestSources': currentClosestSourcesValue}
         except Exception as e:
             # Optional: Log errors if RENN or blendActivations fail for certain values
             print(f"Error during processing for closestSources={currentClosestSourcesValue}: {e}")
@@ -1455,8 +2146,7 @@ def findBestOriginalValues(name, sample, original_values, closestSources, mode):
     # --- Modification Here ---
     # Store the best result *from this specific run*
     if bestMostUsedSources['closestSources'] is not None: # Only append if a valid result was found
-        all_run_results.append(bestMostUsedSources)
-        print("Cosine-Similarity:", bestMostUsedSources['activation_similarity']['cosine_similarity'])
+        print(f"Cosine-Similarity: {bestMostUsedSources['activation_similarity']['cosine_similarity']} with {bestMostUsedSources['closestSources']} closestSources")
     else:
         print("Error: No closestSources found!!!")
     # --- End Modification ---
