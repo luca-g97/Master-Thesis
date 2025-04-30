@@ -36,7 +36,7 @@ os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 mnist, to_categorical, nn, DataLoader, pd, optuna, device, metricsEvaluation = "", "", "", "", "", "", "", True
 train_dataloader, test_dataloader, eval_dataloader, trainDataSet, testDataSet, trainSubset, testSubset, x_train, y_train, x_test, y_test, x_eval, y_eval = "", "", "", "", "", "", "", "", "", "", "", "", ""
 model, criterion_class, chosen_optimizer, layers = "", "", "", ""
-train_samples, eval_samples, test_samples = 1, 1, 1
+train_samples, eval_samples, test_samples = 1, [], 1
 dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource = [], [], [], [], [], []
 
 def initializePackages(mnistPackage, to_categoricalPackage, nnPackage, DataLoaderPackage, pdPackage, optunaPackage, devicePackage):
@@ -87,7 +87,7 @@ def initializeDatasets(train_samplesParameter, test_samplesParameter, eval_sampl
 
     trainSubset = Subset(trainDataSet, range(train_samples))
     testSubset = Subset(testDataSet, range(test_samples))
-    evalSubset = Subset(testDataSet, range(eval_samples))
+    evalSubset = Subset(testDataSet, eval_samples)
     train_dataloader = DataLoader(trainSubset, batch_size=batch_size_training, shuffle=False)
     test_dataloader = DataLoader(testSubset, batch_size=batch_size_test, shuffle=False)
     eval_dataloader = DataLoader(evalSubset, batch_size=1, shuffle=False)
@@ -699,7 +699,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
     original_activation_similarity, metrics_activation_similarity, mt_activation_similarity = [], [], []
     # Make sure RENN, eval_dataloader, eval_samples, model are accessible here
     try:
-        dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource = RENN.initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model)
+        dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource = RENN.initializeEvaluationHook(hidden_sizes, eval_dataloader, len(eval_samples), model)
     except NameError as e:
         print(f"Error: Required variable '{e.name}' not defined. Cannot initialize hooks.")
         return # Or handle appropriately
@@ -885,7 +885,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
     # Construct filename with parameters
     try:
         # Make sure these variables are defined in the accessible scope
-        filename_params = f"Results_{evaluation_name}_E{eval_samples}"
+        filename_params = f"Results_{evaluation_name}"
         output_csv_filename = f"{filename_params}-{formatted_time}.csv"
     except NameError as e:
         print(f"Warning: Could not create detailed filename due to missing variable ({e}), using default.")
@@ -1696,7 +1696,7 @@ def evaluate_metric_combinations_overall(evaluation_name, name, linearLayers, cl
         processed_samples = 0
         # Submit tasks for each sample
         for pos, (sample, true) in enumerate(eval_dataloader):
-            if processed_samples >= eval_samples: break
+            if processed_samples >= len(eval_samples): break
 
             bestClosestSourcesForOriginal = np.nan # Initialize
             originalMostUsedSources = None # Initialize
@@ -1706,14 +1706,14 @@ def evaluate_metric_combinations_overall(evaluation_name, name, linearLayers, cl
                 # Get original activations
                 evaluationActivations = dictionaryForSourceLayerNeuron[pos] # Original activations
                 if evaluationActivations is None:
-                    # print(f"Warning (S:{pos}): Original activations not found. Skipping sample.") # Reduce noise
+                    # print(f"Warning (S:{actual_index}): Original activations not found. Skipping sample.") # Reduce noise
                     continue
 
                 # --- Call external function to find best original k ---
                 original_k_search_result = findBestOriginalValues(name, sample, evaluationActivations, closestSources, mode)
 
                 if original_k_search_result is None:
-                    # print(f"Warning (S:{pos}): findBestOriginalValues returned None. Skipping sample.") # Reduce noise
+                    # print(f"Warning (S:{actual_index}): findBestOriginalValues returned None. Skipping sample.") # Reduce noise
                     continue
 
                 # Extract results needed
