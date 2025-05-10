@@ -28,9 +28,10 @@ import LLM_Small1x1 as Small1x1
 # --- High-Level Configuration Flags ---
 llm: bool = False                  # Use LLM specific logic
 metricsEvaluation: bool = False    # Perform metrics evaluation
-mtEvaluation: bool = True          # Perform magnitude truncation evaluation
+mtEvaluation: bool = False          # Perform magnitude truncation evaluation
 useBitNet: bool = False            # Use BitNet specific logic/model
 useOnlyBestMetrics: bool = False
+ignore_near_zero_eval_activations = True
 
 # --- Environment, Data & File Paths ---
 device: str = ""                   # Computation device (e.g., "cuda", "cpu")
@@ -491,6 +492,7 @@ mt_component_optimizer = None
 optimal_components_overall = 46 # Ranging always between 44 and 47 overall
 
 OPTIMIZER_EVAL_DATA_CACHE = []
+EPSILON = 1e-7
 
 def identifyClosestSources(closestSources, outputs, metricsOutputs, mtOutputs, mode=""):
     global layers, METRIC_WEIGHTS, metrics_optimizer, mt_component_optimizer, optimal_components_overall
@@ -537,22 +539,25 @@ def identifyClosestSources(closestSources, outputs, metricsOutputs, mtOutputs, m
 
     for currentLayer, (layer, currentMetricsLayer, currentMTLayer) in enumerate(zip(layersToCheck, metricsLayersToCheck, mtLayersToCheck)):
         for currentNeuron, neuron in enumerate(layer):
-            maxNeurons = layers[currentLayer][1]
-            if not isinstance(maxNeurons, int):
-                maxNeurons = maxNeurons.out_features
-            if currentNeuron < maxNeurons:
-                differences = np.abs(neuron - outputsToCheck[currentLayer][currentNeuron])
-                sorted_indices = np.argsort(differences)
-                closest_indices = sorted_indices[:closestSources]
-
-                # Store neuron results
-                tuples = tuple(
-                    (closest_indices[i],
-                     neuron[closest_indices[i]],
-                     differences[closest_indices[i]])
-                    for i in range(closestSources)
-                )
-                identifiedClosestSources[currentLayer][currentNeuron] = tuples
+            if ignore_near_zero_eval_activations and np.abs(outputsToCheck[currentLayer][currentNeuron]) < EPSILON:
+                continue
+            else:
+                maxNeurons = layers[currentLayer][1]
+                if not isinstance(maxNeurons, int):
+                    maxNeurons = maxNeurons.out_features
+                if currentNeuron < maxNeurons:
+                    differences = np.abs(neuron - outputsToCheck[currentLayer][currentNeuron])
+                    sorted_indices = np.argsort(differences)
+                    closest_indices = sorted_indices[:closestSources]
+    
+                    # Store neuron results
+                    tuples = tuple(
+                        (closest_indices[i],
+                         neuron[closest_indices[i]],
+                         differences[closest_indices[i]])
+                        for i in range(closestSources)
+                    )
+                    identifiedClosestSources[currentLayer][currentNeuron] = tuples
 
         if metricsEvaluation:
             metrics_indices = (5, 9, 10, 26, 22, 0, 3, 20, 13, 7, 8, 14) #Best indices so far

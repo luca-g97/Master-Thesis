@@ -322,10 +322,6 @@ def run_training_loop():
     trainSetMNIST_full, testSetMNIST = MNIST.createTrainAndTestSet() # Load full sets once
     logging.info("MNIST dataset loaded.")
 
-    # Initialize RENN packages once
-    # Using first seed for RENN init? Okay if intended. Pass useBitLinear here.
-    RENN.initializePackages(device, io, pd, pa, pq, zstd, levenshtein, cma, MNIST, seeds[0], useBitLinear)
-
     param_space = list(itertools.product(seeds, layerSizes, train_samples_options, test_samples_options))
 
     # Load checkpoint and determine starting point
@@ -366,6 +362,8 @@ def run_training_loop():
     iterator = tqdm(param_space, desc="Overall Progress", initial=start_index)
     for i, (seed, layerSize, train_sample_count, sample_type) in enumerate(iterator):
 
+        RENN.initializePackages(device, io, pd, pa, pq, zstd, levenshtein, cma, MNIST, seed, useBitLinear)
+        
         # --- PRE-ITERATION CLEANUP (for resources from previous iteration) ---
         # (Unchanged from previous version)
         if sys.stdout is tee_stdout and tee_stdout is not None: sys.stdout = original_stdout
