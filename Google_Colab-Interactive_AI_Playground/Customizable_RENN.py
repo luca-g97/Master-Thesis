@@ -656,17 +656,18 @@ def getMostUsed(sources, mode="", evaluation=""):
                     differences.append(difference)
         else:
             for currentNeuron, neuron in enumerate(layer):
-                maxNeurons = layers[currentLayer][1] if mode == "" else layers[currentLayer][1].out_features
-                if not isinstance(maxNeurons, int):  # Ensure maxNeurons is an integer
-                    maxNeurons = maxNeurons.out_features
-                if(currentNeuron < maxNeurons):
-                    for sourceNumber, value, difference in neuron:
-                        if(sourceNumber != 'None'):
-                            mostUsed.append(sourceNumber)
-                            sourceCounter += 1
-                            differences.append(difference)
-                            if sourceNumber not in mostUsedPerLayer:
-                                mostUsedPerLayer.append(sourceNumber)
+                if neuron is not None:
+                    maxNeurons = layers[currentLayer][1] if mode == "" else layers[currentLayer][1].out_features
+                    if not isinstance(maxNeurons, int):  # Ensure maxNeurons is an integer
+                        maxNeurons = maxNeurons.out_features
+                    if(currentNeuron < maxNeurons):
+                        for sourceNumber, value, difference in neuron:
+                            if(sourceNumber != 'None'):
+                                mostUsed.append(sourceNumber)
+                                sourceCounter += 1
+                                differences.append(difference)
+                                if sourceNumber not in mostUsedPerLayer:
+                                    mostUsedPerLayer.append(sourceNumber)
         for sourceInLayer in mostUsedPerLayer:
             mostUsedSourcesPerLayer.append(sourceInLayer)
 
