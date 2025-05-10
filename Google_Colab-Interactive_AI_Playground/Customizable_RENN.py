@@ -656,7 +656,7 @@ def getMostUsed(sources, mode="", evaluation=""):
                     differences.append(difference)
         else:
             for currentNeuron, neuron in enumerate(layer):
-                if neuron is not None:
+                if(neuron != 'None'):
                     maxNeurons = layers[currentLayer][1] if mode == "" else layers[currentLayer][1].out_features
                     if not isinstance(maxNeurons, int):  # Ensure maxNeurons is an integer
                         maxNeurons = maxNeurons.out_features
