@@ -23,7 +23,6 @@ import plotly.subplots as sp
 paretoEvaluation, weightTuning = False, False
 if paretoEvaluation or weightTuning:
     RENN.useOnlyBestMetrics = False
-
 mnist, to_categorical, nn, DataLoader, pd, optuna, device, metricsEvaluation = "", "", "", "", "", "", "", True
 train_dataloader, test_dataloader, eval_dataloader, trainDataSet, testDataSet, trainSubset, testSubset, x_train, y_train, x_test, y_test, x_eval, y_eval = "", "", "", "", "", "", "", "", "", "", "", "", ""
 model, criterion_class, chosen_optimizer, layers = "", "", "", ""

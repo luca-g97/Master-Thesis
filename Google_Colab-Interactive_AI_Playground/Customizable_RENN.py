@@ -27,8 +27,8 @@ import LLM_Small1x1 as Small1x1
 
 # --- High-Level Configuration Flags ---
 llm: bool = False                  # Use LLM specific logic
-metricsEvaluation: bool = False    # Perform metrics evaluation
-mtEvaluation: bool = False          # Perform magnitude truncation evaluation
+metricsEvaluation: bool = True    # Perform metrics evaluation
+mtEvaluation: bool = True          # Perform magnitude truncation evaluation
 useBitNet: bool = False            # Use BitNet specific logic/model
 useOnlyBestMetrics: bool = False
 ignore_near_zero_eval_activations = True
