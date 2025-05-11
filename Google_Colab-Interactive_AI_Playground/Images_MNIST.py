@@ -247,7 +247,7 @@ def getClosestSourcesPerNeuronAndLayer(sources, layersToCheck, closestSources, s
         imagesPerLayer = []
 
         for cNeuron, neuron in enumerate(layer):
-            if isinstance(neuron, list):
+            if isinstance(neuron, tuple):
                 if(cNeuron < layers[cLayer][1].out_features):
                     weightedSourcesPerNeuron = []
                     totalDifferencePerNeuron = 0
