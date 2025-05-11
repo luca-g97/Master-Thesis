@@ -1290,7 +1290,7 @@ def evaluate_pareto():
             print("These combinations represent the best trade-offs based on the selected objectives:")
             # Sort alphabetically by combo name for consistent output (optional)
             # Prepare mappings needed (assuming constants and RENN.POTENTIAL_METRICS are available globally)
-        metric_keys_list = list(RENN.FINAL_METRICS.keys())
+        metric_keys_list = list(RENN.POTENTIAL_METRICS.keys())
 
         # Create a reverse map from index to name (needed for output dict)
         # Also map index to simple direction string
@@ -1410,10 +1410,10 @@ def evaluate_pareto():
 
 def optimize_weights_of_best_combinations(closestSources, optimizations_to_run):
     # Get the ordered list of all metric names once
-    if not hasattr(RENN, 'POTENTIAL_METRICS') or not isinstance(RENN.FINAL_METRICS, dict):
+    if not hasattr(RENN, 'POTENTIAL_METRICS') or not isinstance(RENN.POTENTIAL_METRICS, dict):
         print("Error: RENN.POTENTIAL_METRICS is not defined or not a dictionary.")
         return None # Or raise an error
-    all_metric_names_list = list(RENN.FINAL_METRICS.keys())
+    all_metric_names_list = list(RENN.POTENTIAL_METRICS.keys())
 
     # Convert combination names to indices
     for config in optimizations_to_run:
@@ -1778,10 +1778,10 @@ def find_overall_weights_via_moo(
 
     # --- 3. Prepare Combination Indices for the Union Combo ---
     study = None
-    if not hasattr(RENN, 'POTENTIAL_METRICS') or not isinstance(RENN.FINAL_METRICS, dict):
+    if not hasattr(RENN, 'POTENTIAL_METRICS') or not isinstance(RENN.POTENTIAL_METRICS, dict):
         print("Error: RENN.POTENTIAL_METRICS is not defined or not a dictionary.")
         return None, None, None, None
-    all_metric_names_list = list(RENN.FINAL_METRICS.keys())
+    all_metric_names_list = list(RENN.POTENTIAL_METRICS.keys())
     try:
         union_combination_indices = tuple(all_metric_names_list.index(name) for name in union_combination_names)
     except ValueError as e:
@@ -2071,10 +2071,10 @@ def evaluate_metric_importance_via_ablation(
         return average_scores
 
     # --- 3. Check RENN.POTENTIAL_METRICS and Get All Names ---
-    if not hasattr(RENN, 'POTENTIAL_METRICS') or not isinstance(RENN.FINAL_METRICS, dict):
+    if not hasattr(RENN, 'POTENTIAL_METRICS') or not isinstance(RENN.POTENTIAL_METRICS, dict):
         print("Error: RENN.POTENTIAL_METRICS is not defined or not a dictionary.")
         return None, None, None
-    all_metric_names_list = list(RENN.FINAL_METRICS.keys())
+    all_metric_names_list = list(RENN.POTENTIAL_METRICS.keys())
 
     # --- 4. Evaluate Baseline Performance ---
     print(f"\nCalculating baseline performance for full combination ({len(base_combination_names)} metrics)...")
@@ -2187,10 +2187,10 @@ def run_multi_objective_weight_optimization(
 
     # --- 2. Prepare Combination Indices ---
     study = None
-    if not hasattr(RENN, 'POTENTIAL_METRICS') or not isinstance(RENN.FINAL_METRICS, dict):
+    if not hasattr(RENN, 'POTENTIAL_METRICS') or not isinstance(RENN.POTENTIAL_METRICS, dict):
         print("Error: RENN.POTENTIAL_METRICS is not defined or not a dictionary.")
         return None, None, None
-    all_metric_names_list = list(RENN.FINAL_METRICS.keys())
+    all_metric_names_list = list(RENN.POTENTIAL_METRICS.keys())
     try:
         combination_indices = tuple(all_metric_names_list.index(name) for name in combination_names_to_optimize)
     except ValueError as e:

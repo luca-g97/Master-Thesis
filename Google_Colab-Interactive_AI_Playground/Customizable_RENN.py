@@ -102,7 +102,7 @@ def _normalize_safe(arr):
     else:
         return shifted_arr / arr_sum
 
-FINAL_METRICS = {
+POTENTIAL_METRICS = {
     # === Comparison Metrics: L-family distances (d vs baseline `c`) ===
     # Proven useful. Lower is better (closer).
     'L2 norm (Euclidean)': lambda d, c: np.linalg.norm(d - c, ord=2),
@@ -471,7 +471,7 @@ def initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model,
 
     return dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource
 
-METRIC_WEIGHTS = {name: 0.0 for name in FINAL_METRICS.keys()}
+METRIC_WEIGHTS = {name: 0.0 for name in POTENTIAL_METRICS.keys()}
 #Best metrics by Optimization for only one sample
 #EVALUATION_METRICS = {'L1 norm (Manhattan)': 0.4550, 'Cosine Similarity': 1.3947, 'Pearson Correlation': 1.7145, 'Peak-to-Peak Range': 1.6832,
 #                     'Variance': 0.7049, 'Spearman Correlation': 1.3736, 'L∞ norm (Chebyshev)': 0.8470, 'L2 norm (Euclidean)': 1.7258, 'Median': 0.7801}
@@ -482,7 +482,7 @@ METRIC_WEIGHTS = {name: 0.0 for name in FINAL_METRICS.keys()}
 #Bests Metrics for 10 samples with 2048 layer size by Average NDCG ~84%
 EVALUATION_METRICS = {'Canberra': 0.6096463431205467, 'Chi-square': 0.03554298989041808, 'Jaccard (Rounded Sets)': 0.3382192228124472, 'Kurtosis': 0.0002865279259160476, 'Levenshtein (Rounded Strings)': 0.0002998769279219361, 'Max': 0.0096465702916513, 'Median': 0.0016993437007648648, 'Peak-to-Peak Range': 0.0010868364471923585, 'Pearson Correlation': 0.001783285431289672, 'Shannon Entropy': 0.000564316921047458, 'Skewness': 0.0012246865308042248}
 #EVALUATION_METRICS = {'Cosine Similarity': 1.0, 'L1 norm (Manhattan)': 1.0, 'L∞ norm (Chebyshev)': 1.0, 'Pearson Correlation': 1.0, 'Spearman Correlation': 1.0}
-METRICS_TO_USE = EVALUATION_METRICS if (len(EVALUATION_METRICS) > 0 and useOnlyBestMetrics) else {name: 1.0 for name in FINAL_METRICS.keys()}
+METRICS_TO_USE = EVALUATION_METRICS if (len(EVALUATION_METRICS) > 0 and useOnlyBestMetrics) else {name: 1.0 for name in POTENTIAL_METRICS.keys()}
 
 for metric in METRICS_TO_USE.keys():
     METRIC_WEIGHTS[metric] = METRICS_TO_USE[metric]
@@ -540,7 +540,7 @@ def identifyClosestSources(closestSources, outputs, metricsOutputs, mtOutputs, m
     for currentLayer, (layer, currentMetricsLayer, currentMTLayer) in enumerate(zip(layersToCheck, metricsLayersToCheck, mtLayersToCheck)):
         for currentNeuron, neuron in enumerate(layer):
             if ignore_near_zero_eval_activations and np.abs(outputsToCheck[currentLayer][currentNeuron]) < EPSILON:
-                identifiedClosestSources[currentLayer][currentNeuron] = tuple(('None', 'None', 'None') for i in range(closestSources))
+                identifiedClosestSources[currentLayer][currentNeuron] = tuple(('None', None, None) for i in range(closestSources))
             else:
                 maxNeurons = layers[currentLayer][1]
                 if not isinstance(maxNeurons, int):
@@ -1172,7 +1172,7 @@ class MetricProcessor:
             if name not in metrics_to_run:
                 return
 
-            metric_func = FINAL_METRICS.get(name)
+            metric_func = POTENTIAL_METRICS.get(name)
             if metric_func is None:
                 print(f"Warning: Metric function for '{name}' not found in dictionary.")
                 results[name] = np.nan
@@ -1307,7 +1307,7 @@ class ComponentOptimizer:
 def create_global_metric_combinations(max_metrics_to_add, max_metrics_to_remove, getIndices=False):
 
     # 1. Get all available metric names from the METRICS dictionary
-    all_available_metrics_set = set(FINAL_METRICS.keys())
+    all_available_metrics_set = set(POTENTIAL_METRICS.keys())
     #print(f"Total available metrics: {len(all_available_metrics_set)}")
 
     # 2. Define the current best combination as the baseline
@@ -1401,7 +1401,7 @@ def create_global_metric_combinations(max_metrics_to_add, max_metrics_to_remove,
         for currentTuple in final_combinations_list:
             found_indices = []
             for metric in currentTuple:
-                index = list(FINAL_METRICS.keys()).index(metric)
+                index = list(POTENTIAL_METRICS.keys()).index(metric)
                 found_indices.append(index)
             final_combinations_list_indices.append(tuple(found_indices))
         final_combinations_list = list(final_combinations_list_indices)
