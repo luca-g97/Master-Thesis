@@ -241,10 +241,13 @@ def getMostUsedPerLayer(sources):
     return sourceCounter, mostUsed
 
 def getClosestSourcesPerNeuronAndLayer(sources, layersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, mode=""):
+    mostUsedSourcesPerLayer = []
+    
     for cLayer, layer in enumerate(sources):
         weightedSourcesPerLayer = []
         totalDifferencePerLayer = 0
         imagesPerLayer = []
+        mostUsedPerLayer = []
 
         for cNeuron, neuron in enumerate(layer):
             if(cNeuron < layers[cLayer][1].out_features):
@@ -257,9 +260,14 @@ def getClosestSourcesPerNeuronAndLayer(sources, layersToCheck, closestSources, s
                         totalDifferencePerLayer += difference
                         weightedSourcesPerNeuron.append(WeightedSource(**baseWeightedSource))
                         weightedSourcesPerLayer.append(WeightedSource(**baseWeightedSource))
+                        if sourceNumber not in mostUsedPerLayer:
+                            mostUsedPerLayer.append(sourceNumber)
                 if not(visualizationChoice == "Custom" and ((cNeuron < int(visualizeCustom[cLayer][0][0])) or (cNeuron > int(visualizeCustom[cLayer][0][1])))):
                     imagesPerLayer.append([blendIndividualImagesTogether(weightedSourcesPerNeuron, closestSources), [f"Source: {source.source}, Difference: {source.difference:.10f}<br>" for source in weightedSourcesPerNeuron][:showClosestMostUsedSources], f"{mode} - Layer: {int(layersToCheck[cLayer]/2)}, Neuron: {cNeuron}"])
 
+        for sourceInLayer in mostUsedPerLayer:
+            mostUsedSourcesPerLayer.append(sourceInLayer)
+        
         if not(visualizationChoice == "Per Layer Only"):
             if not(mode == "Activation" and visualizationChoice == "Custom" and visualizeCustom[cLayer][1] == False):
                 showIndividualImagesPlotly(imagesPerLayer, int(layersToCheck[cLayer]/2), closestSources, showClosestMostUsedSources, mode)
@@ -275,6 +283,8 @@ def getClosestSourcesPerNeuronAndLayer(sources, layersToCheck, closestSources, s
                 plt.imshow(image)
                 plt.title(f"{mode} - Layer:  {int(layersToCheck[cLayer]/2)}, {closestSources} most used Sources")
                 plt.show()
+                
+    return mostUsedSourcesPerLayer
 
 """# Evaluation: Visual Blending"""
 
@@ -521,10 +531,10 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             showImagesUnweighted("Magnitude Truncation", createImageWithPrediction(sample.reshape(28, 28), true, prediction), blendedMTSourceImageActivation, blendedMTSourceImageSum, mostUsedMTSourcesWithActivation[:showClosestMostUsedSources], mostUsedMTSourcesWithSum[:showClosestMostUsedSources])
         else:
             sourcesSum, metricSourcesSum, mtSourcesSum, outputsSum, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], metricsDictionaryForSourceLayerNeuron[pos], mtDictionaryForSourceLayerNeuron[pos], "Sum")
-            mostUsedSourcesWithSum = getClosestSourcesPerNeuronAndLayer(sourcesSum, layerNumbersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, "Sum")
+            mostUsedSourcesPerLayerWithSum = getClosestSourcesPerNeuronAndLayer(sourcesSum, layerNumbersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, "Sum")
 
             sourcesActivation, metricSourcesActivation, mtSourcesActivation, outputsActivation, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], metricsDictionaryForSourceLayerNeuron[pos], mtDictionaryForSourceLayerNeuron[pos], "Activation")
-            mostUsedSourcesWithActivation = getClosestSourcesPerNeuronAndLayer(sourcesActivation, layerNumbersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, "Activation")
+            mostUsedSourcesPerLayerWithActivation = getClosestSourcesPerNeuronAndLayer(sourcesActivation, layerNumbersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, "Activation")
             #RENN.analyzeData(closestSources, dictionaryForSourceLayerNeuron[pos])
 
         if(analyze):
@@ -532,14 +542,15 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             #Always use the linear layer values for reference within the evaluation
             mostUsedListSum.append(mostUsedSourcesPerLayerWithSum)
             mostUsedListActivations.append(mostUsedSourcesPerLayerWithActivation)
-            blendActivations("", mostUsedSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layerNumbersToCheck, True)
-            evaluateImageSimilarity("", sample, mostUsedSourcesWithSum)
-            if metricsEvaluation:
-                blendActivations("Metrics", mostUsedMetricSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layerNumbersToCheck, True)
-                evaluateImageSimilarity("Metrics", sample, mostUsedMetricSourcesWithSum)
-            if RENN.mtEvaluation:
-                blendActivations("MT", mostUsedMTSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layerNumbersToCheck, True)
-                evaluateImageSimilarity("MT", sample, mostUsedMTSourcesWithSum)
+            if(visualizationChoice == "Weighted"):
+                blendActivations("", mostUsedSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layerNumbersToCheck, True)
+                evaluateImageSimilarity("", sample, mostUsedSourcesWithSum)
+                if metricsEvaluation:
+                    blendActivations("Metrics", mostUsedMetricSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layerNumbersToCheck, True)
+                    evaluateImageSimilarity("Metrics", sample, mostUsedMetricSourcesWithSum)
+                if RENN.mtEvaluation:
+                    blendActivations("MT", mostUsedMTSourcesWithSum, dictionaryForSourceLayerNeuron[pos], layerNumbersToCheck, True)
+                    evaluateImageSimilarity("MT", sample, mostUsedMTSourcesWithSum)
 
     if analyze:
         resultDataframe = evaluate_metric_combinations_overall(
