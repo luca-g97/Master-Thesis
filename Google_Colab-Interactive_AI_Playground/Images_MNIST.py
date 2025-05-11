@@ -240,11 +240,7 @@ def getMostUsedPerLayer(sources):
         sourceCounter += 1
     return sourceCounter, mostUsed
 
-def getClosestSourcesPerNeuronAndLayer(sources, layersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, mode=""):
-    mostUsedSourcesPerLayer = []
-    mostUsedOverall = []
-    differences = []
-    
+def getClosestSourcesPerNeuronAndLayer(sources, layersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, mode=""):   
     for cLayer, layer in enumerate(sources):
         weightedSourcesPerLayer = []
         totalDifferencePerLayer = 0
@@ -257,20 +253,13 @@ def getClosestSourcesPerNeuronAndLayer(sources, layersToCheck, closestSources, s
                 totalDifferencePerNeuron = 0
                 for sourceNumber, value, difference in neuron:
                     if(sourceNumber != 'None'):
-                        mostUsedOverall.append(sourceNumber)
-                        differences.append(difference)
                         baseWeightedSource = {'source': sourceNumber, 'difference': difference}
                         totalDifferencePerNeuron += difference
                         totalDifferencePerLayer += difference
                         weightedSourcesPerNeuron.append(WeightedSource(**baseWeightedSource))
                         weightedSourcesPerLayer.append(WeightedSource(**baseWeightedSource))
-                        if sourceNumber not in mostUsedPerLayer:
-                            mostUsedPerLayer.append(sourceNumber)
                 if not(visualizationChoice == "Custom" and ((cNeuron < int(visualizeCustom[cLayer][0][0])) or (cNeuron > int(visualizeCustom[cLayer][0][1])))):
                     imagesPerLayer.append([blendIndividualImagesTogether(weightedSourcesPerNeuron, closestSources), [f"Source: {source.source}, Difference: {source.difference:.10f}<br>" for source in weightedSourcesPerNeuron][:showClosestMostUsedSources], f"{mode} - Layer: {int(layersToCheck[cLayer]/2)}, Neuron: {cNeuron}"])
-
-        for sourceInLayer in mostUsedPerLayer:
-            mostUsedSourcesPerLayer.append(sourceInLayer)
         
         if not(visualizationChoice == "Per Layer Only"):
             if not("Activation" in mode and visualizationChoice == "Custom" and visualizeCustom[cLayer][1] == False):
@@ -287,11 +276,6 @@ def getClosestSourcesPerNeuronAndLayer(sources, layersToCheck, closestSources, s
                 plt.imshow(image)
                 plt.title(f"{mode} - Layer:  {int(layersToCheck[cLayer]/2)}, {closestSources} most used Sources")
                 plt.show()
-                
-    mostUsedSources = RENN.weighted_counter(mostUsedOverall, differences)
-    mostUsedSourcesPerLayer = Counter(mostUsedSourcesPerLayer)
-                
-    return mostUsedSources.most_common()[:closestSources], mostUsedSourcesPerLayer.most_common()[:closestSources]
 
 """# Evaluation: Visual Blending"""
 
@@ -524,7 +508,6 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             blendedMTSourceImageSum = blendImagesTogether(mostUsedMTSourcesWithSum, "Not Weighted")
             layersToCheck = layerNumbersToCheck # Switch to another variable to use correct layers for analyzation
 
-
             #sourcesActivation, metricSourcesActivation, mtSourcesActivation, outputsActivation, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], metricsDictionaryForSourceLayerNeuron[pos], mtDictionaryForSourceLayerNeuron[pos], "Activation") #For Overall Sum-Evaluation
             sourcesActivation, metricSourcesActivation, mtSourcesActivation, outputsActivation, layersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], metricsDictionaryForSourceLayerNeuron[pos], mtDictionaryForSourceLayerNeuron[pos], "Activation") #Uncomment for Overall Activation-Evaluation
             mostUsedSourcesWithActivation, mostUsedMetricSourcesWithActivation, mostUsedMTSourcesWithActivation, mostUsedSourcesPerLayerWithActivation = RENN.getMostUsedSources(sourcesActivation, metricSourcesActivation, mtSourcesActivation, closestSources, "Activation")
@@ -538,14 +521,12 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             showImagesUnweighted("Magnitude Truncation", createImageWithPrediction(sample.reshape(28, 28), true, prediction), blendedMTSourceImageActivation, blendedMTSourceImageSum, mostUsedMTSourcesWithActivation[:showClosestMostUsedSources], mostUsedMTSourcesWithSum[:showClosestMostUsedSources])
         else:
             sourcesSum, metricSourcesSum, mtSourcesSum, outputsSum, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], metricsDictionaryForSourceLayerNeuron[pos], mtDictionaryForSourceLayerNeuron[pos], "Sum")
-            mostUsedSourcesWithSum, mostUsedSourcesPerLayerWithSum = getClosestSourcesPerNeuronAndLayer(sourcesSum, layerNumbersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, "Sum")
-            mostUsedMetricSourcesWithSum, _ = getClosestSourcesPerNeuronAndLayer(metricSourcesSum, layerNumbersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, "Metrics-Sum")
-            mostUsedMTSourcesWithSum, _ = getClosestSourcesPerNeuronAndLayer(mtSourcesSum, layerNumbersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, "MT-Sum")
+            getClosestSourcesPerNeuronAndLayer(sourcesSum, layerNumbersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, "Sum")
+            mostUsedSourcesWithSum, mostUsedMetricSourcesWithSum, mostUsedMTSourcesWithSum, mostUsedSourcesPerLayerWithSum = RENN.getMostUsedSources(sourcesSum, metricSourcesSum, mtSourcesSum, closestSources, "Sum")
             
             sourcesActivation, metricSourcesActivation, mtSourcesActivation, outputsActivation, layerNumbersToCheck = RENN.identifyClosestSources(closestSources, dictionaryForSourceLayerNeuron[pos], metricsDictionaryForSourceLayerNeuron[pos], mtDictionaryForSourceLayerNeuron[pos], "Activation")
-            mostUsedSourcesWithActivation, mostUsedSourcesPerLayerWithActivation = getClosestSourcesPerNeuronAndLayer(sourcesActivation, layerNumbersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, "Activation")
-            mostUsedMetricSourcesWithActivation, _ = getClosestSourcesPerNeuronAndLayer(metricSourcesActivation, layerNumbersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, "Metrics-Activation")
-            mostUsedMTSourcesWithActivation, _ = getClosestSourcesPerNeuronAndLayer(mtSourcesActivation, layerNumbersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, "MT-Activation")
+            getClosestSourcesPerNeuronAndLayer(sourcesActivation, layerNumbersToCheck, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, "Activation")
+            mostUsedSourcesWithActivation, mostUsedMetricSourcesWithActivation, mostUsedMTSourcesWithActivation, mostUsedSourcesPerLayerWithActivation = RENN.getMostUsedSources(sourcesActivation, metricSourcesActivation, mtSourcesActivation, closestSources, "Activation")
             #RENN.analyzeData(closestSources, dictionaryForSourceLayerNeuron[pos])
 
         if(analyze):
