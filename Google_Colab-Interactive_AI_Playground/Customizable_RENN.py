@@ -515,7 +515,12 @@ def identifyClosestSources(closestSources, outputs, metricsOutputs, mtOutputs, m
         ]
     else:
         layerNumbersToCheck = [idx for idx, _ in enumerate(layers)]
-
+    
+    activationToCheckFor = [
+        (idx * 2) + 1 for idx, (name, layerNumber, activation) in enumerate(layers)
+        if getActivation(hidden_sizes, idx) != False
+    ]
+    activationLayersToCheck = dictionary[activationToCheckFor]
     layersToCheck = dictionary[layerNumbersToCheck]
     outputsToCheck = outputs[layerNumbersToCheck]
     identifiedClosestSources = np.empty((len(layersToCheck), np.max(layerSizes), closestSources), dtype=tuple)
@@ -539,7 +544,8 @@ def identifyClosestSources(closestSources, outputs, metricsOutputs, mtOutputs, m
 
     for currentLayer, (layer, currentMetricsLayer, currentMTLayer) in enumerate(zip(layersToCheck, metricsLayersToCheck, mtLayersToCheck)):
         for currentNeuron, neuron in enumerate(layer):
-            if ignore_near_zero_eval_activations and np.abs(outputsToCheck[currentLayer][currentNeuron]) < EPSILON:
+            currentActivationNeuron = activationLayersToCheck[currentLayer][currentNeuron]
+            if ignore_near_zero_eval_activations and np.abs(currentActivationNeuron) < EPSILON:
                 identifiedClosestSources[currentLayer][currentNeuron] = tuple(('None', None, None) for i in range(closestSources))
             else:
                 maxNeurons = layers[currentLayer][1]
