@@ -540,7 +540,7 @@ def identifyClosestSources(closestSources, outputs, metricsOutputs, mtOutputs, m
     for currentLayer, (layer, currentMetricsLayer, currentMTLayer) in enumerate(zip(layersToCheck, metricsLayersToCheck, mtLayersToCheck)):
         for currentNeuron, neuron in enumerate(layer):
             if ignore_near_zero_eval_activations and np.abs(outputsToCheck[currentLayer][currentNeuron]) < EPSILON:
-                identifiedClosestSources[currentLayer][currentNeuron] = tuple((None, None, None) for i in range(closestSources))
+                identifiedClosestSources[currentLayer][currentNeuron] = tuple(('None', 'None', 'None') for i in range(closestSources))
             else:
                 maxNeurons = layers[currentLayer][1]
                 if not isinstance(maxNeurons, int):
