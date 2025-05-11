@@ -540,7 +540,7 @@ def identifyClosestSources(closestSources, outputs, metricsOutputs, mtOutputs, m
     for currentLayer, (layer, currentMetricsLayer, currentMTLayer) in enumerate(zip(layersToCheck, metricsLayersToCheck, mtLayersToCheck)):
         for currentNeuron, neuron in enumerate(layer):
             if ignore_near_zero_eval_activations and np.abs(outputsToCheck[currentLayer][currentNeuron]) < EPSILON:
-                continue
+                identifiedClosestSources[currentLayer][currentNeuron] = tuple((None, None, None))
             else:
                 maxNeurons = layers[currentLayer][1]
                 if not isinstance(maxNeurons, int):
@@ -656,7 +656,6 @@ def getMostUsed(sources, mode="", evaluation=""):
                     differences.append(difference)
         else:
             for currentNeuron, neuron in enumerate(layer):
-                if isinstance(neuron, tuple):
                     maxNeurons = layers[currentLayer][1] if mode == "" else layers[currentLayer][1].out_features
                     if not isinstance(maxNeurons, int):  # Ensure maxNeurons is an integer
                         maxNeurons = maxNeurons.out_features
