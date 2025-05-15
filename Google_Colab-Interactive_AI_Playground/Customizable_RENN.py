@@ -320,14 +320,6 @@ def forward_hook(module, input, output):
 
         #Use for array structure like: [layer, neuron, source]
         output = relevantOutput if len(relevantOutput.shape) == 1 else relevantOutput[0]
-        if metricsEvaluation:
-            metricsArray = createMetricsArray(output)
-            metricsDictionaryForSourceLayerNeuron[source][layer] = metricsArray
-            metricsDictionaryForLayerNeuronSource[layer][source] = metricsArray
-        if mtEvaluation:
-            reduced = np.argsort(-np.abs(output))[:min(NumberOfComponents, output.shape[0])]
-            mtDictionaryForSourceLayerNeuron[source][layer,:len(reduced)] = reduced
-            mtDictionaryForLayerNeuronSource[layer][source,:len(reduced)] = reduced
 
         if(llm):
             if(actualLayer in layersToCheck or layersToCheck == []):
@@ -336,6 +328,15 @@ def forward_hook(module, input, output):
                     #print(f"Create File: LookUp/{fileName}/Layer{layer}/Source={result[0]}/Sentence{result[1]}-0")
                     append_structured_sparse(output[:layerNeurons], actualLayer, sourceNumber, sentenceNumber)
         else:
+            if metricsEvaluation:
+                metricsArray = createMetricsArray(output)
+                metricsDictionaryForSourceLayerNeuron[source][layer] = metricsArray
+                metricsDictionaryForLayerNeuronSource[layer][source] = metricsArray
+            if mtEvaluation:
+                reduced = np.argsort(-np.abs(output))[:min(NumberOfComponents, output.shape[0])]
+                mtDictionaryForSourceLayerNeuron[source][layer,:len(reduced)] = reduced
+                mtDictionaryForLayerNeuronSource[layer][source,:len(reduced)] = reduced
+            
             for neuronNumber, neuron in enumerate(output):
                 if neuronNumber < layerNeurons:
                     dictionaryForLayerNeuronSource[layer][neuronNumber][source] = neuron
@@ -468,8 +469,9 @@ def initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model,
     with torch.no_grad():
         model.eval()  # Set the model to evaluation mode
         attachHooks(eval_dataloader, model, llmType, filename, sourceOffset, lstm)
-
-    return dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource
+    
+    if not llm:
+        return dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource
 
 METRIC_WEIGHTS = {name: 0.0 for name in POTENTIAL_METRICS.keys()}
 #Best metrics by Optimization for only one sample
@@ -717,7 +719,7 @@ def getMostUsedFromDataFrame(df, evalSample, closestSources, weightedMode=""):
     sourceCounter = valid_entries['source'].value_counts().sum()  # Total count of valid sources
     mostUsed = valid_entries['source'].tolist()  # Extract 'source' as a list
 
-    return sourceCounter, mostUsed
+    return sourceCounter, mostUsed, counter
 
 def weighted_counter(mostUsed, sourceDifferences,
                      freq_weight=0.5, prox_weight=0.5,
@@ -749,25 +751,22 @@ def getMostUsedSources(sources, metricsSources, mtSources, closestSources, evalS
     metricsMostUsed, metricsSourceCounter = [], []
     mtMostUsed, mtSourceCounter = [], []
     if llm:
-        sourceCounter, mostUsed = getMostUsedFromDataFrame(sources, evalSample, closestSources, weightedMode)
+        sourceCounter, mostUsed, counter = getMostUsedFromDataFrame(sources, evalSample, closestSources, weightedMode)
     else:
         sourceCounter, mostUsed, sourceDifferences, mostUsedSourcesPerLayer = getMostUsed(sources, weightedMode)
         if metricsEvaluation:
             metricsSourceCounter, metricsMostUsed, metricsDifferences, _ = getMostUsed(metricsSources, weightedMode, evaluation="Metrics")
         if mtEvaluation:
             mtSourceCounter, mtMostUsed, mtDifferences, _ = getMostUsed(mtSources, weightedMode, evaluation="Magnitude Truncation")
-    counter = weighted_counter(mostUsed, sourceDifferences)
-    metricsCounter = weighted_counter(metricsMostUsed, metricsDifferences)
-    mtCounter = weighted_counter(mtMostUsed, mtDifferences)
-    mostUsedSourcesPerLayerCounter = Counter(mostUsedSourcesPerLayer)
-
-    #if(info):
-    #print("Total closest Sources (Per Neuron):", sourceCounter, " | ", closestSources, " closest Sources (", weightedMode, ") in format: [SourceNumber, Occurances]: ", counter.most_common()[:closestSources])
-    #if metricsEvaluation:
-    #print("Total closest Sources (Metrics):", metricsSourceCounter, " | ", closestSources, " closest Sources (", weightedMode, ") in format: [SourceNumber, Occurances]: ", metricsCounter.most_common()[:closestSources])
-    #if mtEvaluation:
-    #print("Total closest Sources (MT):", mtSourceCounter, " | ", closestSources, " closest Sources (", weightedMode, ") in format: [SourceNumber, Occurances]: ", mtCounter.most_common()[:closestSources])
-    return counter.most_common()[:closestSources], metricsCounter.most_common()[:closestSources], mtCounter.most_common()[:closestSources], mostUsedSourcesPerLayerCounter.most_common()[:closestSources]
+    
+    if llm:
+        return counter[:closestSources]
+    else:
+        counter = weighted_counter(mostUsed, sourceDifferences)
+        metricsCounter = weighted_counter(metricsMostUsed, metricsDifferences)
+        mtCounter = weighted_counter(mtMostUsed, mtDifferences)
+        mostUsedSourcesPerLayerCounter = Counter(mostUsedSourcesPerLayer)
+        return counter.most_common()[:closestSources], metricsCounter.most_common()[:closestSources], mtCounter.most_common()[:closestSources], mostUsedSourcesPerLayerCounter.most_common()[:closestSources]
 
 # Normalize function to convert to integer range for sparse arrays
 def normalize_to_integer_sparse(sparse_data, min_val, max_val):
@@ -1046,7 +1045,7 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources, onlyOneEv
                     print(f"I/O Task Exception for sample: {e}")
 
     # Step 2: Handle CPU-bound tasks
-    with concurrent.futures.ProcessPoolExecutor(max_workers=16) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=256) as executor:
         cpu_futures = [
             executor.submit(process_sample_cpu, sampleNumber, evalOffset, trainPath, evalPath, generatedEvalPath, closestSources, info)
             for sampleNumber in range(evalSamples)
