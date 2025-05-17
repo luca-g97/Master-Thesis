@@ -28,6 +28,7 @@ dropout_p = 0.1
 #Generation
 sent_len = 100
 topk = 5
+pad_token_id = 0
 
 #Preinitialize
 device, DataLoader, nltk, tiktoken, tokenizer = "", "", "", "", ""
@@ -163,7 +164,7 @@ def create_sequences(sentences, current_offset=0):
 def split_data(data, num_sentences=-1):
     sentences = nltk.sent_tokenize(data) if num_sentences == -1 else nltk.sent_tokenize(data)[:num_sentences]
     words = sorted({word for sent in sentences for word in sent.split()}) #tiktoken
-    words.insert(0, "")  # Add an empty string for padding
+    words.insert(pad_token_id, "")  # Add an empty string for padding
     return sentences, words
 
 # Function to map a flattened index back to its source and sentence index

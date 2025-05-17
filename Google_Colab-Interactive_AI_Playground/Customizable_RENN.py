@@ -318,10 +318,13 @@ def forward_hook(module, input, output):
         # if(source == 0):
         #   print(relevantOutput, dictionaryForSourceLayerNeuron[source][layer,:layerNeurons])
 
-        #Use for array structure like: [layer, neuron, source]
-        output = relevantOutput if len(relevantOutput.shape) == 1 else relevantOutput[0]
-
         if(llm):
+            # Option 1: Last token pooling - good for tasks where the final state of a sequence is most important (e.g., summarization, classification after sequential processing).
+            output = relevantOutput if relevantOutput.ndim == 1 else relevantOutput[-1]
+    
+            # Option 2: Mean token pooling - can be good for creating a "fingerprint" or average representation of the entire input sequence.
+            #output = relevantOutput if relevantOutput.ndim == 1 else np.mean(relevantOutput, axis=0)
+            
             if(actualLayer in layersToCheck or layersToCheck == []):
                 sourceNumber, sentenceNumber = chosenDataSet.getSourceAndSentenceIndex(source, fileName)
                 if sourceNumber is not None and sentenceNumber is not None:
@@ -1045,7 +1048,7 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources, onlyOneEv
                     print(f"I/O Task Exception for sample: {e}")
 
     # Step 2: Handle CPU-bound tasks
-    with concurrent.futures.ProcessPoolExecutor(max_workers=256) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
         cpu_futures = [
             executor.submit(process_sample_cpu, sampleNumber, evalOffset, trainPath, evalPath, generatedEvalPath, closestSources, info)
             for sampleNumber in range(evalSamples)

@@ -856,60 +856,45 @@ def getLLMPrediction(sample, singleSentence=False):
 def get_eval_sample_vector_corrected(
         closestSourcesGeneratedEvaluation_df: pd.DataFrame,
         target_eval_sample_id
-) -> pd.Series: # MODIFIED: Returns a Pandas Series
+) -> pd.Series:
     """
     Extracts the 'eval_neuron_value's for a specific target_eval_sample_id
     as a Pandas Series, indexed by a sorted MultiIndex of (layer, neuron).
     Assumes 'evalSample' is the primary index of the input DataFrame.
     """
-    # Initialize an empty Series with the correct MultiIndex type for early return
     empty_series = pd.Series(dtype=float, index=pd.MultiIndex.from_tuples([], names=['layer', 'neuron']))
-
     try:
         sample_df_slice = closestSourcesGeneratedEvaluation_df.loc[[target_eval_sample_id]]
     except KeyError:
-        print(f"Warning (get_eval_vector): Evaluation Sample ID {target_eval_sample_id} not found in index.")
+        print(f"Warning (get_eval_vector): Eval Sample ID {target_eval_sample_id} not found in index.")
         return empty_series
     except TypeError as e:
         print(f"Warning (get_eval_vector): Type error accessing index with {target_eval_sample_id}. Error: {e}")
         return empty_series
 
-    if sample_df_slice.empty:
-        return empty_series
-
+    if sample_df_slice.empty: return empty_series
     df_to_process = sample_df_slice.copy()
     if not ('layer' in df_to_process.columns and 'neuron' in df_to_process.columns):
         print("Error (get_eval_vector): 'layer' or 'neuron' columns not found for processing.")
         return empty_series
-
-    # Get unique eval_neuron_value for each neuron; result is Series indexed by (layer, neuron)
     unique_neuron_eval_values = df_to_process.groupby(['layer', 'neuron'])['eval_neuron_value'].first()
-
-    if unique_neuron_eval_values.empty:
-        return empty_series
-
-    # Sort the Series by its MultiIndex (layer, then neuron)
-    sorted_eval_values_series = unique_neuron_eval_values.sort_index(level=['layer', 'neuron'])
-    return sorted_eval_values_series
+    if unique_neuron_eval_values.empty: return empty_series
+    return unique_neuron_eval_values.sort_index(level=['layer', 'neuron'])
 
 def get_aligned_source_vectors(
         closestSourcesGeneratedEvaluation_df: pd.DataFrame,
-        most_used_sources_info_list: list, # List of (source_id_str, weight)
+        most_used_sources_info_list: list,
         target_eval_sample_id: any,
-        eval_sample_ordered_ln_index: pd.MultiIndex # The (layer, neuron) MultiIndex from eval sample
-) -> dict: # Maps source_id_str to its aligned 1D NumPy vector
-    """
-    For each source, creates a flat vector aligned with the evaluation sample's structure.
-    """
+        eval_sample_ordered_ln_index: pd.MultiIndex
+) -> dict:
     aligned_source_vector_map = {}
     num_eval_neurons = len(eval_sample_ordered_ln_index)
-    default_source_vector = np.full(num_eval_neurons, 0.0) # Default vector of zeros
+    default_source_vector = np.full(num_eval_neurons, 0.0)
 
-    # Handle case where eval_sample_ordered_ln_index might be empty
     if num_eval_neurons == 0:
-        print("Warning (get_aligned_source_vectors): Evaluation sample structure has zero neurons. Returning empty vectors for sources.")
+        print("Warning (get_aligned_source_vectors): Eval sample structure has zero neurons. Returning empty/default vectors for sources.")
         for source_id_str, _ in most_used_sources_info_list:
-            aligned_source_vector_map[source_id_str] = np.array([])
+            aligned_source_vector_map[source_id_str] = np.array([]) if num_eval_neurons == 0 else default_source_vector.copy()
         return aligned_source_vector_map
 
     try:
@@ -925,69 +910,47 @@ def get_aligned_source_vectors(
             aligned_source_vector_map[source_id_str] = default_source_vector.copy()
         return aligned_source_vector_map
 
-    # Create a lookup Series: MultiIndex by (source, layer, neuron) -> neuron_value (source's value)
-    # This assumes 'neuron_value' is the value from the source that corresponds to the eval (layer,neuron)
-    source_neuron_values_lookup = sample_df_slice.groupby(
-        ['source', 'layer', 'neuron']
-    )['neuron_value'].first() # Take first if multiple entries (should be rare if data is clean)
+    source_neuron_values_lookup = sample_df_slice.groupby(['source', 'layer', 'neuron'])['neuron_value'].first()
 
     for source_id_str, _ in most_used_sources_info_list:
-        # Initialize vector for this source based on eval sample structure
-        source_vector_values = np.full(num_eval_neurons, 0.0) # Default to 0.0 for non-matched
-
-        # Try to populate based on matches
-        # Create keys for current source to look up in source_neuron_values_lookup
-        # eval_sample_ordered_ln_index is already (layer, neuron)
-        # We need to check for (source_id_str, layer, neuron) in source_neuron_values_lookup
-
-        # Efficiently get values for the current source that match the eval structure
-        # This creates potential keys for lookup: (source_id_str, layer_from_eval, neuron_from_eval)
-        potential_source_keys = pd.MultiIndex.from_tuples(
-            [(source_id_str, l, n) for l, n in eval_sample_ordered_ln_index],
-            names=['source', 'layer', 'neuron']
-        )
-
-        # Find which of these keys exist in our lookup and get their values
-        # Reindex source_neuron_values_lookup with all potential keys for this source
-        # This will introduce NaNs where the source didn't have a value for an eval (l,n)
-        # Then fill NaNs with 0.0 and convert to numpy
-        # Note: This reindex requires source_neuron_values_lookup to have 'source' as the first level
-
-        if not source_neuron_values_lookup.empty:
-            # Select values for the current source_id_str that match the (layer, neuron) structure of the eval sample
-            # We create a temporary Series for the current source's values that are present
-            # and then align it with the full eval_sample_ordered_ln_index.
-
-            # Get all values for the current source, indexed by (layer, neuron)
-            if source_id_str in source_neuron_values_lookup.index.get_level_values('source'):
-                current_source_values_series = source_neuron_values_lookup.xs(source_id_str, level='source')
-
-                # Reindex/align with the evaluation sample's (layer,neuron) structure
-                # This ensures the vector has the same length and order, filling missing with NaN
-                aligned_values_for_source = current_source_values_series.reindex(eval_sample_ordered_ln_index).fillna(0.0)
-                source_vector_values = aligned_values_for_source.to_numpy()
-            # else: source_vector_values remains as np.full(num_eval_neurons, 0.0) if source_id_str had no entries
-
+        source_vector_values = default_source_vector.copy()
+        if not source_neuron_values_lookup.empty and \
+                source_id_str in source_neuron_values_lookup.index.get_level_values('source'):
+            current_source_values_series = source_neuron_values_lookup.xs(source_id_str, level='source')
+            aligned_values_for_source = current_source_values_series.reindex(eval_sample_ordered_ln_index).fillna(0.0)
+            source_vector_values = aligned_values_for_source.to_numpy()
         aligned_source_vector_map[source_id_str] = source_vector_values
-
     return aligned_source_vector_map
 
-# --- Similarity helpers ---
+# --- Similarity helpers (EPSILON, _compute_single_cosine_similarity, _compute_all_similarity_metrics) ---
+# These operate on the vectors passed to them. If raw vectors are passed, they compute on raw.
 EPSILON = 1e-9
 def _compute_single_cosine_similarity(vec1_flat, vec2_flat):
     vec1_2d = vec1_flat.reshape(1, -1); vec2_2d = vec2_flat.reshape(1, -1)
+    # Cosine similarity is scale-invariant, so raw vs normalized (if only scaled) is often similar
     return cosine_similarity(vec1_2d, vec2_2d)[0][0]
 
 def _compute_all_similarity_metrics(vec1_flat, vec2_flat):
     vec1 = vec1_flat.astype(float); vec2 = vec2_flat.astype(float)
+    # Note: Jaccard is typically for non-negative. If raw values can be negative, its interpretation changes.
+    #       Consider clipping to [0, max_val] or using absolute values for Jaccard if negatives are present.
+    #       For this implementation, we'll proceed with raw values and note this.
     cosine_sim = _compute_single_cosine_similarity(vec1, vec2)
     euclidean_dist = np.linalg.norm(vec1 - vec2)
     manhattan_dist = np.sum(np.abs(vec1 - vec2))
-    sum_max_for_jaccard = np.sum(np.maximum(vec1, vec2))
-    jaccard_sim = np.sum(np.minimum(vec1, vec2)) / sum_max_for_jaccard if sum_max_for_jaccard > 0 else 0.0
-    hamming_dist = np.mean(vec1 != vec2)
+
+    # For Jaccard with potentially negative values, ensure inputs are non-negative for standard interpretation
+    # Or accept that it's a generalized form. Here, we'll proceed with raw values.
+    # If you need non-negative Jaccard, apply np.maximum(0, vec) to vec1 and vec2 before this.
+    min_sum_jaccard = np.sum(np.minimum(vec1, vec2))
+    max_sum_jaccard = np.sum(np.maximum(vec1, vec2))
+    jaccard_sim = min_sum_jaccard / max_sum_jaccard if max_sum_jaccard != 0 else (1.0 if min_sum_jaccard == 0 else 0.0)
+
+
+    hamming_dist = np.mean(vec1 != vec2) # True if not *exactly* equal for floats
     pearson_corr, kendall_t, spearman_r = np.nan, np.nan, np.nan
     std_vec1, std_vec2 = np.std(vec1), np.std(vec2)
+
     if not (std_vec1 < EPSILON or std_vec2 < EPSILON):
         try:
             if len(vec1) >= 2: pearson_corr, _ = pearsonr(vec1, vec2)
@@ -1002,141 +965,157 @@ def _compute_all_similarity_metrics(vec1_flat, vec2_flat):
             "hamming_distance": hamming_dist, "pearson_correlation": pearson_corr,
             "kendall_tau": kendall_t, "spearman_rho": spearman_r}
 
-# --- Vector to Image Conversion Helpers (RGB) ---
-def _normalize_flat_vector(vector_flat):
+# --- Vector to Image Conversion Helpers (Normalization is now primarily for viz) ---
+def _normalize_flat_vector(vector_flat): # Used for visualization scaling
     vec = np.asarray(vector_flat).astype(float)
     if vec.size == 0: return np.array([])
     min_val, max_val = np.min(vec), np.max(vec)
     return np.zeros_like(vec) if max_val == min_val else (vec - min_val) / (max_val - min_val)
 
-def _convert_flat_vector_to_rgb_square_image(
-        normalized_vector_flat, padding_rgb_value=(0.0, 0.0, 0.0), colormap_name='viridis'
+def _convert_flat_vector_to_rgb_square_image( # Expects NORMALIZED vector for colormapping
+        normalized_vector_flat, padding_rgb_value=(0.0,0.0,0.0), colormap_name='viridis'
 ):
-    vec = np.asarray(normalized_vector_flat)
+    vec = np.asarray(normalized_vector_flat) # Should be normalized [0,1]
     current_length = vec.size
-    if current_length == 0: return np.full((1, 1, 3), padding_rgb_value, dtype=float), 1
+    if current_length == 0: return np.full((1,1,3), padding_rgb_value, dtype=float), 1
     side_length = int(math.ceil(math.sqrt(current_length)))
     if side_length == 0: side_length = 1
     target_pixel_count = side_length * side_length
     cmap = cm.get_cmap(colormap_name)
-    colored_pixels_rgb = cmap(vec)[:, :3]
+    colored_pixels_rgb = cmap(vec)[:,:3]
     if current_length < target_pixel_count:
         padding_needed = target_pixel_count - current_length
         padding_array_rgb = np.full((padding_needed, 3), padding_rgb_value, dtype=float)
         padded_rgb_pixels = np.concatenate((colored_pixels_rgb, padding_array_rgb), axis=0)
-    elif current_length > target_pixel_count:
-        padded_rgb_pixels = colored_pixels_rgb[:target_pixel_count, :]
-    else:
-        padded_rgb_pixels = colored_pixels_rgb
+    else: # Handles current_length == target_pixel_count, truncation if > (should not happen)
+        padded_rgb_pixels = colored_pixels_rgb[:target_pixel_count,:]
     return padded_rgb_pixels.reshape((side_length, side_length, 3)), side_length
+
+# _adjust_rgb_image_to_common_size remains the same, operating on HxWx3 images
 
 def _adjust_rgb_image_to_common_size(
         image_rgb, target_side_length, padding_rgb_value=(0.0,0.0,0.0)
 ):
     current_h, current_w, _ = image_rgb.shape
     target_side_length = max(1, target_side_length)
-    adjusted_image_rgb = np.full((target_side_length, target_side_length, 3), padding_rgb_value, dtype=image_rgb.dtype)
+    adjusted_image_rgb = np.full((target_side_length,target_side_length,3), padding_rgb_value, dtype=image_rgb.dtype)
     copy_h, copy_w = min(current_h, target_side_length), min(current_w, target_side_length)
-    adjusted_image_rgb[:copy_h, :copy_w, :] = image_rgb[:copy_h, :copy_w, :]
+    adjusted_image_rgb[:copy_h,:copy_w,:] = image_rgb[:copy_h,:copy_w,:]
     return adjusted_image_rgb
 
-# --- Main visualization function ---
+# --- Main visualization function (Modified for Raw Value Comparison) ---
 def visualize_and_evaluate_flat_vector_similarity_as_images(
         target_eval_sample_id: any,
-        eval_sample_actual_flat_vector: np.ndarray,
+        eval_sample_raw_flat_vector: np.ndarray, # Now expects RAW unnormalized vector
         most_used_sources_info_list: list,
-        source_id_to_aligned_flat_vector_map: dict, # Expects vectors aligned to eval structure
+        source_id_to_aligned_raw_flat_vector_map: dict, # Expects RAW unnormalized aligned vectors
         default_padding_rgb_value: tuple = (0.0, 0.0, 0.0),
-        colormap: str = 'viridis'
+        colormap: str = 'viridis',
+        diff_colormap: str = 'coolwarm'
 ):
-    eval_vector_original_len = eval_sample_actual_flat_vector.size
-    if eval_vector_original_len == 0:
-        print(f"Warning: Eval sample {target_eval_sample_id} vector is empty. Using 1x1 default image.")
-        eval_image_native_rgb = np.full((1,1,3), default_padding_rgb_value, dtype=float)
-        eval_native_side_len = 1
-    else:
-        eval_vector_norm = _normalize_flat_vector(eval_sample_actual_flat_vector)
-        eval_image_native_rgb, eval_native_side_len = _convert_flat_vector_to_rgb_square_image(
-            eval_vector_norm, padding_rgb_value=default_padding_rgb_value, colormap_name=colormap
-        )
+    # --- 1. Prepare RAW blended vector ---
+    eval_vector_original_len = eval_sample_raw_flat_vector.size
+    # Initialize with a neutral raw value if appropriate (e.g., 0, or mean of typical raw values)
+    # For now, using 0.0, but this default is for the raw blended vector.
+    blended_raw_1d_vector = np.zeros(eval_vector_original_len, dtype=float)
 
-    source_images_native_rgb, source_native_side_lengths, valid_source_weights = [], [], []
-    if most_used_sources_info_list:
+    total_weight = sum(weight for _, weight in most_used_sources_info_list if weight > 0)
+    actual_sources_blended_count = 0
+
+    if total_weight > 0 and most_used_sources_info_list:
         for source_id_str, weight in most_used_sources_info_list:
             if weight <= 0: continue
-            try:
-                if source_id_str not in source_id_to_aligned_flat_vector_map:
-                    print(f"Warning: Source ID '{source_id_str}' not in source_id_to_aligned_flat_vector_map. Skipping.")
-                    continue
-                source_vec_aligned = np.asarray(source_id_to_aligned_flat_vector_map[source_id_str]).flatten()
-                if source_vec_aligned.size == 0 : # Should have same size as eval vec or be default
-                    print(f"Warning: Aligned vector for source ID '{source_id_str}' is unexpectedly empty. Skipping.")
-                    continue
-                if source_vec_aligned.size != eval_vector_original_len and eval_vector_original_len > 0:
-                    print(f"Warning: Aligned source vector '{source_id_str}' (len {source_vec_aligned.size}) " \
-                          f"not matching eval vector len ({eval_vector_original_len}). Check get_aligned_source_vectors.")
+            if source_id_str in source_id_to_aligned_raw_flat_vector_map:
+                # These are already aligned and should be raw
+                raw_source_vector = np.asarray(source_id_to_aligned_raw_flat_vector_map[source_id_str]).astype(float)
+                if raw_source_vector.size == eval_vector_original_len:
+                    blended_raw_1d_vector += (weight / total_weight) * raw_source_vector
+                    actual_sources_blended_count +=1
+                else:
+                    print(f"Warning: Length mismatch for raw source vector {source_id_str}. Expected {eval_vector_original_len}, got {raw_source_vector.size}. Not used in raw blend.")
+            else:
+                print(f"Warning: Source ID '{source_id_str}' not found in raw vector map for blending. Not used in raw blend.")
 
-                source_vector_norm = _normalize_flat_vector(source_vec_aligned) # Normalize the aligned vector
-                src_img_native_rgb, src_native_side_len = _convert_flat_vector_to_rgb_square_image(
-                    source_vector_norm, padding_rgb_value=default_padding_rgb_value, colormap_name=colormap
-                )
-                source_images_native_rgb.append(src_img_native_rgb)
-                source_native_side_lengths.append(src_native_side_len) # Will be same as eval_native_side_len
-                valid_source_weights.append(weight)
-            except Exception as e: print(f"Error processing source '{source_id_str}': {e}. Skipping.")
+    # --- 2. Compute Similarity on RAW vectors ---
+    print(f"\nComputing similarity between RAW eval vector (len {eval_sample_raw_flat_vector.size}) and RAW blended vector (len {blended_raw_1d_vector.size}).")
+    if eval_sample_raw_flat_vector.size == 0 or blended_raw_1d_vector.size == 0 or eval_sample_raw_flat_vector.size != blended_raw_1d_vector.size:
+        print("Warning: Cannot compute similarity due to empty or mismatched raw vectors.")
+        similarity_scores = {m: np.nan for m in ["cosine_similarity", "euclidean_distance", "manhattan_distance", "jaccard_similarity", "hamming_distance", "pearson_correlation", "kendall_tau", "spearman_rho"]}
+    else:
+        similarity_scores = _compute_all_similarity_metrics(
+            eval_sample_raw_flat_vector,
+            blended_raw_1d_vector
+        )
 
-    # With aligned vectors, all native side lengths should ideally be the same
-    all_native_side_lengths = [eval_native_side_len] + source_native_side_lengths
-    comparison_side_length = max(all_native_side_lengths) if all_native_side_lengths else 1
-    if comparison_side_length == 0: comparison_side_length = 1
+    # --- 3. Prepare Images for VISUALIZATION (Normalizing RAW vectors for display) ---
+    # Normalize the raw eval vector for visualization
+    if eval_sample_raw_flat_vector.size == 0:
+        eval_vector_norm_for_viz = np.array([])
+    else:
+        eval_vector_norm_for_viz = _normalize_flat_vector(eval_sample_raw_flat_vector)
 
-    # The _adjust step might be redundant if all native images are already same size due to aligned vectors
-    eval_image_for_comparison_rgb = _adjust_rgb_image_to_common_size(
-        eval_image_native_rgb, comparison_side_length, default_padding_rgb_value
+    # Normalize the raw blended vector for visualization
+    if blended_raw_1d_vector.size == 0: # Could happen if no sources were blended
+        blended_vector_norm_for_viz = np.array([])
+    else:
+        blended_vector_norm_for_viz = _normalize_flat_vector(blended_raw_1d_vector)
+
+    # Convert these normalized 1D vectors to native square RGB images
+    eval_image_native_rgb, eval_native_side_len = _convert_flat_vector_to_rgb_square_image(
+        eval_vector_norm_for_viz, padding_rgb_value=default_padding_rgb_value, colormap_name=colormap
     )
-    source_images_for_blending_rgb = [_adjust_rgb_image_to_common_size(
-        img, comparison_side_length, default_padding_rgb_value
-    ) for img in source_images_native_rgb] if source_images_native_rgb else []
-
-    eval_image_display_rgb = np.clip(eval_image_for_comparison_rgb, 0.0, 1.0)
-
-    blended_image_rgb_norm = np.full((comparison_side_length, comparison_side_length, 3), default_padding_rgb_value, dtype=np.float64)
-    total_weight = sum(valid_source_weights)
-    if source_images_for_blending_rgb and total_weight > 0:
-        accumulator_rgb = np.zeros_like(blended_image_rgb_norm, dtype=np.float64)
-        for i, src_img_common_rgb in enumerate(source_images_for_blending_rgb):
-            accumulator_rgb += (valid_source_weights[i] / total_weight) * src_img_common_rgb
-        blended_image_rgb_norm = np.clip(accumulator_rgb, 0.0, 1.0)
-
-    blended_image_display_rgb = np.clip(blended_image_rgb_norm, 0.0, 1.0)
-
-    similarity_scores = _compute_all_similarity_metrics(
-        eval_image_for_comparison_rgb.flatten(), blended_image_rgb_norm.flatten()
+    blended_image_native_rgb, blended_native_side_len = _convert_flat_vector_to_rgb_square_image(
+        blended_vector_norm_for_viz, padding_rgb_value=default_padding_rgb_value, colormap_name=colormap
     )
+    # Since raw vectors were same length, native_side_len should be same for both.
+    # The _adjust_rgb_image_to_common_size becomes a pass-through if sides are equal.
+    comparison_side_length = eval_native_side_len
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 7))
-    fig.suptitle(f"Flat Vector Similarity as RGB Images (Eval ID: {target_eval_sample_id}, Colormap: {colormap})", fontsize=14)
-    axes[0].imshow(eval_image_display_rgb, interpolation='nearest')
-    title_eval = f"Evaluation Sample ({target_eval_sample_id})\n"
-    title_eval += f"Orig.VecLen: {eval_vector_original_len}, NativeSq: {eval_native_side_len}x{eval_native_side_len}"
-    if eval_native_side_len != comparison_side_length : title_eval += f"\nAdjustedTo: {comparison_side_length}x{comparison_side_length}"
-    axes[0].set_title(title_eval, fontsize=9)
-    axes[0].axis('off')
-    axes[1].imshow(blended_image_display_rgb, interpolation='nearest')
-    title_blend = f"Blended Sources ({len(source_images_for_blending_rgb)} used)\n"
-    title_blend += f"(All images {comparison_side_length}x{comparison_side_length})"
-    axes[1].set_title(title_blend, fontsize=9)
-    axes[1].axis('off')
-    plt.tight_layout(rect=[0, 0.05, 1, 0.92]); plt.subplots_adjust(bottom=0.15)
-    score_text = f"--- Similarity Scores (Compared at {comparison_side_length}x{comparison_side_length} RGB) ---\n"
+    eval_image_for_display_rgb = np.clip(eval_image_native_rgb, 0.0, 1.0)
+    blended_image_for_display_rgb = np.clip(blended_image_native_rgb, 0.0, 1.0)
+
+
+    # --- 4. Calculate Difference Map for VISUALIZATION (on normalized display images) ---
+    difference_image_raw_viz = eval_image_for_display_rgb - blended_image_for_display_rgb
+    abs_difference_image_rgb_viz = np.abs(difference_image_raw_viz)
+    # For a single scalar magnitude of difference per pixel:
+    mean_abs_difference_gray_viz = np.mean(abs_difference_image_rgb_viz, axis=2)
+
+
+    # --- 5. Display ---
+    fig, axes = plt.subplots(1, 3, figsize=(18, 7))
+    fig.suptitle(f"Image Similarity (Eval ID: {target_eval_sample_id}, Colormap: {colormap}, Compared RAW vectors)", fontsize=14)
+
+    axes[0].imshow(eval_image_for_display_rgb, interpolation='nearest')
+    title_eval = f"Evaluation Sample ({target_eval_sample_id})\n(Displayed from normalized raw vector)\n"
+    title_eval += f"Orig.VecLen: {eval_vector_original_len}, ImageSq: {comparison_side_length}x{comparison_side_length}"
+    axes[0].set_title(title_eval, fontsize=9); axes[0].axis('off')
+
+    axes[1].imshow(blended_image_for_display_rgb, interpolation='nearest')
+    title_blend = f"Blended Sources ({actual_sources_blended_count} used)\n(Displayed from normalized raw blend)\n"
+    title_blend += f"(Image Size: {comparison_side_length}x{comparison_side_length})"
+    axes[1].set_title(title_blend, fontsize=9); axes[1].axis('off')
+
+    # Displaying MEAN absolute difference (grayscale)
+    diff_plot = axes[2].imshow(mean_abs_difference_gray_viz, cmap=diff_colormap, vmin=0, vmax=1, interpolation='nearest')
+    axes[2].set_title(f"Mean Abs. Difference (Grayscale)\n(Max Mean Abs Diff: {np.max(mean_abs_difference_gray_viz):.4f})", fontsize=9)
+    axes[2].axis('off')
+    fig.colorbar(diff_plot, ax=axes[2], fraction=0.046, pad=0.04)
+
+    plt.tight_layout(rect=[0, 0.05, 1, 0.90]); plt.subplots_adjust(bottom=0.20)
+    score_text = f"--- Similarity Scores (Computed on RAW vectors) ---\n"
     for m, v in similarity_scores.items(): score_text += f"  {m.replace('_',' ').title()}: {float(v):.4f}\n" if not (isinstance(v,float) and np.isnan(v)) else f"  {m.replace('_',' ').title()}: NaN\n"
     fig.text(0.5, 0.01, score_text, ha='center', va='bottom', fontsize=8, wrap=True, bbox=dict(boxstyle='round,pad=0.3', fc='lightgray', alpha=0.5))
-    plt.show(); print("\n" + score_text)
+    plt.show()
+    #print("\n" + score_text)
+
     return similarity_scores
+
 
 def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualizationChoice, visualizeCustom, analyze=False):
     global train_samples, test_samples, eval_samples, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource
 
+    all_samples_scores_dict = {}
     #Generate sentences and get their activation values
     generatedEvalSentences, generatedPrediction = zip(*[getLLMPrediction(testSentences[evalSample], True) for evalSample in range(eval_samples)])
     print([generatedEvalSentence.replace('"', '\\"') for generatedEvalSentence in generatedEvalSentences])
@@ -1174,36 +1153,83 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
         print("Whole List: ", [(source, count, trainSentencesStructure[int(source.split(":")[0])][int(source.split(":")[1])].replace('\n', '').replace('<|endoftext|>', '')) for source, count in mostUsedGeneratedEvalSources], "\n")
     #print(f"Time passed since start: {time_since_start(startTime)}"
 
+        # 1. Get the evaluation sample's Series (contains values and the structural MultiIndex)
         eval_sample_series = get_eval_sample_vector_corrected(
-            closestSourcesGeneratedEvaluation,
-            sampleNumber
+            closestSourcesGeneratedEvaluation, # Your main DataFrame
+            sampleNumber                       # The specific sample ID from your loop
         )
+        
         if eval_sample_series.empty:
-            print(f"No data for evaluation sample {sampleNumber}. Cannot proceed with visualization.")
+            print(f"No data for evaluation sample {sampleNumber}. Cannot proceed with visualization for this sample.")
+            # Optionally, store a marker for this sample in your results if needed
+            # all_samples_scores_dict[sampleNumber] = None 
         else:
             # Extract the flat numpy vector for the evaluation sample
             eval_flat_vector_for_viz = eval_sample_series.to_numpy()
-            
+        
             # Extract the (layer, neuron) MultiIndex that defines the eval sample's structure
-            eval_ln_structural_index = eval_sample_series.index
-            
-            # 2. Generate source vectors that are aligned to the evaluation sample's structure
-            #    (Assuming get_aligned_source_vectors is defined as in the last full code response,
-            #     and mostUsedGeneratedEvalSources is your list of (source_id_str, weight) tuples)
-            aligned_source_vectors_map = get_aligned_source_vectors(
-                closestSourcesGeneratedEvaluation,
-                mostUsedGeneratedEvalSources, # Your list like [('S1', 0.6), ('S2', 0.4), ...]
-                sampleNumber,
-                eval_ln_structural_index     # Pass the MultiIndex here
-            )
-            
-            # 3. Call the visualization function
-            #    (Assuming visualize_and_evaluate_flat_vector_similarity_as_images is defined
-            #     as in the last full code response, including RGB and colormap options)
-            visualize_and_evaluate_flat_vector_similarity_as_images(
-                sampleNumber,
-                eval_flat_vector_for_viz,        # Pass the NumPy array of eval values
-                mostUsedGeneratedEvalSources,    # Pass the list of (source_id, weight)
-                aligned_source_vectors_map,    # Pass the map of {source_id: aligned_numpy_vector}
-                colormap='plasma'                # Example: specify a colormap
-            )
+            eval_ln_structural_index = eval_sample_series.index # Crucial for aligning source vectors
+        
+            # mostUsedGeneratedEvalSources should be your list of (source_id_str, weight) tuples
+            # This list determines WHICH sources to fetch/align and their blending weights.
+            # This variable needs to be correctly populated for the current sampleNumber
+            # Example: mostUsedGeneratedEvalSources = get_mus_for_this_sample(sampleNumber, ...) 
+        
+            if not mostUsedGeneratedEvalSources: # Check if the list is empty
+                print(f"No most used sources provided for sample {sampleNumber}. Skipping detailed processing for this sample.")
+            else:
+                # 2. Generate source vectors that are aligned to the evaluation sample's structure
+                aligned_source_vectors_map = get_aligned_source_vectors(
+                    closestSourcesGeneratedEvaluation,
+                    mostUsedGeneratedEvalSources,
+                    sampleNumber,
+                    eval_ln_structural_index     # Pass the MultiIndex here
+                )
+        
+                # 3. Call the visualization function (it returns the scores dictionary)
+                similarity_scores = visualize_and_evaluate_flat_vector_similarity_as_images(
+                    sampleNumber,
+                    eval_flat_vector_for_viz,
+                    mostUsedGeneratedEvalSources,
+                    aligned_source_vectors_map,
+                    colormap='plasma',
+                    diff_colormap='coolwarm'
+                )
+        
+                if similarity_scores:
+                    #print(f"Similarity scores for sample {sampleNumber}: {similarity_scores}")
+                    # --- Store the scores for this sample in the overall dictionary ---
+                    all_samples_scores_dict[sampleNumber] = similarity_scores
+                else:
+                    print(f"No similarity scores returned for sample {sampleNumber}.")
+                    # Optionally, store a marker
+                    # all_samples_scores_dict[sampleNumber] = {'error': 'no_scores_returned'}
+        
+    if all_samples_scores_dict:
+        overall_results_df = pd.DataFrame.from_dict(all_samples_scores_dict, orient='index')
+        # The keys of all_samples_scores_dict (sampleNumber) will become the DataFrame index.
+        # Each column in the DataFrame will be one of the similarity metrics.
+    
+        print("\n\n======================================================================")
+        print("--- Overall Method Performance Summary (All Processed Samples) ---")
+        print("======================================================================")
+        print("Individual Scores per Sample:")
+        print(overall_results_df)
+    
+        # Calculate and print summary statistics
+        if not overall_results_df.empty:
+            print("\n--- Mean Similarity Scores Across All Processed Samples ---")
+            print(overall_results_df.mean())
+    
+            print("\n--- Median Similarity Scores Across All Processed Samples ---")
+            print(overall_results_df.median())
+    
+            print("\n--- Standard Deviation of Similarity Scores ---")
+            print(overall_results_df.std())
+    
+            #print("\n--- Full Descriptive Statistics for Scores ---")
+            #print(overall_results_df.describe())
+        else:
+            print("Overall results DataFrame is empty, though scores were collected (check for errors).")
+    else:
+        print("\nNo similarity scores were collected from any samples for overall evaluation.")
