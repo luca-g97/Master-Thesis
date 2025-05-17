@@ -39,6 +39,7 @@ baseDirectory: str = "./LookUp"    # Base directory for lookup files or results
 chosenDataSet: str = ""            # Identifier for the dataset being used
 fileName: str = ""                 # Specific file name being processed
 sourceArray: str = ""              # Placeholder or path for source data array
+lastActualToken: str = ""          # The last token that is not used for padding
 
 # --- Model Architecture & Parameters ---
 contextLength: int = 1             # Sequence context length
@@ -284,14 +285,11 @@ class CustomizableRENN(nn.Module):
 def forward_hook(module, input, output):
     global layer, source, dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, \
         metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource, \
-        sourceArray, hidden_sizes, llm, fileName, layersToCheck
+        sourceArray, hidden_sizes, llm, fileName, layersToCheck, lastActualToken
 
-    #if not (isinstance(module, nn.Sequential) or isinstance(module, Small1x1.FeedForward) or isinstance(module, Small1x1.TransformerBlock) or isinstance(module, nn.Dropout) or isinstance(module, GPT2.FeedForward) or isinstance(module, GPT2.TransformerBlock)):
     if (llm):
         actualLayer = layer
         layerNeurons = layers[actualLayer][1]
-        #if(source >= dictionaryForSourceLayerNeuron.shape[0]):
-        #    return
     else:
         actualLayer = int(layer/2)
         layerNeurons = layers[actualLayer][1].out_features
@@ -312,25 +310,26 @@ def forward_hook(module, input, output):
         if(len(relevantOutput.shape) > 1):
             if(relevantOutput.shape[1] != layerNeurons):
                 layerNeurons = relevantOutput.shape[1]
-                #layers[actualLayer] = (layers[actualLayer][0], relevantOutput.shape[1], layers[layer][2:])
         if(correctTypes):
             dictionaryForSourceLayerNeuron[source][layer,:layerNeurons] = relevantOutput
-        # if(source == 0):
-        #   print(relevantOutput, dictionaryForSourceLayerNeuron[source][layer,:layerNeurons])
 
         if(llm):
-            # Option 1: Last token pooling - good for tasks where the final state of a sequence is most important (e.g., summarization, classification after sequential processing).
-            output = relevantOutput if relevantOutput.ndim == 1 else relevantOutput[-1]
-    
-            # Option 2: Mean token pooling - can be good for creating a "fingerprint" or average representation of the entire input sequence.
-            #output = relevantOutput if relevantOutput.ndim == 1 else np.mean(relevantOutput, axis=0)
+            if relevantOutput.ndim == 3 and relevantOutput.shape[0] == 1:
+                relevantOutput = relevantOutput.squeeze(0) # Now [seq_len, hidden_dim]
             
             if(actualLayer in layersToCheck or layersToCheck == []):
+                # Option 1: Last token pooling - good for tasks where the final state of a sequence is most important (e.g., summarization, classification after sequential processing).
+                #output = relevantOutput if relevantOutput.ndim == 1 else relevantOutput[lastActualToken]
+    
+                # Option 2: Mean token pooling - can be good for creating a "fingerprint" or average representation of the entire input sequence.
+                output = relevantOutput if relevantOutput.ndim == 1 else np.mean(relevantOutput[:lastActualToken], axis=0)
+
                 sourceNumber, sentenceNumber = chosenDataSet.getSourceAndSentenceIndex(source, fileName)
                 if sourceNumber is not None and sentenceNumber is not None:
                     #print(f"Create File: LookUp/{fileName}/Layer{layer}/Source={result[0]}/Sentence{result[1]}-0")
                     append_structured_sparse(output[:layerNeurons], actualLayer, sourceNumber, sentenceNumber)
         else:
+            output = relevantOutput if relevantOutput.ndim == 1 else relevantOutput[0]
             if metricsEvaluation:
                 metricsArray = createMetricsArray(output)
                 metricsDictionaryForSourceLayerNeuron[source][layer] = metricsArray
@@ -360,7 +359,7 @@ def forward_hook(module, input, output):
                 layer += 1
 
 def attachHooks(hookLoader, model, llmType = False, filename = "", sourceOffset=0, lstm = False):
-    global source, layer, sourceArray, fileName
+    global source, layer, sourceArray, fileName, lastActualToken
 
     fileName = filename
     hooks = []  # Store the handles for each hook
@@ -380,9 +379,13 @@ def attachHooks(hookLoader, model, llmType = False, filename = "", sourceOffset=
             if not llmType:
                 inputs = inputs.float()
             else:
+                non_zero_indices = np.where(inputs[0].numpy() != 0)[0]
+                lastActualToken = non_zero_indices[-1]
+                
                 actualSource, actualSentenceNumber = chosenDataSet.getSourceAndSentenceIndex(source, fileName)
                 print(f"Saving all Activations for {fileName}-Source {tempSource} (Actual {fileName}-Source: {actualSource}:{actualSentenceNumber})")
             inputs = inputs.to(device)
+            currentInput = inputs
             if lstm:
                 state_h, state_c = model.init_hidden(1)
                 state_h, state_c = state_h.to(device), state_c.to(device)
@@ -691,38 +694,41 @@ def getMostUsedFromDataFrame(df, evalSample, closestSources, weightedMode=""):
 
     # Filter out invalid sources ('None')
     valid_entries = relevant_entries[sources != 'None']
-    ascending_order = True  # Sort by ascending for lowest total weights
+    #ascending_order = True  # Sort by ascending for lowest total weights
 
-    if weightedMode == "Sum":
+    #if weightedMode == "Sum":
         # Group by 'source' and sum the 'difference' column as weights
-        weighted_counts = valid_entries.groupby('source')['difference'].sum()
-    elif weightedMode == "Mean":
+        #weighted_counts = valid_entries.groupby('source')['difference'].sum()
+    #elif weightedMode == "Mean":
         # Group by 'source' and calculate the average of 'difference'
-        weighted_counts = valid_entries.groupby('source')['difference'].mean()
-    else:
+        #weighted_counts = valid_entries.groupby('source')['difference'].mean()
+    #else:
         # Default behavior: Count occurrences
-        weighted_counts = valid_entries['source'].value_counts()
-        ascending_order = False  # Sort by descending for highest counts
+        #weighted_counts = valid_entries['source'].value_counts()
+        #ascending_order = False  # Sort by descending for highest counts
+
+    mostUsed = valid_entries['source'].tolist()    
+    differences = valid_entries['difference'].tolist()
 
     # Sort weighted sources by the determined order
-    sorted_sources = weighted_counts.sort_values(ascending=ascending_order).head(closestSources)
+    #sorted_sources = weighted_counts.sort_values(ascending=ascending_order).head(closestSources)
     # Total weight (sum or mean) or total count for closest sources
-    total_weight = sorted_sources.sum()
+    #total_weight = sorted_sources.sum()
 
     # Print the total weight (sum, mean, or total count depending on the mode)
     #print(f"Total Weight for Weighted Mode={weightedMode}: {total_weight}")
 
     # Convert to a Counter-like output (sorted already by the determined order)
-    counter = [(source, weight) for source, weight in sorted_sources.items()]
+    #counter = [(source, weight) for source, weight in sorted_sources.items()]
 
     #print(f"Total closest Sources (Weighted Mode={weightedMode}):", total_weight,
     #      "|", closestSources, "closest Sources in format [SourceNumber, Weight]:", counter)
 
     # Fix: Convert the 'source' column of valid_entries to a list
-    sourceCounter = valid_entries['source'].value_counts().sum()  # Total count of valid sources
-    mostUsed = valid_entries['source'].tolist()  # Extract 'source' as a list
+    #sourceCounter = valid_entries['source'].value_counts().sum()  # Total count of valid sources
+    #mostUsed = valid_entries['source'].tolist()  # Extract 'source' as a list
 
-    return sourceCounter, mostUsed, counter
+    return mostUsed, differences
 
 def weighted_counter(mostUsed, sourceDifferences,
                      freq_weight=0.5, prox_weight=0.5,
@@ -754,18 +760,18 @@ def getMostUsedSources(sources, metricsSources, mtSources, closestSources, evalS
     metricsMostUsed, metricsSourceCounter = [], []
     mtMostUsed, mtSourceCounter = [], []
     if llm:
-        sourceCounter, mostUsed, counter = getMostUsedFromDataFrame(sources, evalSample, closestSources, weightedMode)
+        mostUsed, sourceDifferences = getMostUsedFromDataFrame(sources, evalSample, closestSources, weightedMode)
     else:
         sourceCounter, mostUsed, sourceDifferences, mostUsedSourcesPerLayer = getMostUsed(sources, weightedMode)
         if metricsEvaluation:
             metricsSourceCounter, metricsMostUsed, metricsDifferences, _ = getMostUsed(metricsSources, weightedMode, evaluation="Metrics")
         if mtEvaluation:
             mtSourceCounter, mtMostUsed, mtDifferences, _ = getMostUsed(mtSources, weightedMode, evaluation="Magnitude Truncation")
-    
+
+    counter = weighted_counter(mostUsed, sourceDifferences)
     if llm:
-        return counter[:closestSources]
+        return counter.most_common()[:closestSources]
     else:
-        counter = weighted_counter(mostUsed, sourceDifferences)
         metricsCounter = weighted_counter(metricsMostUsed, metricsDifferences)
         mtCounter = weighted_counter(mtMostUsed, mtDifferences)
         mostUsedSourcesPerLayerCounter = Counter(mostUsedSourcesPerLayer)
