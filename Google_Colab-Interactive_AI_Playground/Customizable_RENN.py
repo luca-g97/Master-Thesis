@@ -328,6 +328,12 @@ def forward_hook(module, input, output):
                 if sourceNumber is not None and sentenceNumber is not None:
                     #print(f"Create File: LookUp/{fileName}/Layer{layer}/Source={result[0]}/Sentence{result[1]}-0")
                     append_structured_sparse(output[:layerNeurons], actualLayer, sourceNumber, sentenceNumber)
+                    #if metricsEvaluation:
+                    #    metricsArray = createMetricsArray(output)
+                    #    append_structured_sparse(metricsArray, actualLayer, sourceNumber, sentenceNumber)
+                    #if mtEvaluation:
+                    #    reduced = np.argsort(-np.abs(output))[:min(NumberOfComponents, output.shape[0])]
+                    #    append_structured_sparse(reduced, "MT"+actualLayer, sourceNumber, sentenceNumber)
         else:
             output = relevantOutput if relevantOutput.ndim == 1 else relevantOutput[0]
             if metricsEvaluation:
@@ -840,7 +846,7 @@ def append_structured_sparse(array, filename, source_name, sentence_number):
             'Sentence': sentence_number,
             'Min': float(min_val),
             'Max': float(max_val),
-            **{f"Neuron {idx}": val for idx, val in zip(normalized_sparse_array.indices, normalized_sparse_array.data)},
+            **{f"Neuron {idx}": val for idx, val in zip(normalized_sparse_array.data, normalized_sparse_array.data)},
         }
 
         # Convert to DataFrame and pass into the compression function
