@@ -833,7 +833,7 @@ def append_structured_sparse(array, filename, source_name, sentence_number):
     # Convert to sparse COO format and normalize
     sparse_array = sp.coo_matrix(array) if not sp.issparse(array) else array
     del array  # Free original array memory
-
+    
     # Normalize the sparse array directly (still in COO format)
     min_val, max_val = sparse_array.min(), sparse_array.max()
     normalized_sparse_array = normalize_to_integer_sparse(sparse_array, min_val, max_val)
@@ -1035,10 +1035,10 @@ def getClosestSourcesFromDf(df, closestSources):
     )
     return closest_sources
 
-def identifyClosestLLMSources(evalSamples, evalOffset, closestSources, onlyOneEvaluation=False, layersToCheck=[], info=True):
+def identifyClosestLLMSources(evalSamples, evalOffset, closestSources, onlyOneEvaluation=False, layersToCheck=[], trainPathToUse="Training", info=True):
     global layers, layerSizes, fileName
 
-    trainPath = os.path.join(baseDirectory, "Training")
+    trainPath = os.path.join(baseDirectory, trainPathToUse)
     evalPath = os.path.join(baseDirectory, "Evaluation", "Sample")
     generatedEvalPath = os.path.join(baseDirectory, "Evaluation", "Generated")
 
