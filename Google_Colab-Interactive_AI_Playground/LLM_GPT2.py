@@ -774,7 +774,7 @@ def trainModel(hidden_sizes, loss_function, optimizer, learning_rate, epochs):
     _, _, _, train_dataloader, eval_dataloader = main()
     print("Training finished")
 
-def initializeHook(hidden_sizes, train_samples):  
+def initializeHook(hidden_sizes, train_samples):
     RENN.createDictionaries(hidden_sizes, len(hidden_sizes), train_samples, llmType=True)
 
     samples = trainSentences[:train_samples]
@@ -1151,14 +1151,14 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
             trainSentence = trainSentencesStructure[sourceNumber][sentenceNumber].replace('\n', '').replace('<|endoftext|>', '')
             print(f"Source: {source}, Count: {count}, Sentence: {trainSentence}")
         print("Whole List: ", [(source, count, trainSentencesStructure[int(source.split(":")[0])][int(source.split(":")[1])].replace('\n', '').replace('<|endoftext|>', '')) for source, count in mostUsedGeneratedEvalSources], "\n")
-    #print(f"Time passed since start: {time_since_start(startTime)}"
+        #print(f"Time passed since start: {time_since_start(startTime)}"
 
         # 1. Get the evaluation sample's Series (contains values and the structural MultiIndex)
         eval_sample_series = get_eval_sample_vector_corrected(
             closestSourcesGeneratedEvaluation, # Your main DataFrame
             sampleNumber                       # The specific sample ID from your loop
         )
-        
+
         if eval_sample_series.empty:
             print(f"No data for evaluation sample {sampleNumber}. Cannot proceed with visualization for this sample.")
             # Optionally, store a marker for this sample in your results if needed
@@ -1166,15 +1166,15 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
         else:
             # Extract the flat numpy vector for the evaluation sample
             eval_flat_vector_for_viz = eval_sample_series.to_numpy()
-        
+
             # Extract the (layer, neuron) MultiIndex that defines the eval sample's structure
             eval_ln_structural_index = eval_sample_series.index # Crucial for aligning source vectors
-        
+
             # mostUsedGeneratedEvalSources should be your list of (source_id_str, weight) tuples
             # This list determines WHICH sources to fetch/align and their blending weights.
             # This variable needs to be correctly populated for the current sampleNumber
             # Example: mostUsedGeneratedEvalSources = get_mus_for_this_sample(sampleNumber, ...) 
-        
+
             if not mostUsedGeneratedEvalSources: # Check if the list is empty
                 print(f"No most used sources provided for sample {sampleNumber}. Skipping detailed processing for this sample.")
             else:
@@ -1185,7 +1185,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
                     sampleNumber,
                     eval_ln_structural_index     # Pass the MultiIndex here
                 )
-        
+
                 # 3. Call the visualization function (it returns the scores dictionary)
                 similarity_scores = visualize_and_evaluate_flat_vector_similarity_as_images(
                     sampleNumber,
@@ -1195,7 +1195,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
                     colormap='plasma',
                     diff_colormap='coolwarm'
                 )
-        
+
                 if similarity_scores:
                     #print(f"Similarity scores for sample {sampleNumber}: {similarity_scores}")
                     # --- Store the scores for this sample in the overall dictionary ---
@@ -1204,29 +1204,29 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
                     print(f"No similarity scores returned for sample {sampleNumber}.")
                     # Optionally, store a marker
                     # all_samples_scores_dict[sampleNumber] = {'error': 'no_scores_returned'}
-        
+
     if all_samples_scores_dict:
         overall_results_df = pd.DataFrame.from_dict(all_samples_scores_dict, orient='index')
         # The keys of all_samples_scores_dict (sampleNumber) will become the DataFrame index.
         # Each column in the DataFrame will be one of the similarity metrics.
-    
+
         print("\n\n======================================================================")
         print("--- Overall Method Performance Summary (All Processed Samples) ---")
         print("======================================================================")
         print("Individual Scores per Sample:")
         print(overall_results_df)
-    
+
         # Calculate and print summary statistics
         if not overall_results_df.empty:
             print("\n--- Mean Similarity Scores Across All Processed Samples ---")
             print(overall_results_df.mean())
-    
+
             print("\n--- Median Similarity Scores Across All Processed Samples ---")
             print(overall_results_df.median())
-    
+
             print("\n--- Standard Deviation of Similarity Scores ---")
             print(overall_results_df.std())
-    
+
             #print("\n--- Full Descriptive Statistics for Scores ---")
             #print(overall_results_df.describe())
         else:

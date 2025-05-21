@@ -316,11 +316,11 @@ def forward_hook(module, input, output):
         if(llm):
             if relevantOutput.ndim == 3 and relevantOutput.shape[0] == 1:
                 relevantOutput = relevantOutput.squeeze(0) # Now [seq_len, hidden_dim]
-            
+
             if(actualLayer in layersToCheck or layersToCheck == []):
                 # Option 1: Last token pooling - good for tasks where the final state of a sequence is most important (e.g., summarization, classification after sequential processing).
                 #output = relevantOutput if relevantOutput.ndim == 1 else relevantOutput[lastActualToken]
-    
+
                 # Option 2: Mean token pooling - can be good for creating a "fingerprint" or average representation of the entire input sequence.
                 output = relevantOutput if relevantOutput.ndim == 1 else np.mean(relevantOutput[:lastActualToken], axis=0)
 
@@ -328,12 +328,12 @@ def forward_hook(module, input, output):
                 if sourceNumber is not None and sentenceNumber is not None:
                     #print(f"Create File: LookUp/{fileName}/Layer{layer}/Source={result[0]}/Sentence{result[1]}-0")
                     append_structured_sparse(output[:layerNeurons], actualLayer, sourceNumber, sentenceNumber)
-                    if metricsEvaluation:
-                        metricsArray = createMetricsArray(output)
-                        append_structured_sparse(metricsArray, actualLayer+"-Metrics", sourceNumber, sentenceNumber)
-                    if mtEvaluation:
-                        reduced = np.argsort(-np.abs(output))[:min(NumberOfComponents, output.shape[0])]
-                        append_structured_sparse(reduced, actualLayer+"-MT", sourceNumber, sentenceNumber)
+                    #if metricsEvaluation:
+                    #    metricsArray = createMetricsArray(output)
+                    #    append_structured_sparse(metricsArray, actualLayer, sourceNumber, sentenceNumber)
+                    #if mtEvaluation:
+                    #    reduced = np.argsort(-np.abs(output))[:min(NumberOfComponents, output.shape[0])]
+                    #    append_structured_sparse(reduced, "MT"+actualLayer, sourceNumber, sentenceNumber)
         else:
             output = relevantOutput if relevantOutput.ndim == 1 else relevantOutput[0]
             if metricsEvaluation:
@@ -344,7 +344,7 @@ def forward_hook(module, input, output):
                 reduced = np.argsort(-np.abs(output))[:min(NumberOfComponents, output.shape[0])]
                 mtDictionaryForSourceLayerNeuron[source][layer,:len(reduced)] = reduced
                 mtDictionaryForLayerNeuronSource[layer][source,:len(reduced)] = reduced
-            
+
             for neuronNumber, neuron in enumerate(output):
                 if neuronNumber < layerNeurons:
                     dictionaryForLayerNeuronSource[layer][neuronNumber][source] = neuron
@@ -387,7 +387,7 @@ def attachHooks(hookLoader, model, llmType = False, filename = "", sourceOffset=
             else:
                 non_zero_indices = np.where(inputs[0].numpy() != 0)[0]
                 lastActualToken = non_zero_indices[-1]
-                
+
                 actualSource, actualSentenceNumber = chosenDataSet.getSourceAndSentenceIndex(source, fileName)
                 print(f"Saving all Activations for {fileName}-Source {tempSource} (Actual {fileName}-Source: {actualSource}:{actualSentenceNumber})")
             inputs = inputs.to(device)
@@ -481,7 +481,7 @@ def initializeEvaluationHook(hidden_sizes, eval_dataloader, eval_samples, model,
     with torch.no_grad():
         model.eval()  # Set the model to evaluation mode
         attachHooks(eval_dataloader, model, llmType, filename, sourceOffset, lstm)
-    
+
     if not llm:
         return dictionaryForSourceLayerNeuron, dictionaryForLayerNeuronSource, metricsDictionaryForSourceLayerNeuron, metricsDictionaryForLayerNeuronSource, mtDictionaryForSourceLayerNeuron, mtDictionaryForLayerNeuronSource
 
@@ -529,7 +529,7 @@ def identifyClosestSources(closestSources, outputs, metricsOutputs, mtOutputs, m
         ]
     else:
         layerNumbersToCheck = [idx for idx, _ in enumerate(layers)]
-    
+
     activationToCheckFor = [
         (idx * 2) + 1 for idx, (name, layerNumber, activation) in enumerate(layers)
         if getActivation(hidden_sizes, idx) != False
@@ -568,7 +568,7 @@ def identifyClosestSources(closestSources, outputs, metricsOutputs, mtOutputs, m
                     differences = np.abs(neuron - outputsToCheck[currentLayer][currentNeuron])
                     sorted_indices = np.argsort(differences)
                     closest_indices = sorted_indices[:closestSources]
-    
+
                     # Store neuron results
                     tuples = tuple(
                         (closest_indices[i],
@@ -675,17 +675,17 @@ def getMostUsed(sources, mode="", evaluation=""):
                     differences.append(difference)
         else:
             for currentNeuron, neuron in enumerate(layer):
-                    maxNeurons = layers[currentLayer][1] if mode == "" else layers[currentLayer][1].out_features
-                    if not isinstance(maxNeurons, int):  # Ensure maxNeurons is an integer
-                        maxNeurons = maxNeurons.out_features
-                    if(currentNeuron < maxNeurons):
-                        for sourceNumber, value, difference in neuron:
-                            if(sourceNumber != 'None'):
-                                mostUsed.append(sourceNumber)
-                                sourceCounter += 1
-                                differences.append(difference)
-                                if sourceNumber not in mostUsedPerLayer:
-                                    mostUsedPerLayer.append(sourceNumber)
+                maxNeurons = layers[currentLayer][1] if mode == "" else layers[currentLayer][1].out_features
+                if not isinstance(maxNeurons, int):  # Ensure maxNeurons is an integer
+                    maxNeurons = maxNeurons.out_features
+                if(currentNeuron < maxNeurons):
+                    for sourceNumber, value, difference in neuron:
+                        if(sourceNumber != 'None'):
+                            mostUsed.append(sourceNumber)
+                            sourceCounter += 1
+                            differences.append(difference)
+                            if sourceNumber not in mostUsedPerLayer:
+                                mostUsedPerLayer.append(sourceNumber)
         for sourceInLayer in mostUsedPerLayer:
             mostUsedSourcesPerLayer.append(sourceInLayer)
 
@@ -703,17 +703,17 @@ def getMostUsedFromDataFrame(df, evalSample, closestSources, weightedMode=""):
     #ascending_order = True  # Sort by ascending for lowest total weights
 
     #if weightedMode == "Sum":
-        # Group by 'source' and sum the 'difference' column as weights
-        #weighted_counts = valid_entries.groupby('source')['difference'].sum()
+    # Group by 'source' and sum the 'difference' column as weights
+    #weighted_counts = valid_entries.groupby('source')['difference'].sum()
     #elif weightedMode == "Mean":
-        # Group by 'source' and calculate the average of 'difference'
-        #weighted_counts = valid_entries.groupby('source')['difference'].mean()
+    # Group by 'source' and calculate the average of 'difference'
+    #weighted_counts = valid_entries.groupby('source')['difference'].mean()
     #else:
-        # Default behavior: Count occurrences
-        #weighted_counts = valid_entries['source'].value_counts()
-        #ascending_order = False  # Sort by descending for highest counts
+    # Default behavior: Count occurrences
+    #weighted_counts = valid_entries['source'].value_counts()
+    #ascending_order = False  # Sort by descending for highest counts
 
-    mostUsed = valid_entries['source'].tolist()    
+    mostUsed = valid_entries['source'].tolist()
     differences = valid_entries['difference'].tolist()
 
     # Sort weighted sources by the determined order
@@ -833,7 +833,7 @@ def append_structured_sparse(array, filename, source_name, sentence_number):
     # Convert to sparse COO format and normalize
     sparse_array = sp.coo_matrix(array) if not sp.issparse(array) else array
     del array  # Free original array memory
-    
+
     # Normalize the sparse array directly (still in COO format)
     min_val, max_val = sparse_array.min(), sparse_array.max()
     normalized_sparse_array = normalize_to_integer_sparse(sparse_array, min_val, max_val)
@@ -990,7 +990,7 @@ def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEva
                                 eval_neuron_value = sparse_evalcol.data[0] if sparse_evalcol.nnz > 0 else 0
                                 current_source = f"{sourceNumber}:{train_sentenceNumber}"
                                 currentData.append({'evalSample': evalSample, 'layer': layerNumber, 'neuron': neuron_idx,
-                                                    'source': current_source, 'eval_neuron_value': eval_neuron_value, 'neuron_value': neuron_value, 'difference': difference})
+                                                    'source': current_source, 'eval_neuron_value': eval_neuron_value, 'neuron_value': neuron_value, 'difference': abs(difference)})
 
     return local_eval_data, local_generated_eval_data
 
@@ -1035,10 +1035,10 @@ def getClosestSourcesFromDf(df, closestSources):
     )
     return closest_sources
 
-def identifyClosestLLMSources(evalSamples, evalOffset, closestSources, onlyOneEvaluation=False, layersToCheck=[], trainPathToUse="Training", info=True):
+def identifyClosestLLMSources(evalSamples, evalOffset, closestSources, onlyOneEvaluation=False, layersToCheck=[], info=True):
     global layers, layerSizes, fileName
 
-    trainPath = os.path.join(baseDirectory, trainPathToUse)
+    trainPath = os.path.join(baseDirectory, "Training")
     evalPath = os.path.join(baseDirectory, "Evaluation", "Sample")
     generatedEvalPath = os.path.join(baseDirectory, "Evaluation", "Generated")
 
