@@ -380,7 +380,6 @@ def attachHooks(hookLoader, model, llmType = False, filename = "", sourceOffset=
     with torch.no_grad():
         # Forward Pass
         for tempSource, (inputs, labels) in enumerate(hookLoader):
-            print(tempSource)
             source = tempSource + sourceOffset
             layer = 0
             if not llmType:

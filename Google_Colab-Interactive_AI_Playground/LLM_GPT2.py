@@ -1120,7 +1120,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
     generatedEvalSentences, generatedPrediction = zip(*[getLLMPrediction(testSentences[evalSample], True) for evalSample in range(eval_samples)])
     print([generatedEvalSentence.replace('"', '\\"') for generatedEvalSentence in generatedEvalSentences])
     #generatedEvalLoader = createLLMLoader(list(generatedEvalSentences), 1)
-    generatedEvalLoader = createLLMLoader(testSentences[eval_samples], 1)
+    generatedEvalLoader = createLLMLoader(testSentences[:eval_samples], 1)
     RENN.initializeEvaluationHook(hidden_sizes, generatedEvalLoader, eval_samples, model, os.path.join("Evaluation", "Generated"), True, 0)
 
     #RENN.initializeEvaluationHook(hidden_sizes, eval_loader, eval_samples, model, os.path.join("Evaluation", "Sample"), True, train_samples)
