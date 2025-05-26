@@ -380,6 +380,7 @@ def attachHooks(hookLoader, model, llmType = False, filename = "", sourceOffset=
     with torch.no_grad():
         # Forward Pass
         for tempSource, (inputs, labels) in enumerate(hookLoader):
+            print(tempSource)
             source = tempSource + sourceOffset
             layer = 0
             if not llmType:
@@ -391,7 +392,7 @@ def attachHooks(hookLoader, model, llmType = False, filename = "", sourceOffset=
                 actualSource, actualSentenceNumber = chosenDataSet.getSourceAndSentenceIndex(source, fileName)
                 print(f"Saving all Activations for {fileName}-Source {tempSource} (Actual {fileName}-Source: {actualSource}:{actualSentenceNumber})")
             inputs = inputs.to(device)
-            currentInput = inputs
+            #currentInput = inputs
             if lstm:
                 state_h, state_c = model.init_hidden(1)
                 state_h, state_c = state_h.to(device), state_c.to(device)
