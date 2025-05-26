@@ -322,7 +322,7 @@ def forward_hook(module, input, output):
                 #output = relevantOutput if relevantOutput.ndim == 1 else relevantOutput[lastActualToken]
 
                 # Option 2: Mean token pooling - can be good for creating a "fingerprint" or average representation of the entire input sequence.
-                output = relevantOutput if relevantOutput.ndim == 1 else np.mean(relevantOutput[:lastActualToken], axis=0)
+                output = relevantOutput if relevantOutput.ndim == 1 else np.mean(relevantOutput, axis=0)
 
                 sourceNumber, sentenceNumber = chosenDataSet.getSourceAndSentenceIndex(source, fileName)
                 if sourceNumber is not None and sentenceNumber is not None:
