@@ -1119,7 +1119,8 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
     #Generate sentences and get their activation values
     generatedEvalSentences, generatedPrediction = zip(*[getLLMPrediction(testSentences[evalSample], True) for evalSample in range(eval_samples)])
     print([generatedEvalSentence.replace('"', '\\"') for generatedEvalSentence in generatedEvalSentences])
-    generatedEvalLoader = createLLMLoader(list(generatedEvalSentences), 1)
+    #generatedEvalLoader = createLLMLoader(list(generatedEvalSentences), 1)
+    generatedEvalLoader = createLLMLoader(testSentences, 1)
     RENN.initializeEvaluationHook(hidden_sizes, generatedEvalLoader, eval_samples, model, os.path.join("Evaluation", "Generated"), True, 0)
 
     #RENN.initializeEvaluationHook(hidden_sizes, eval_loader, eval_samples, model, os.path.join("Evaluation", "Sample"), True, train_samples)
@@ -1133,7 +1134,7 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
         #_ = RENN.getMostUsedSources(closestSourcesGeneratedEvaluation, _, _, closestSources, sampleNumber, "Sum")
 
         sample, prediction = getLLMPrediction(testSentences[sampleNumber])
-        print("Evaluation Sample ", sampleNumber, ": ", sample.replace('\n', '').replace('<|endoftext|>', ''))
+        print("Evaluation Sample ", sampleNumber, ": ", testSentences[sampleNumber].replace('\n', '').replace('<|endoftext|>', ''))
         print("Follow up: ", prediction.replace('\n', '').replace('<|endoftext|>', ''))
         #print(f"Closest Sources for Evaluation-Sample {sampleNumber} in format [SourceNumber, Occurrences, Source]:")
         #for source, count in mostUsedEvalSources[:closestSources]:
@@ -1142,8 +1143,8 @@ def visualize(hidden_sizes, closestSources, showClosestMostUsedSources, visualiz
         #    trainSentence = trainSentencesStructure[sourceNumber][sentenceNumber].replace('\n', '').replace('<|endoftext|>', '')
         #    print(f"Source: {source}, Count: {count}, Sentence: {trainSentence}")
         #print("Whole List: ", [(source, count, trainSentencesStructure[int(source.split(":")[0])][int(source.split(":")[1])].replace('\n', '').replace('<|endoftext|>', '')) for source, count in mostUsedEvalSources], "\n")
-        print(f"Generated Source Sentence: {generatedEvalSentences[sampleNumber]}")
-        print(f"Generated Source: {generatedPrediction[sampleNumber]}")
+        #print(f"Generated Source Sentence: {generatedEvalSentences[sampleNumber]}")
+        #print(f"Generated Source: {generatedPrediction[sampleNumber]}")
         print(f"Closest Sources for GeneratedEvaluation-Sample {sampleNumber} in format [SourceNumber, Occurrences, Source]:")
         for source, count in mostUsedGeneratedEvalSources[:closestSources]:
             tempSource = source.split(":")
