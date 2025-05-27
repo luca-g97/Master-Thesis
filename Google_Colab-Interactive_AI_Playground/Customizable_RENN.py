@@ -5,6 +5,7 @@ import copy
 import itertools
 import math
 import time
+import re
 import os
 import shutil
 import sys
@@ -856,65 +857,58 @@ def append_structured_sparse(array, filename, source_name, sentence_number):
 
     #print(f"Data for {source_name} appended to {filename}.")
 
-# Split the path based on "/" to get the relevant parts
-def getInformationFromFileName(filepath):
-    path_parts = filepath.split('/')
-
-    # Extract Layer, Source, and Sentence
-    layer = int(path_parts[3].replace('Layer', ''))  # Layer part: "Layer0" -> 0
-    source = int(path_parts[4].replace('Source=', ''))  # Source part: "Source=0" -> 0
-    sentence = int(path_parts[5].split('-')[0].replace('Sentence', ''))  # Sentence part: "Sentence0-Sequence0-0" -> 0
-    #sequence = int(path_parts[5].split('-')[1].replace('Sequence', '')) # Sequence part: "Sentence0-Sequence0-0" -> 0
-    return layer, source, sentence
-
-def reconstruct_from_normalized(sparse_array, min_val, max_val):
-    # Inverse normalization scaling factors
-    scale_factor = (max_val - min_val) / 4294967295
-    shift_factor = min_val
-
-    # Apply normalization directly on sparse matrix (element-wise multiplication)
-    normalized_data = sparse_array.multiply(scale_factor)
-    normalized_data.data += shift_factor
-
-    # Return the updated sparse matrix with normalized data
-    return normalized_data
-
-def getNormalizedValues(full_path, evalSample):
-    # Duplicate files to preserve the originals
-    copy_path = get_safe_copy_path(full_path, evalSample)
-    # Duplicate files to preserve the originals
-    shutil.copy(full_path, copy_path)
-    # Read sparse arrays directly from the duplicated parquet files
-    sentenceDf = pq.read_table(copy_path).to_pandas(safe=False)
-    # Remove copied file after reading
-    safe_remove(copy_path)
-    # Extract scalar min and max values from the first row# Extract scalar min and max values from the first row
-    min, max = sentenceDf['Min'].iloc[0], sentenceDf['Max'].iloc[0]
-    # Drop non-neuron columns
-    sentenceDf = sentenceDf.drop(columns=['Source', 'Sentence', 'Min', 'Max'])
-    # Convert DataFrames to sparse COO matrices
-    neurons = sp.coo_matrix(np.asarray(sentenceDf.to_numpy()))
-
-    return reconstruct_from_normalized(neurons, min, max).tocoo()
-
-# Global lock for thread-safe access to shared data
+# Global locks
 file_lock = threading.Lock()
-# Global lock for thread-safe access to print statements
 print_lock = threading.Lock()
-# Thread-safe lock for concurrent updates
 data_lock = threading.Lock()
 
+def getInformationFromFileName(filepath):
+    path_parts = filepath.split('/')
+    layer = int(path_parts[3].replace('Layer', ''))
+    source = int(path_parts[4].replace('Source=', ''))
+    sentence = int(path_parts[5].split('-')[0].replace('Sentence', ''))
+    return layer, source, sentence
+
+def reconstruct_from_normalized(sparse_array_coo, min_val, max_val):
+    # Ensure floating point division for scale_factor
+    scale_factor = (max_val - min_val) / 4294967295.0
+    shift_factor = min_val
+
+    # sparse_array.multiply(scalar) returns a new sparse matrix.
+    scaled_matrix = sparse_array_coo.multiply(scale_factor) # Input is COO, output is COO
+
+    # Ensure data is float before adding shift_factor if it's not already.
+    if not np.issubdtype(scaled_matrix.data.dtype, np.floating):
+        scaled_matrix.data = scaled_matrix.data.astype(np.float64)
+
+    scaled_matrix.data += shift_factor
+    return scaled_matrix # Returns COO
+
+def getNormalizedValues(full_path, evalSample):
+    copy_path = get_safe_copy_path(full_path, evalSample)
+    try:
+        if not os.path.exists(full_path):
+            raise FileNotFoundError(f"Source file for getNormalizedValues not found: {full_path}")
+        shutil.copy(full_path, copy_path)
+        sentenceDf = pq.read_table(copy_path).to_pandas(safe=False)
+    finally:
+        safe_remove(copy_path)
+
+    min_val_df, max_val_df = sentenceDf['Min'].iloc[0], sentenceDf['Max'].iloc[0] # Renamed to avoid conflict
+    sentenceDf = sentenceDf.drop(columns=['Source', 'Sentence', 'Min', 'Max'])
+
+    neurons_np = sentenceDf.to_numpy(dtype=np.uint32) # Ensure uint32 type
+    neurons_coo = sp.coo_matrix(neurons_np) # Explicitly COO
+
+    # reconstruct_from_normalized returns COO, so trailing .tocoo() is not needed here.
+    return reconstruct_from_normalized(neurons_coo, min_val_df, max_val_df)
+
 def get_safe_copy_path(full_path, eval_sample):
-    with file_lock:  # Ensure filename manipulation is thread-safe
-        # Split the file path into base and extension
+    with file_lock:
         file_base, file_ext = os.path.splitext(full_path)
-
-        # Parse the existing evaluation suffixes to prevent duplication
         suffix = f"-E{eval_sample}"
-        if not file_base.endswith(suffix):  # Only append if not already there
+        if not file_base.endswith(suffix):
             file_base += suffix
-
-        # Construct the final path
         copy_path = f"{file_base}{file_ext}"
         return copy_path
 
@@ -923,178 +917,251 @@ def thread_safe_print(message):
         sys.stdout.write(f"{message}\n")
         sys.stdout.flush()
 
-# Helper function for I/O-bound tasks (file copying)
 def safe_copy_file(src, dest):
     with file_lock:
         shutil.copy(src, dest)
 
 def safe_remove(file_path):
     with file_lock:
-        if os.path.exists(file_path):  # Check if the file exists before attempting to delete
+        if os.path.exists(file_path):
             try:
                 os.remove(file_path)
             except OSError as e:
-                print(f"Error removing file {file_path}: {e}")
+                thread_safe_print(f"Error removing file {file_path}: {e}") # Use thread_safe_print
 
-# Helper function for CPU-bound tasks (matrix manipulations)
 def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEvalPath, closestSources, info):
     local_eval_data = []
     local_generated_eval_data = []
 
-    evalSource, eval_sentenceNumber = chosenDataSet.getSourceAndSentenceIndex(evalOffset + evalSample, "Evaluation")
+    # User's new logic for evalSource and eval_sentenceNumber
+    # Ensure chosenDataSet is defined and accessible in this process's scope
+    try:
+        evalSource, eval_sentenceNumber_for_paths = chosenDataSet.getSourceAndSentenceIndex(evalOffset + evalSample, "Evaluation")
+    except NameError:
+        thread_safe_print(f"ERROR: chosenDataSet not defined in process_sample_cpu for evalSample {evalSample}!")
+        return local_eval_data, local_generated_eval_data # Early exit
+    except Exception as e:
+        thread_safe_print(f"Error getting source/sentence from chosenDataSet for evalSample {evalSample}: {e}")
+        return local_eval_data, local_generated_eval_data # Early exit
+
+
     if(info):
-        thread_safe_print(f"Starting Evaluation for Evaluation-Sample {evalSample} (Actual Evaluation-Source: {evalSource}:{eval_sentenceNumber})")
+        thread_safe_print(f"Starting Evaluation for Evaluation-Sample {evalSample} (Actual Evaluation-Source: {evalSource}:{eval_sentenceNumber_for_paths})")
+
+    temp_file_pattern = re.compile(r"(-E\d+)+\.parquet$")
 
     for (train_dirpath, _, train_filenames) in os.walk(trainPath):
         for train_filename in train_filenames:
+            if temp_file_pattern.search(train_filename): # Skip temporary files
+                continue
+
+            if not train_filename.endswith(".parquet"): # Basic filter
+                continue
+
             train_full_path = os.path.join(train_dirpath, train_filename)
 
-            if os.path.exists(train_full_path):
+            try:
+                if not os.path.exists(train_full_path):
+                    if info: thread_safe_print(f"Train file disappeared: {train_full_path}")
+                    continue
 
-                layerNumber, sourceNumber, train_sentenceNumber = getInformationFromFileName(train_full_path)
-                eval_full_path = os.path.join(evalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-0.parquet")
-                generated_eval_full_path = os.path.join(generatedEvalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-0.parquet")
+                layerNumber, sourceNumber_train, sentenceNumber_train = getInformationFromFileName(train_full_path)
 
-                evalPathExists, generatedEvalPathExists = os.path.exists(eval_full_path), os.path.exists(generated_eval_full_path)
+                eval_full_path = os.path.join(evalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber_for_paths}-0.parquet")
+                generated_eval_full_path = os.path.join(generatedEvalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber_for_paths}-0.parquet")
+
+                evalPathExists = os.path.exists(eval_full_path)
+                generatedEvalPathExists = os.path.exists(generated_eval_full_path)
                 toCheck = []
-                normalizedTrainNeurons = getNormalizedValues(train_full_path, evalSample)
+
+                normalizedTrainNeurons = getNormalizedValues(train_full_path, evalSample) # Returns COO
 
                 if evalPathExists:
-                    normalizedEvalNeurons = getNormalizedValues(eval_full_path, evalSample)
+                    normalizedEvalNeurons = getNormalizedValues(eval_full_path, evalSample) # Returns COO
                     max_eval_rows = max(normalizedTrainNeurons.shape[0], normalizedEvalNeurons.shape[0])
                     max_eval_cols = max(normalizedTrainNeurons.shape[1], normalizedEvalNeurons.shape[1])
                     toCheck.append((local_eval_data, normalizedEvalNeurons, max_eval_rows, max_eval_cols))
 
                 if generatedEvalPathExists:
-                    normalizedGeneratedEvalNeurons = getNormalizedValues(generated_eval_full_path, evalSample)
+                    normalizedGeneratedEvalNeurons = getNormalizedValues(generated_eval_full_path, evalSample) # Returns COO
                     max_generated_eval_rows = max(normalizedTrainNeurons.shape[0], normalizedGeneratedEvalNeurons.shape[0])
                     max_generated_eval_cols = max(normalizedTrainNeurons.shape[1], normalizedGeneratedEvalNeurons.shape[1])
                     toCheck.append((local_generated_eval_data, normalizedGeneratedEvalNeurons, max_generated_eval_rows, max_generated_eval_cols))
 
                 if len(toCheck) > 0:
-                    for (currentData, currentNeurons, max_rows, max_cols) in toCheck:
+                    for (currentDataList, currentNeurons_coo, max_rows, max_cols) in toCheck:
+                        # normalizedTrainNeurons and currentNeurons_coo are COO
                         alignedTrain = sp.coo_matrix((normalizedTrainNeurons.data,
                                                       (normalizedTrainNeurons.row, normalizedTrainNeurons.col)),
                                                      shape=(max_rows, max_cols))
-                        alignedEval = sp.coo_matrix((currentNeurons.data,
-                                                     (currentNeurons.row, currentNeurons.col)),
+                        alignedEval = sp.coo_matrix((currentNeurons_coo.data,
+                                                     (currentNeurons_coo.row, currentNeurons_coo.col)),
                                                     shape=(max_rows, max_cols))
-                        common_mask = alignedTrain.multiply(alignedEval)
-                        differencesBetweenSources = sp.coo_matrix(np.abs(alignedTrain - alignedEval).multiply(common_mask))
 
-                        for neuron_idx, difference in zip(differencesBetweenSources.col, differencesBetweenSources.data):
-                            sparse_traincol = normalizedTrainNeurons.getcol(neuron_idx)
-                            sparse_evalcol = currentNeurons.getcol(neuron_idx)
-                            if sparse_traincol.nnz > 0:
+                        # User's original common_mask: product of values. This is COO.
+                        common_mask_product = alignedTrain.multiply(alignedEval)
+
+                        # Robust difference calculation ensuring COO format
+                        subtracted_sparse = alignedTrain - alignedEval # May result in CSR/CSC
+                        subtracted_coo = subtracted_sparse.tocoo()     # Explicitly convert to COO
+
+                        abs_diff_data = np.abs(subtracted_coo.data)
+                        abs_diff_coo_matrix = sp.coo_matrix((abs_diff_data,
+                                                             (subtracted_coo.row, subtracted_coo.col)),
+                                                            shape=subtracted_coo.shape) # This is COO
+
+                        differencesBetweenSources = abs_diff_coo_matrix.multiply(common_mask_product)
+                        # Ensure final result is COO for iteration
+                        differencesBetweenSources_iter_coo = differencesBetweenSources.tocoo()
+
+                        for neuron_idx, difference_val in zip(differencesBetweenSources_iter_coo.col, differencesBetweenSources_iter_coo.data):
+                            # .getcol() is called on original (unaligned) COO matrices from getNormalizedValues
+                            sparse_traincol = normalizedTrainNeurons.getcol(neuron_idx) # Returns CSC
+                            sparse_evalcol = currentNeurons_coo.getcol(neuron_idx)   # Returns CSC
+
+                            if sparse_traincol.nnz > 0: # Check from original logic
                                 neuron_value = sparse_traincol.data[0]
                                 eval_neuron_value = sparse_evalcol.data[0] if sparse_evalcol.nnz > 0 else 0
-                                current_source = f"{sourceNumber}:{train_sentenceNumber}"
-                                currentData.append({'evalSample': evalSample, 'layer': layerNumber, 'neuron': neuron_idx,
-                                                    'source': current_source, 'eval_neuron_value': eval_neuron_value, 'neuron_value': neuron_value, 'difference': abs(difference)})
+                                # Use sourceNumber_train and sentenceNumber_train from the actual training file
+                                current_source_identifier = f"{sourceNumber_train}:{sentenceNumber_train}"
+                                currentDataList.append({'evalSample': evalSample, 'layer': layerNumber, 'neuron': neuron_idx,
+                                                        'source': current_source_identifier,
+                                                        'eval_neuron_value': eval_neuron_value,
+                                                        'neuron_value': neuron_value,
+                                                        # User appended abs(difference_val). difference_val is already from abs_diff.
+                                                        'difference': abs(difference_val)})
+            except FileNotFoundError as e_fnf:
+                if info: thread_safe_print(f"FNF Error in process_sample_cpu for evalSample {evalSample}, train_file {train_full_path}: {e_fnf}")
+            except AttributeError as e_attr:
+                if info:
+                    thread_safe_print(f"!!! AttributeError in process_sample_cpu for evalSample {evalSample}, train_file {train_full_path}: {e_attr} !!!")
+                    import traceback
+                    thread_safe_print(traceback.format_exc()) # Print full traceback for AttributeError
+            except Exception as e_general:
+                if info: thread_safe_print(f"General Error in process_sample_cpu for evalSample {evalSample}, train_file {train_full_path}: {type(e_general).__name__} - {e_general}")
 
     return local_eval_data, local_generated_eval_data
 
 def process_sample_io(evalSample, evalOffset, trainPath, evalPath, generatedEvalPath, layersToCheck, info):
-    # I/O-bound operations such as file copying and reading parquet files
-    evalSource, eval_sentenceNumber = chosenDataSet.getSourceAndSentenceIndex(evalOffset + evalSample, "Evaluation")
+    # User's new logic for evalSource and eval_sentenceNumber
+    try:
+        evalSource, eval_sentenceNumber = chosenDataSet.getSourceAndSentenceIndex(evalOffset + evalSample, "Evaluation")
+    except NameError:
+        thread_safe_print(f"ERROR: chosenDataSet not defined in process_sample_io for evalSample {evalSample}!")
+        return [] # Early exit
+    except Exception as e:
+        thread_safe_print(f"Error getting source/sentence from chosenDataSet in process_sample_io for evalSample {evalSample}: {e}")
+        return [] # Early exit
+
     if info:
         thread_safe_print(f"Starting I/O-bound tasks for Evaluation-Sample {evalSample} (Actual Evaluation-Source: {evalSource}:{eval_sentenceNumber})")
 
-    to_copy = []
     for (train_dirpath, _, train_filenames) in os.walk(trainPath):
         for train_filename in train_filenames:
+            if not train_filename.endswith(".parquet"): continue # Basic filter for .parquet
             train_full_path = os.path.join(train_dirpath, train_filename)
             if not os.path.exists(train_full_path):
                 continue
-
-            layerNumber, sourceNumber, train_sentenceNumber = getInformationFromFileName(train_full_path)
-            if (layerNumber in layersToCheck or layersToCheck == []):
-                eval_full_path = os.path.join(evalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-0.parquet")
-                generated_eval_full_path = os.path.join(generatedEvalPath, f"Layer{layerNumber}", f"Source={evalSource}", f"Sentence{eval_sentenceNumber}-0.parquet")
-
-                # Queue up file copies (avoiding actual copying until all paths are gathered)
-                to_copy.append((train_full_path, eval_full_path, generated_eval_full_path))
-
-    # Perform file copying concurrently
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        futures = [
-            executor.submit(safe_copy_file, src, dest) for (src, dest, _) in to_copy
-        ]
-        # Ensure all copying is done
-        for future in concurrent.futures.as_completed(futures):
-            future.result()
-
-    return to_copy  # Return file paths for CPU-bound processing
+            try:
+                layerNumber, _, _ = getInformationFromFileName(train_full_path) # Minimal parsing for filter
+                if not layersToCheck or layerNumber in layersToCheck:
+                    pass
+            except Exception:
+                pass # Ignore parsing errors if just listing files
+            
+    return [] # Returning an empty list is fine.
 
 def getClosestSourcesFromDf(df, closestSources):
-    # Sort by evalSample, layer, neuron, and difference
-    closest_sources = (
-        df.sort_values(by=['evalSample', 'layer', 'neuron', 'difference'])  # Sort by evalSample, layer, neuron, then difference
-        .groupby(['evalSample', 'layer', 'neuron'], group_keys=False)  # Group by evalSample, layer, and neuron
-        .head(closestSources)  # Select top N rows per group
+    if df.empty:
+        return df
+    closest_sources_df = ( # Renamed variable
+        df.sort_values(by=['evalSample', 'layer', 'neuron', 'difference'])
+        .groupby(['evalSample', 'layer', 'neuron'], group_keys=False)
+        .head(closestSources)
     )
-    return closest_sources
+    return closest_sources_df
 
-def identifyClosestLLMSources(evalSamples, evalOffset, closestSources, onlyOneEvaluation=False, layersToCheck=[], info=True):
-    global layers, layerSizes, fileName
+def identifyClosestLLMSources(evalSamples, evalOffset, closestSources, onlyOneEvaluation=False, layersToCheck=[], info=True): # Removed trainPathToUse to match user's latest
+    global baseDirectory # Assuming baseDirectory is set
+    # globals layers, layerSizes, fileName mentioned in user original, not used here
 
-    trainPath = os.path.join(baseDirectory, "Training")
+    if 'baseDirectory' not in globals() or not baseDirectory:
+        print("CRITICAL ERROR: Global variable 'baseDirectory' is not set.")
+        return pd.DataFrame(), pd.DataFrame()
+    if 'chosenDataSet' not in globals() or not chosenDataSet: # Check for the new dependency
+        print("CRITICAL ERROR: Global variable 'chosenDataSet' is not defined.")
+        return pd.DataFrame(), pd.DataFrame()
+
+
+    trainPath = os.path.join(baseDirectory, "Training") # User's latest version hardcodes "Training"
     evalPath = os.path.join(baseDirectory, "Evaluation", "Sample")
     generatedEvalPath = os.path.join(baseDirectory, "Evaluation", "Generated")
 
-    # Initialize lists for direct usage
-    eval_data = []
-    generated_eval_data = []
+    # Match user's original print style for this block
+    print(f"GeneratedEvalPath: {generatedEvalPath}, TrainPath: {trainPath}")
+    print(f"EvalSamples: {evalSamples}, LayersToCheck: {layersToCheck}")
 
-    # Step 1: Handle I/O-bound tasks
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        io_futures = [
-            executor.submit(process_sample_io, sampleNumber, evalOffset, trainPath, evalPath, generatedEvalPath, layersToCheck, info)
-            for sampleNumber in range(evalSamples)
-        ]
-        for future in concurrent.futures.as_completed(io_futures):
+    collected_eval_data = [] # Local lists for aggregation
+    collected_generated_eval_data = []
+
+    io_max_workers = min(max(4, os.cpu_count() or 1), 16)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=io_max_workers) as executor:
+        io_futures_map = {
+            executor.submit(process_sample_io, sampleNum, evalOffset, trainPath, evalPath, generatedEvalPath, layersToCheck, info): sampleNum
+            for sampleNum in range(evalSamples)
+        }
+        for future in concurrent.futures.as_completed(io_futures_map):
+            sampleNum = io_futures_map[future]
             try:
-                future.result()  # Ensure I/O tasks complete
+                future.result() # Result is discarded as per user's current structure
             except Exception as e:
+                # User's original print for I/O exception
                 if not onlyOneEvaluation:
-                    print(f"I/O Task Exception for sample: {e}")
+                    print(f"I/O Task Exception for sample: {e}") # Kept user's original format
+                elif info : # If onlyOneEvaluation but info is on, still log with more detail
+                    thread_safe_print(f"I/O Task Exception for sample {sampleNum} (onlyOneEvaluation=True, info=True): {e}")
 
-    # Step 2: Handle CPU-bound tasks
-    with concurrent.futures.ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
-        cpu_futures = [
-            executor.submit(process_sample_cpu, sampleNumber, evalOffset, trainPath, evalPath, generatedEvalPath, closestSources, info)
-            for sampleNumber in range(evalSamples)
-        ]
 
-        for future in concurrent.futures.as_completed(cpu_futures):
+    if info: thread_safe_print("I/O phase (file operations neutralized) completed.")
+
+    cpu_max_workers = os.cpu_count() or 1
+    with concurrent.futures.ProcessPoolExecutor(max_workers=cpu_max_workers) as executor:
+        cpu_futures_map = {
+            executor.submit(process_sample_cpu, sampleNum, evalOffset, trainPath, evalPath, generatedEvalPath, closestSources, info): sampleNum
+            for sampleNum in range(evalSamples)
+        }
+        for future in concurrent.futures.as_completed(cpu_futures_map):
+            sampleNum = cpu_futures_map[future]
             try:
-                local_eval_data, local_generated_eval_data = future.result()
-
-                # Thread-safe addition to shared data
+                res_local_eval, res_local_generated = future.result()
                 with data_lock:
-                    eval_data.extend(local_eval_data)
-                    generated_eval_data.extend(local_generated_eval_data)
+                    collected_eval_data.extend(res_local_eval)
+                    collected_generated_eval_data.extend(res_local_generated)
             except Exception as e:
+                # User's original print for CPU exception
                 if not onlyOneEvaluation:
-                    print(f"CPU Task Exception for sample: {e}")
+                    print(f"CPU Task Exception for sample: {e}") # Kept user's original format
+                elif info:
+                    thread_safe_print(f"CPU Task Exception for sample {sampleNum} (onlyOneEvaluation=True, info=True): {e}")
 
-    # Create the DataFrame from the collected data
-    eval_df = pd.DataFrame(eval_data)
-    generated_eval_df = pd.DataFrame(generated_eval_data)
 
-    # Extract closest sources from DataFrame
-    #eval_df = getClosestSourcesFromDf(eval_df, closestSources)
-    generated_eval_df = getClosestSourcesFromDf(generated_eval_df, closestSources)
+    if info: thread_safe_print("CPU Processing phase completed.")
 
-    # Set index for easier retrieval
-    #eval_df.set_index(['evalSample'], inplace=True)
-    generated_eval_df.set_index(['evalSample'], inplace=True)
+    eval_df_output = pd.DataFrame(collected_eval_data) # Use local list name
+    generated_eval_df_output = pd.DataFrame(collected_generated_eval_data) # Use local list name
 
-    # Save the DataFrame as Parquet
-    #eval_df.to_parquet('identifiedClosestEvalSources.parquet', compression='zstd')
-    generated_eval_df.to_parquet('identifiedClosestGeneratedEvalSources.parquet', compression='zstd')
+    if not generated_eval_df_output.empty:
+        generated_eval_df_output = getClosestSourcesFromDf(generated_eval_df_output, closestSources)
+        try:
+            generated_eval_df_output.set_index(['evalSample'], inplace=True) # User's original
+            generated_eval_df_output.to_parquet('identifiedClosestGeneratedEvalSources.parquet', compression='zstd')
+            if info: thread_safe_print("Saved identifiedClosestGeneratedEvalSources.parquet")
+        except Exception as e:
+            if info: thread_safe_print(f"Error saving identifiedClosestGeneratedEvalSources.parquet: {e}")
+    elif info:
+        thread_safe_print("No data for generated_eval_df, skipping save.")
 
-    return eval_df, generated_eval_df
+    return eval_df_output, generated_eval_df_output
 
 class MetricProcessor:
     def __init__(self, comparison_value=0.5, metrics_to_use=METRICS_TO_USE):
