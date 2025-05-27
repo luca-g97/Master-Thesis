@@ -929,21 +929,36 @@ def safe_remove(file_path):
             except OSError as e:
                 thread_safe_print(f"Error removing file {file_path}: {e}") # Use thread_safe_print
 
+# --- Use the robust versions of these from previous successful fixes ---
+def getNormalizedValues(full_path, evalSample):
+    copy_path = get_safe_copy_path(full_path, evalSample)
+    try:
+        if not os.path.exists(full_path):
+            raise FileNotFoundError(f"Source file for getNormalizedValues not found: {full_path}")
+        shutil.copy(full_path, copy_path)
+        sentenceDf = pq.read_table(copy_path).to_pandas(safe=False)
+    finally:
+        safe_remove(copy_path)
+
+    min_val_df, max_val_df = sentenceDf['Min'].iloc[0], sentenceDf['Max'].iloc[0]
+    sentenceDf = sentenceDf.drop(columns=['Source', 'Sentence', 'Min', 'Max'])
+    neurons_np = sentenceDf.to_numpy(dtype=np.uint32)
+    neurons_coo = sp.coo_matrix(neurons_np) # Explicitly COO
+    # reconstruct_from_normalized receives COO and should return COO
+    return reconstruct_from_normalized(neurons_coo, min_val_df, max_val_df)
+
 def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEvalPath, closestSources, info):
     local_eval_data = []
     local_generated_eval_data = []
 
-    # User's new logic for evalSource and eval_sentenceNumber
-    # Ensure chosenDataSet is defined and accessible in this process's scope
     try:
         evalSource, eval_sentenceNumber_for_paths = chosenDataSet.getSourceAndSentenceIndex(evalOffset + evalSample, "Evaluation")
     except NameError:
         thread_safe_print(f"ERROR: chosenDataSet not defined in process_sample_cpu for evalSample {evalSample}!")
-        return local_eval_data, local_generated_eval_data # Early exit
+        return local_eval_data, local_generated_eval_data
     except Exception as e:
         thread_safe_print(f"Error getting source/sentence from chosenDataSet for evalSample {evalSample}: {e}")
-        return local_eval_data, local_generated_eval_data # Early exit
-
+        return local_eval_data, local_generated_eval_data
 
     if(info):
         thread_safe_print(f"Starting Evaluation for Evaluation-Sample {evalSample} (Actual Evaluation-Source: {evalSource}:{eval_sentenceNumber_for_paths})")
@@ -952,17 +967,17 @@ def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEva
 
     for (train_dirpath, _, train_filenames) in os.walk(trainPath):
         for train_filename in train_filenames:
-            if temp_file_pattern.search(train_filename): # Skip temporary files
+            if temp_file_pattern.search(train_filename):
                 continue
 
-            if not train_filename.endswith(".parquet"): # Basic filter
+            if not train_filename.endswith(".parquet"):
                 continue
 
             train_full_path = os.path.join(train_dirpath, train_filename)
 
             try:
                 if not os.path.exists(train_full_path):
-                    if info: thread_safe_print(f"Train file disappeared: {train_full_path}")
+                    if info: thread_safe_print(f"Train file disappeared before getInformation: {train_full_path}")
                     continue
 
                 layerNumber, sourceNumber_train, sentenceNumber_train = getInformationFromFileName(train_full_path)
@@ -974,70 +989,69 @@ def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEva
                 generatedEvalPathExists = os.path.exists(generated_eval_full_path)
                 toCheck = []
 
+                # *** CRITICAL FIX POINT BASED ON TRACEBACK ***
+                # getNormalizedValues is unexpectedly returning CSR. Force to COO.
                 normalizedTrainNeurons_from_func = getNormalizedValues(train_full_path, evalSample)
                 normalizedTrainNeurons = normalizedTrainNeurons_from_func.tocoo()
+                # For debugging, you can add:
+                # if info: thread_safe_print(f"Type of normalizedTrainNeurons after tocoo for {train_filename} E{evalSample}: {type(normalizedTrainNeurons)}")
+
 
                 if evalPathExists:
-                    normalizedEvalNeurons = getNormalizedValues(eval_full_path, evalSample).tocoo() # Returns COO
+                    normalizedEvalNeurons_from_func = getNormalizedValues(eval_full_path, evalSample)
+                    normalizedEvalNeurons = normalizedEvalNeurons_from_func.tocoo() # Force to COO
                     max_eval_rows = max(normalizedTrainNeurons.shape[0], normalizedEvalNeurons.shape[0])
                     max_eval_cols = max(normalizedTrainNeurons.shape[1], normalizedEvalNeurons.shape[1])
                     toCheck.append((local_eval_data, normalizedEvalNeurons, max_eval_rows, max_eval_cols))
 
                 if generatedEvalPathExists:
-                    normalizedGeneratedEvalNeurons = getNormalizedValues(generated_eval_full_path, evalSample) # Returns COO
+                    normalizedGeneratedEvalNeurons_from_func = getNormalizedValues(generated_eval_full_path, evalSample)
+                    normalizedGeneratedEvalNeurons = normalizedGeneratedEvalNeurons_from_func.tocoo() # Force to COO
                     max_generated_eval_rows = max(normalizedTrainNeurons.shape[0], normalizedGeneratedEvalNeurons.shape[0])
                     max_generated_eval_cols = max(normalizedTrainNeurons.shape[1], normalizedGeneratedEvalNeurons.shape[1])
                     toCheck.append((local_generated_eval_data, normalizedGeneratedEvalNeurons, max_generated_eval_rows, max_generated_eval_cols))
 
                 if len(toCheck) > 0:
-                    for (currentDataList, currentNeurons_coo, max_rows, max_cols) in toCheck:
-                        # normalizedTrainNeurons and currentNeurons_coo are COO
+                    for (currentDataList, currentNeurons_coo_input, max_rows, max_cols) in toCheck:
+                        # normalizedTrainNeurons and currentNeurons_coo_input are now guaranteed COO here
                         alignedTrain = sp.coo_matrix((normalizedTrainNeurons.data,
                                                       (normalizedTrainNeurons.row, normalizedTrainNeurons.col)),
                                                      shape=(max_rows, max_cols))
-                        alignedEval = sp.coo_matrix((currentNeurons_coo.data,
-                                                     (currentNeurons_coo.row, currentNeurons_coo.col)),
+                        alignedEval = sp.coo_matrix((currentNeurons_coo_input.data, # Already ensured to be COO
+                                                     (currentNeurons_coo_input.row, currentNeurons_coo_input.col)),
                                                     shape=(max_rows, max_cols))
 
-                        # User's original common_mask: product of values. This is COO.
+                        # User's original common_mask logic (element-wise product of values)
                         common_mask_product = alignedTrain.multiply(alignedEval)
 
-                        # Robust difference calculation ensuring COO format
-                        subtracted_sparse = alignedTrain - alignedEval # May result in CSR/CSC
-                        subtracted_coo = subtracted_sparse.tocoo()     # Explicitly convert to COO
-
-                        abs_diff_data = np.abs(subtracted_coo.data)
-                        abs_diff_coo_matrix = sp.coo_matrix((abs_diff_data,
-                                                             (subtracted_coo.row, subtracted_coo.col)),
-                                                            shape=subtracted_coo.shape) # This is COO
-
-                        differencesBetweenSources = abs_diff_coo_matrix.multiply(common_mask_product)
-                        # Ensure final result is COO for iteration
+                        # Your original difference calculation line:
+                        # This should be robust now if inputs are COO and sp.coo_matrix() correctly converts the result.
+                        differencesBetweenSources = sp.coo_matrix(
+                            np.abs(alignedTrain - alignedEval).multiply(common_mask_product)
+                        )
+                        # Defensively ensure COO for iteration (though the above line should already make it COO)
                         differencesBetweenSources_iter_coo = differencesBetweenSources.tocoo()
 
-                        for neuron_idx, difference_val in zip(differencesBetweenSources_iter_coo.col, differencesBetweenSources_iter_coo.data):
-                            # .getcol() is called on original (unaligned) COO matrices from getNormalizedValues
-                            sparse_traincol = normalizedTrainNeurons.getcol(neuron_idx) # Returns CSC
-                            sparse_evalcol = currentNeurons_coo.getcol(neuron_idx)   # Returns CSC
 
-                            if sparse_traincol.nnz > 0: # Check from original logic
+                        for neuron_idx, difference_val in zip(differencesBetweenSources_iter_coo.col, differencesBetweenSources_iter_coo.data):
+                            # getcol is called on normalizedTrainNeurons and currentNeurons_coo_input (which are COO)
+                            sparse_traincol = normalizedTrainNeurons.getcol(neuron_idx)
+                            sparse_evalcol = currentNeurons_coo_input.getcol(neuron_idx)
+
+                            if sparse_traincol.nnz > 0:
                                 neuron_value = sparse_traincol.data[0]
                                 eval_neuron_value = sparse_evalcol.data[0] if sparse_evalcol.nnz > 0 else 0
-                                # Use sourceNumber_train and sentenceNumber_train from the actual training file
                                 current_source_identifier = f"{sourceNumber_train}:{sentenceNumber_train}"
                                 currentDataList.append({'evalSample': evalSample, 'layer': layerNumber, 'neuron': neuron_idx,
                                                         'source': current_source_identifier,
                                                         'eval_neuron_value': eval_neuron_value,
                                                         'neuron_value': neuron_value,
-                                                        # User appended abs(difference_val). difference_val is already from abs_diff.
-                                                        'difference': abs(difference_val)})
+                                                        'difference': abs(difference_val)}) # Using abs on already abs value
             except FileNotFoundError as e_fnf:
                 if info: thread_safe_print(f"FNF Error in process_sample_cpu for evalSample {evalSample}, train_file {train_full_path}: {e_fnf}")
             except AttributeError as e_attr:
                 if info:
                     thread_safe_print(f"!!! AttributeError in process_sample_cpu for evalSample {evalSample}, train_file {train_full_path}: {e_attr} !!!")
-                    import traceback
-                    thread_safe_print(traceback.format_exc()) # Print full traceback for AttributeError
             except Exception as e_general:
                 if info: thread_safe_print(f"General Error in process_sample_cpu for evalSample {evalSample}, train_file {train_full_path}: {type(e_general).__name__} - {e_general}")
 
