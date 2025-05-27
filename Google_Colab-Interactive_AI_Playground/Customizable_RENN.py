@@ -943,8 +943,8 @@ def getNormalizedValues(full_path, evalSample):
     min_val_df, max_val_df = sentenceDf['Min'].iloc[0], sentenceDf['Max'].iloc[0]
     sentenceDf = sentenceDf.drop(columns=['Source', 'Sentence', 'Min', 'Max'])
     neurons_np = sentenceDf.to_numpy(dtype=np.uint32)
-    neurons_coo = sp.coo_matrix(neurons_np) # Explicitly COO
-    # reconstruct_from_normalized receives COO and should return COO
+    neurons_coo = sp.coo_matrix(neurons_np)
+
     return reconstruct_from_normalized(neurons_coo, min_val_df, max_val_df)
 
 def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEvalPath, closestSources, info):
@@ -989,12 +989,8 @@ def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEva
                 generatedEvalPathExists = os.path.exists(generated_eval_full_path)
                 toCheck = []
 
-                # *** CRITICAL FIX POINT BASED ON TRACEBACK ***
-                # getNormalizedValues is unexpectedly returning CSR. Force to COO.
                 normalizedTrainNeurons_from_func = getNormalizedValues(train_full_path, evalSample)
                 normalizedTrainNeurons = normalizedTrainNeurons_from_func.tocoo()
-                # For debugging, you can add:
-                # if info: thread_safe_print(f"Type of normalizedTrainNeurons after tocoo for {train_filename} E{evalSample}: {type(normalizedTrainNeurons)}")
 
 
                 if evalPathExists:
@@ -1013,7 +1009,6 @@ def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEva
 
                 if len(toCheck) > 0:
                     for (currentDataList, currentNeurons_coo_input, max_rows, max_cols) in toCheck:
-                        # normalizedTrainNeurons and currentNeurons_coo_input are now guaranteed COO here
                         alignedTrain = sp.coo_matrix((normalizedTrainNeurons.data,
                                                       (normalizedTrainNeurons.row, normalizedTrainNeurons.col)),
                                                      shape=(max_rows, max_cols))
@@ -1021,20 +1016,15 @@ def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEva
                                                      (currentNeurons_coo_input.row, currentNeurons_coo_input.col)),
                                                     shape=(max_rows, max_cols))
 
-                        # User's original common_mask logic (element-wise product of values)
                         common_mask_product = alignedTrain.multiply(alignedEval)
 
-                        # Your original difference calculation line:
-                        # This should be robust now if inputs are COO and sp.coo_matrix() correctly converts the result.
                         differencesBetweenSources = sp.coo_matrix(
                             np.abs(alignedTrain - alignedEval).multiply(common_mask_product)
                         )
-                        # Defensively ensure COO for iteration (though the above line should already make it COO)
                         differencesBetweenSources_iter_coo = differencesBetweenSources.tocoo()
 
 
                         for neuron_idx, difference_val in zip(differencesBetweenSources_iter_coo.col, differencesBetweenSources_iter_coo.data):
-                            # getcol is called on normalizedTrainNeurons and currentNeurons_coo_input (which are COO)
                             sparse_traincol = normalizedTrainNeurons.getcol(neuron_idx)
                             sparse_evalcol = currentNeurons_coo_input.getcol(neuron_idx)
 
@@ -1046,7 +1036,7 @@ def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEva
                                                         'source': current_source_identifier,
                                                         'eval_neuron_value': eval_neuron_value,
                                                         'neuron_value': neuron_value,
-                                                        'difference': abs(difference_val)}) # Using abs on already abs value
+                                                        'difference': abs(difference_val)})
             except FileNotFoundError as e_fnf:
                 if info: thread_safe_print(f"FNF Error in process_sample_cpu for evalSample {evalSample}, train_file {train_full_path}: {e_fnf}")
             except AttributeError as e_attr:
@@ -1058,7 +1048,6 @@ def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEva
     return local_eval_data, local_generated_eval_data
 
 def process_sample_io(evalSample, evalOffset, trainPath, evalPath, generatedEvalPath, layersToCheck, info):
-    # User's new logic for evalSource and eval_sentenceNumber
     try:
         evalSource, eval_sentenceNumber = chosenDataSet.getSourceAndSentenceIndex(evalOffset + evalSample, "Evaluation")
     except NameError:
@@ -1089,34 +1078,21 @@ def process_sample_io(evalSample, evalOffset, trainPath, evalPath, generatedEval
 def getClosestSourcesFromDf(df, closestSources):
     if df.empty:
         return df
-    closest_sources_df = ( # Renamed variable
+    closest_sources_df = (
         df.sort_values(by=['evalSample', 'layer', 'neuron', 'difference'])
         .groupby(['evalSample', 'layer', 'neuron'], group_keys=False)
         .head(closestSources)
     )
     return closest_sources_df
 
-def identifyClosestLLMSources(evalSamples, evalOffset, closestSources, onlyOneEvaluation=False, layersToCheck=[], info=True): # Removed trainPathToUse to match user's latest
-    global baseDirectory # Assuming baseDirectory is set
-    # globals layers, layerSizes, fileName mentioned in user original, not used here
+def identifyClosestLLMSources(evalSamples, evalOffset, closestSources, onlyOneEvaluation=False, layersToCheck=[], info=True):
+    global baseDirectory
 
-    if 'baseDirectory' not in globals() or not baseDirectory:
-        print("CRITICAL ERROR: Global variable 'baseDirectory' is not set.")
-        return pd.DataFrame(), pd.DataFrame()
-    if 'chosenDataSet' not in globals() or not chosenDataSet: # Check for the new dependency
-        print("CRITICAL ERROR: Global variable 'chosenDataSet' is not defined.")
-        return pd.DataFrame(), pd.DataFrame()
-
-
-    trainPath = os.path.join(baseDirectory, "Training") # User's latest version hardcodes "Training"
+    trainPath = os.path.join(baseDirectory, "Training")
     evalPath = os.path.join(baseDirectory, "Evaluation", "Sample")
     generatedEvalPath = os.path.join(baseDirectory, "Evaluation", "Generated")
 
-    # Match user's original print style for this block
-    print(f"GeneratedEvalPath: {generatedEvalPath}, TrainPath: {trainPath}")
-    print(f"EvalSamples: {evalSamples}, LayersToCheck: {layersToCheck}")
-
-    collected_eval_data = [] # Local lists for aggregation
+    collected_eval_data = []
     collected_generated_eval_data = []
 
     io_max_workers = min(max(4, os.cpu_count() or 1), 16)
@@ -1128,12 +1104,11 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources, onlyOneEv
         for future in concurrent.futures.as_completed(io_futures_map):
             sampleNum = io_futures_map[future]
             try:
-                future.result() # Result is discarded as per user's current structure
+                future.result()
             except Exception as e:
-                # User's original print for I/O exception
                 if not onlyOneEvaluation:
-                    print(f"I/O Task Exception for sample: {e}") # Kept user's original format
-                elif info : # If onlyOneEvaluation but info is on, still log with more detail
+                    print(f"I/O Task Exception for sample: {e}")
+                elif info:
                     thread_safe_print(f"I/O Task Exception for sample {sampleNum} (onlyOneEvaluation=True, info=True): {e}")
 
 
@@ -1153,22 +1128,21 @@ def identifyClosestLLMSources(evalSamples, evalOffset, closestSources, onlyOneEv
                     collected_eval_data.extend(res_local_eval)
                     collected_generated_eval_data.extend(res_local_generated)
             except Exception as e:
-                # User's original print for CPU exception
                 if not onlyOneEvaluation:
-                    print(f"CPU Task Exception for sample: {e}") # Kept user's original format
+                    print(f"CPU Task Exception for sample: {e}")
                 elif info:
                     thread_safe_print(f"CPU Task Exception for sample {sampleNum} (onlyOneEvaluation=True, info=True): {e}")
 
 
     if info: thread_safe_print("CPU Processing phase completed.")
 
-    eval_df_output = pd.DataFrame(collected_eval_data) # Use local list name
-    generated_eval_df_output = pd.DataFrame(collected_generated_eval_data) # Use local list name
+    eval_df_output = pd.DataFrame(collected_eval_data)
+    generated_eval_df_output = pd.DataFrame(collected_generated_eval_data)
 
     if not generated_eval_df_output.empty:
         generated_eval_df_output = getClosestSourcesFromDf(generated_eval_df_output, closestSources)
         try:
-            generated_eval_df_output.set_index(['evalSample'], inplace=True) # User's original
+            generated_eval_df_output.set_index(['evalSample'], inplace=True)
             generated_eval_df_output.to_parquet('identifiedClosestGeneratedEvalSources.parquet', compression='zstd')
             if info: thread_safe_print("Saved identifiedClosestGeneratedEvalSources.parquet")
         except Exception as e:
