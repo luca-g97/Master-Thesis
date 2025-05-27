@@ -974,10 +974,11 @@ def process_sample_cpu(evalSample, evalOffset, trainPath, evalPath, generatedEva
                 generatedEvalPathExists = os.path.exists(generated_eval_full_path)
                 toCheck = []
 
-                normalizedTrainNeurons = getNormalizedValues(train_full_path, evalSample) # Returns COO
+                normalizedTrainNeurons_from_func = getNormalizedValues(train_full_path, evalSample)
+                normalizedTrainNeurons = normalizedTrainNeurons_from_func.tocoo()
 
                 if evalPathExists:
-                    normalizedEvalNeurons = getNormalizedValues(eval_full_path, evalSample) # Returns COO
+                    normalizedEvalNeurons = getNormalizedValues(eval_full_path, evalSample).tocoo() # Returns COO
                     max_eval_rows = max(normalizedTrainNeurons.shape[0], normalizedEvalNeurons.shape[0])
                     max_eval_cols = max(normalizedTrainNeurons.shape[1], normalizedEvalNeurons.shape[1])
                     toCheck.append((local_eval_data, normalizedEvalNeurons, max_eval_rows, max_eval_cols))
