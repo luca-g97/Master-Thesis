@@ -42,7 +42,7 @@ This notebook documents the exploration and application of RENN concepts to the 
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://github.com/luca-g97/Master-Thesis/blob/main/OLMO_Playground.ipynb)
 
-### Final Evaluation Scripts
+### Final Evaluation Notebook
 
 This collection includes the scripts used for the final, comprehensive strategy evaluation on the MNIST dataset, as detailed in Chapter 5. The code used for the creation of the table is located in the folder "Google_Colab-Interactive_AI_Playground/Final-Evaluation".
 
