@@ -28,7 +28,7 @@ Explore the concepts and experiments of the RENN framework using the Google Cola
 
 This notebook provides a hands-on "playground" environment to experiment with the foundational findings of the RENN framework. It allows users to explore source tracing and the impact of different configurations in an accessible way. The modular designed code can be found in the folder "Google_Colab-Interactive_AI_Playground".
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://github.com/luca-g97/Master-Thesis/blob/main/Interactive_AI_Playground.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1lApBBKHaF7xl0NQ5-gcwV5Mr5wHWHVlq?usp=sharing)
 
 ### Testing Area
 
