@@ -46,4 +46,4 @@ This notebook documents the exploration and application of RENN concepts to the 
 
 This collection includes the scripts used for the final, comprehensive strategy evaluation on the MNIST dataset, as detailed in Chapter 5. The code used for the creation of the table is located in the folder "Google_Colab-Interactive_AI_Playground/Final-Evaluation".
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](PLACEHOLDER_LINK_FOR_FINAL_EVALUATION_SCRIPTS)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1DClthGU46S0vywJZBIxelkA9F0LwAmMF?usp=sharing)
