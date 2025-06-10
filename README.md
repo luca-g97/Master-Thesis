@@ -26,7 +26,7 @@ Explore the concepts and experiments of the RENN framework using the Google Cola
 
 ### Interactive AI Playground
 
-This notebook provides a hands-on "playground" environment to experiment with the foundational findings of the RENN framework. It allows users to explore source tracing and the impact of different configurations in an accessible way. The modular designed code can be found inside this repository in the folder "Google_Colab-Interactive_AI_Playground".
+This notebook provides a hands-on "playground" environment to experiment with the foundational findings of the RENN framework. It allows users to explore source tracing and the impact of different configurations in an accessible way. The modular designed code can be found in the folder "Google_Colab-Interactive_AI_Playground".
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://github.com/luca-g97/Master-Thesis/blob/main/Interactive_AI_Playground.ipynb)
 
@@ -44,6 +44,6 @@ This notebook documents the exploration and application of RENN concepts to the 
 
 ### Final Evaluation Scripts
 
-This collection includes the scripts used for the final, comprehensive strategy evaluation on the MNIST dataset, as detailed in Chapter 5. The code used for the creation of the table can be found inside this repository in the folder "Google_Colab-Interactive_AI_Playground/Final-Evaluation".
+This collection includes the scripts used for the final, comprehensive strategy evaluation on the MNIST dataset, as detailed in Chapter 5. The code used for the creation of the table is located in the folder "Google_Colab-Interactive_AI_Playground/Final-Evaluation".
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](PLACEHOLDER_LINK_FOR_FINAL_EVALUATION_SCRIPTS)
