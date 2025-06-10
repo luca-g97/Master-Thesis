@@ -130,9 +130,9 @@ layerAmountChoice = createIntSlider(num_layers, min=1, max=16, description="Laye
 seeds = ["Random"] + [i for i in range(100)]
 seedChoice = createSelectionSlider(value="Random", options=seeds, description="Seed")
 useBitLinearChoice = createBoolButtonChoice(description="Activate BitLinear", tooltip="Use BitLinear instead of nn.Linear")
-useMetricsEvaluation = createBoolButtonChoice(description="Use Metrics Evaluation", tooltip="Use Metrics to evaluate the closest sources")
-useMMEvaluation = createBoolButtonChoice(description="Use Magnitude Truncation Evaluation", tooltip="Use Magnitude Truncation to evaluate the closest sources")
-metricsChoice = widgets.HBox([useBitLinearChoice, useMetricsEvaluation, useMMEvaluation])
+#useMetricsEvaluation = createBoolButtonChoice(description="Use Metrics Evaluation", tooltip="Use Metrics to evaluate the closest sources")
+#useMMEvaluation = createBoolButtonChoice(description="Use Magnitude Truncation Evaluation", tooltip="Use Magnitude Truncation to evaluate the closest sources")
+metricsChoice = widgets.HBox([useBitLinearChoice])#, useMetricsEvaluation, useMMEvaluation])
 normalLayerSizeChoice = [createIntSlider(value=128, min=1, max=1024, description="Size", step=1)
                          for _ in range(num_layers)]
 normalLayerChoice = [createLayerChoice(options=['Linear'],
