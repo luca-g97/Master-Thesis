@@ -116,9 +116,9 @@ def createBoolButtonChoice(description, tooltip, value = False, disabled=False, 
     )
     return boolButton
 
-datasetChoice = createLayerChoice(options=['MNIST', 'HSV-RGB', 'WikiText2 (GPT2)', 'WikiText2 (LSTM)'], #'Small1x1' 
-                                  tooltips=['60000 Written numbers from 0 to 9 (Classification)', '50000 HSV-values (Conversion to RGB)',
-                                            'Wikipedia (WikiText2) Dataset using GPT2-Architecture', 'Wikipedia (WikiText2) Dataset using LSTM-Architecture'], description='Dataset') #'90 random values of the small 1x1 (Calculation)'
+datasetChoice = createLayerChoice(options=['MNIST', 'WikiText2 (GPT2)', 'WikiText2 (LSTM)'], #'HSV-RGB', 'Small1x1' 
+                                  tooltips=['60000 Written numbers from 0 to 9 (Classification)',
+                                            'Wikipedia (WikiText2) Dataset using GPT2-Architecture', 'Wikipedia (WikiText2) Dataset using LSTM-Architecture'], description='Dataset') #'50000 HSV-values (Conversion to RGB)', '90 random values of the small 1x1 (Calculation)'
 
 def updateDatasetTab():
     global datasetChoice
