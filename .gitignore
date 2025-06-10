@@ -31,3 +31,8 @@ Google_Colab-Interactive_AI_Playground/*
 # Exclude the Datasets folder from being ignored
 !Google_Colab-Interactive_AI_Playground/Datasets/
 !Google_Colab-Interactive_AI_Playground/Scripts/
+!Google_Colab-Interactive_AI_Playground/Final-Evaluation/
+!Google_Colab-Interactive_AI_Playground/Experimental/
+!Interactive_AI_Playground.ipynb
+!Testing_Area.ipynb
+!OLMO_Playground.ipynb
