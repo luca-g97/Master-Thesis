@@ -1,4 +1,4 @@
-# A White-Box Approach to LLM Explainability: The RENN Framework
+# A White-Box Approach to LLM Explainability: Tracing Training Sources with RENN’s Compressed Activation Analysis
 
 **This repository contains the research and implementation for the master's thesis, "A White-Box Approach to LLM Explainability: Tracing Training Sources with RENN's Compressed Activation Analysis," completed at the University of Applied Sciences Upper Austria, Media Department.** 
 
