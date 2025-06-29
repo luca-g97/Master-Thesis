@@ -44,6 +44,12 @@ This notebook documents the exploration and application of RENN concepts to the 
 
 ### Final Evaluation Notebook
 
-This collection includes the scripts used for the final, comprehensive strategy evaluation on the MNIST dataset, as detailed in Chapter 5. The code used for the creation of the table is located in the folder "Google_Colab-Interactive_AI_Playground/Final-Evaluation".
+This collection includes the scripts used for the final, comprehensive strategy evaluation on the MNIST dataset. The code used for the creation of the table is located in the folder "Google_Colab-Interactive_AI_Playground/Final-Evaluation".
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1DClthGU46S0vywJZBIxelkA9F0LwAmMF?usp=sharing)
+
+### Blending with kNN (Proof of Concept)
+
+This visualization includes the scripts extensively tested on the MNIST and CIFAR-10 dataset. It clearly shows how the kNN blending technique can be used as a vector approximation being almost everytime superior against single closest source matching.
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://drive.google.com/file/d/1rPWdFysHEwPeVsSz2JXPZpu75qBV1dm0/view?usp=sharing)
