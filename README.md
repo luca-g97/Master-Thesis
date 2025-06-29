@@ -52,4 +52,4 @@ This collection includes the scripts used for the final, comprehensive strategy 
 
 This visualization includes the scripts extensively tested on the MNIST and CIFAR-10 dataset. It clearly shows how the kNN blending technique can be used as a vector approximation being almost everytime superior against single closest source matching.
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://drive.google.com/file/d/1rPWdFysHEwPeVsSz2JXPZpu75qBV1dm0/view?usp=sharing)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1I6rC0XptSLn3dU3YholPDVQ2H9zQSb9s?usp=sharing)
