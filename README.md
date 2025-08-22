@@ -1,52 +1,54 @@
-# A White-Box Approach to LLM Explainability: Tracing Training Sources with RENN’s Compressed Activation Analysis
+# A White-Box Approach to LLM Explainability: Preserving k-NN Accuracy with Compressed Activation Analysis
 
-**This repository contains the research and implementation for the master's thesis, "A White-Box Approach to LLM Explainability: Tracing Training Sources with RENN's Compressed Activation Analysis," completed at the University of Applied Sciences Upper Austria, Media Department.** 
+**This repository contains the research and implementation for the master's thesis, "A White-Box Approach to LLM Explainability: Tracing Training Sources with RENN's Compressed Activation Analysis," completed at the University of Applied Sciences Upper Austria, Hagenberg Campus.** This research tackles a critical bottleneck in "white-box" AI explainability: the immense computational and storage cost of analyzing neuron activation data from Large Language Models (LLMs). While methods like k-Nearest Neighbors (k-NN) search on activation data are promising for understanding model behavior, they are often computationally infeasible due to the sheer volume and high dimensionality of the data.
 
-This project introduces the **Retraceable Explainable Neural Network (RENN)** framework, a novel "white-box" approach designed to enhance the transparency of Large Language Models (LLMs). RENN traces the origins of a model's output back to specific training data samples by analyzing and comparing neuron activation patterns.
-
-The core challenge with modern LLMs is their "black box" nature, which makes it difficult to understand their decision-making processes. RENN addresses this by creating a verifiable link between a model's predictions and its training data, fostering greater trust and accountability.
+This thesis develops and validates a framework to solve this problem by creating highly efficient compression and fingerprinting techniques for neuron activations. The primary goal is to make large-scale similarity searches practical while rigorously preserving the accuracy of the k-NN neighborhood structure.
 
 ---
-
 ## Key Contributions & Features
 
-* **Source Tracing via Neuron Activations**: Implements a methodology to identify influential training sources by comparing the linear neuron activations of a model's output with a database of activations from its training data. This has been validated on architectures like **GPT-2** and **OLMo**.
-  
-* **Efficient Activation Data Pipeline**: To manage the massive volume of activation data, this work introduces a highly efficient storage and retrieval pipeline. This pipeline uses sparse value normalization, Apache Parquet, and ZSTD compression to achieve over **99% compression** with minimal loss of fidelity.
-  
-* **Metric-Based Activation "Fingerprints"**: A key innovation of this research is the concept of "metric fingerprints". This technique creates a low-dimensional proxy for high-dimensional activation vectors using a combination of 14 statistical metrics (e.g., $L_{1}$, $L_{2}$, $L_{\infty}$ norms, Pearson Correlation, Shannon Entropy). These fingerprints drastically reduce computational overhead for similarity searches while preserving accuracy, making large-scale source tracing feasible.
-  
-* **Custom OLMo Dataset**: For this research, the `luca-g97/dolma-v1_7-50B-second-phase` dataset was manually created to approximate the specialized data mix used for the second-phase training of the OLMo model. This provides a rich, multi-source environment for evaluating tracing precision.
+* **Efficient Activation Data Pipeline**: This work introduces a novel and highly efficient pipeline for storing and retrieving neuron activations. By synergistically combining sparse value normalization, Apache Parquet, and ZSTD compression, the pipeline achieves over **99% compression** with negligible reconstruction error, enabling high-fidelity k-NN analysis on what would otherwise be unmanageably large datasets.
+
+* **Systematic Evaluation of Compression on k-NN Fidelity**: The thesis provides a comprehensive benchmark of how different compression strategies impact k-NN accuracy. The proposed `Sparse Integer Normalization` method is shown to be a superior, customizable solution that balances data fidelity and storage efficiency.
+
+* **"Less is More" Principle in Fingerprinting**: Through systematic evaluation, this research demonstrates that for creating low-dimensional proxies ("fingerprints") of activation vectors, simple linear methods like **Principal Component Analysis (PCA)** consistently outperform more complex, non-linear, or hybrid approaches. This provides clear, practical guidance for creating efficient representations for rapid similarity searches.
+
+* **Custom OLMo Dataset**: To facilitate this research, the `luca-g97/dolma-v1_7-50B-second-phase` dataset was manually created to approximate the specialized data mix used for the second-phase training of the OLMo model. This provides a rich, multi-source environment for evaluating the framework on a state-of-the-art model.
 
 ---
 
 ## Colab Notebooks
 
-Explore the concepts and experiments of the RENN framework using the Google Colab notebooks below.
+Explore the concepts and experiments of this framework using the Google Colab notebooks below.
 
-### Interactive AI Playground
+### 📊 Final Evaluation Notebook
 
-This notebook provides a hands-on "playground" environment to experiment with the foundational findings of the RENN framework. It allows users to explore source tracing and the impact of different configurations in an accessible way. The modular designed code can be found in the folder "Google_Colab-Interactive_AI_Playground".
+This notebook contains the scripts used for the final, systematic evaluation of different source-tracing workflow strategies on the MNIST dataset, which now forms the basis of the "Future Work" chapter. The code used to generate the performance heatmaps and the layer relevance table can be found here.
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1DClthGU46S0vywJZBIxelkA9F0LwAmMF?usp=sharing)
+
+---
+## Preliminary Research (Future Work)
+
+The initial focus of this thesis was on direct source tracing using the **Retraceable Explainable Neural Network (RENN)** paradigm. While this line of inquiry could not be fully validated in time, the extensive preliminary research provides a strong foundation for future work. The core idea was to trace an LLM's output back to specific training samples by comparing neuron activation patterns. The notebooks below document this exploratory work.
+
+### 🕹️ Interactive AI Playground
+
+This notebook provides a hands-on "playground" environment to experiment with the foundational findings of the original RENN source-tracing concept. The modularly designed code can be found in the folder "Google_Colab-Interactive_AI_Playground".
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1lApBBKHaF7xl0NQ5-gcwV5Mr5wHWHVlq?usp=sharing)
 
-### Testing Area
+### 🔬 Main Experiments & Validation Notebook
 
-This notebook contains the detailed experimental work and validation for the metric fingerprinting approach. It serves as an informational source detailing the empirical tests that confirmed the effectiveness of using low-dimensional metric combinations for efficient and accurate activation similarity assessment
+This notebook contains the detailed experimental work and validation for the compression pipelines and fingerprinting techniques. It includes the comprehensive benchmarks on MNIST and the application of the framework to **GPT-2** and **OLMo** models, serving as the primary source for the thesis's empirical findings.
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://github.com/luca-g97/Master-Thesis/blob/main/Testing_Area.ipynb)
 
-### OLMo Notebook
+### 🤖 OLMo Notebook
 
-This notebook documents the exploration and application of RENN concepts to the OLMo architecture. It details how activation hooks were adapted for OLMo's specific features, such as SwiGLU activations and Rotary Positional Embeddings (RoPE).
+This notebook documents the initial exploration and application of RENN source-tracing concepts to the OLMo architecture. It details how activation hooks were adapted for OLMo's specific features, such as SwiGLU activations and Rotary Positional Embeddings (RoPE).
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://github.com/luca-g97/Master-Thesis/blob/main/OLMO_Playground.ipynb)
-
-### Final Evaluation Notebook
-
-This collection includes the scripts used for the final, comprehensive strategy evaluation on the MNIST dataset. The code used for the creation of the table is located in the folder "Google_Colab-Interactive_AI_Playground/Final-Evaluation".
-
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1DClthGU46S0vywJZBIxelkA9F0LwAmMF?usp=sharing)
 
 ### Blending with kNN (Proof of Concept)
 
