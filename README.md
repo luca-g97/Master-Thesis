@@ -1,6 +1,8 @@
 # A White-Box Approach to LLM Explainability: Preserving k-NN Accuracy with Compressed Activation Analysis
 
-**This repository contains the research and implementation for the master's thesis, "A White-Box Approach to LLM Explainability: Tracing Training Sources with RENN's Compressed Activation Analysis," completed at the University of Applied Sciences Upper Austria, Hagenberg Campus.** This research tackles a critical bottleneck in "white-box" AI explainability: the immense computational and storage cost of analyzing neuron activation data from Large Language Models (LLMs). While methods like k-Nearest Neighbors (k-NN) search on activation data are promising for understanding model behavior, they are often computationally infeasible due to the sheer volume and high dimensionality of the data.
+**This repository contains the research and implementation for the master's thesis, "A White-Box Approach to LLM Explainability: Tracing Training Sources with RENN's Compressed Activation Analysis," completed at the University of Applied Sciences Upper Austria, Hagenberg Campus.** 
+
+This research tackles a critical bottleneck in "white-box" AI explainability: the immense computational and storage cost of analyzing neuron activation data from Large Language Models (LLMs). While methods like k-Nearest Neighbors (k-NN) search on activation data are promising for understanding model behavior, they are often computationally infeasible due to the sheer volume and high dimensionality of the data.
 
 This thesis develops and validates a framework to solve this problem by creating highly efficient compression and fingerprinting techniques for neuron activations. The primary goal is to make large-scale similarity searches practical while rigorously preserving the accuracy of the k-NN neighborhood structure.
 
